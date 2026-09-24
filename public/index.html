@@ -75,6 +75,7 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .slot{margin-top:.5rem;font-weight:600;color:var(--ok)}
 .slot.warn{color:var(--warn)}
 .preview{margin:1rem 0;padding:.75rem;border-left:4px solid var(--lane);background:var(--paper);border-radius:0 6px 6px 0;min-height:3rem}
+.preview:empty{display:none}
 .preview .big{font:400 1.4rem/1.2 var(--display);color:var(--mark)}
 
 /* scoresheet */
@@ -141,6 +142,24 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .example .sheet{min-width:0}
 pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--paper);padding:.6rem;border-radius:6px;max-height:20rem;overflow:auto}
 
+
+.fa{font:700 .72rem/1.3 var(--cond);text-align:center;color:var(--ink);border-bottom:1px solid var(--grid);white-space:nowrap;overflow:hidden;text-overflow:clip;letter-spacing:.02em}
+.fa.live{color:var(--lane)}
+.fmk em{font-style:normal}
+.fl.live{background:var(--me);border-radius:6px}
+.big-tag{font-size:1rem;padding:.05rem .45rem;vertical-align:.15em}
+.balllist{list-style:none;padding:0;margin:.8rem 0 0}
+.balllist li{display:flex;gap:.8rem;align-items:baseline;padding:.35rem 0;border-bottom:1px dashed var(--grid)}
+.balllist li span{color:var(--muted);min-width:3.5rem}
+.balllist li b{font:700 1.25rem var(--cond);flex:1}
+.balllist li small{color:var(--muted)}
+#shareBox{position:fixed;inset:0;z-index:20;background:rgba(10,20,30,.6);display:flex;align-items:center;justify-content:center;padding:1rem}
+#shareBox[hidden]{display:none}
+.sharecard{background:var(--card);color:var(--ink);border-radius:12px;padding:1.3rem;width:min(26rem,100%);text-align:center}
+.sharecard h2{font:700 1.4rem var(--cond);margin-bottom:.8rem}
+.qr{background:#fff;border-radius:8px;padding:.4rem;max-width:18rem;margin:0 auto}
+.qr svg{display:block;width:100%;height:auto}
+.url{margin:.8rem 0;font-weight:600;word-break:break-all}
 #toast{position:fixed;left:50%;bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(160%);background:var(--ink);color:var(--paper);padding:.7rem 1.1rem;border-radius:8px;font-weight:600;transition:transform .25s;max-width:92vw;z-index:10}
 #toast.show{transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
@@ -151,6 +170,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--
   <div class="bar">
     <h1>Pinbowl</h1>
     <select id="tsel" aria-label="Tournament"></select>
+    <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
   </div>
   <nav id="nav" role="tablist" aria-label="Sections"></nav>
@@ -158,6 +178,8 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--
 <div class="banner" id="banner"></div>
 <main id="main"><div class="panel">Loading…</div></main>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="shareBox" hidden></div>
+<script src="/qrcode.js"></script>
 
 <script>
 /* ================= basics ================= */
@@ -176,20 +198,26 @@ async function api(path, method='GET', body){
   if(!r.ok) throw new Error((j&&j.error) || `Error ${r.status}`);
   return j;
 }
-// run an admin change; the server sends back the updated tournament
+// admin change: the server sends back the updated tournament
 async function change(path, method, body, okMsg){
   try{ const j=await api(`/api/admin/t/${T.id}${path}`, method, body); if(j.tournament) T=j.tournament; if(okMsg) toast(okMsg); render(); return j; }
   catch(e){ toast(e.message); return null; }
 }
+// player change: only works on the player's own games
+async function pchange(path, method, body, okMsg){
+  try{ const j=await api(`/api/player/t/${T.id}${path}`, method, body); if(j.tournament) T=j.tournament; if(okMsg) toast(okMsg); return j; }
+  catch(e){ toast(e.message); return null; }
+}
 
 /* ================= state ================= */
-let ADMIN=null, LIST=[], T=null, NEEDS_SETUP=false, tab=null, screen=null, adminSettings=null;
+let ADMIN=null, PLAYER=null, LIST=[], T=null, NEEDS_SETUP=false, tab=null, screen=null, adminSettings=null, pickName=null;
 const SPARE_LAST_BALL = 3;
 const P = id => T.players.find(p=>p.id===id);
 const A = id => T.arenas.find(a=>a.id===id);
 const readOnly = () => T && T.status==='archived';
-const myName = () => store.get('pb-me');
-const me = () => { const n=myName(); return n && T ? T.players.find(p=>p.name.toLowerCase()===n.toLowerCase()) : null; };
+const me = () => PLAYER && T ? T.players.find(p=>p.name.toLowerCase()===PLAYER.name.toLowerCase()) : null;
+const abbr = a => a ? (a.abbr || a.name.slice(0,3).toUpperCase()) : '?';
+const playingGame = pid => T.games.find(g=>g.playerId===pid && g.status==='playing');
 
 /* ================= scoring ================= */
 // each 10% of the target is one pin, starting at 0, capped at 9 (10 only comes from a strike or spare)
@@ -204,7 +232,7 @@ function gameRolls(g){
 }
 function scorePlayer(pid){
   const N=T.frames;
-  const all=T.games.filter(g=>g.playerId===pid).map(g=>({g,...gameRolls(g)}));
+  const all=T.games.filter(g=>g.playerId===pid && g.status!=='playing').map(g=>({g,...gameRolls(g)}));
   const reg=all.slice(0,N), extra=all.slice(N), rolls=all.flatMap(f=>f.rolls);
   let idx=0, run=0, ok=true; const frames=[];
   reg.forEach((f,k)=>{
@@ -215,7 +243,7 @@ function scorePlayer(pid){
     const base=f.type==='open' ? f.rolls[0]+f.rolls[1] : 10;
     const pts=base+nxt.reduce((a,b)=>a+b,0), resolved=nxt.length===need;
     run+=pts; ok=ok&&resolved;
-    frames.push({...f, pts, base, resolved, cum:run, showCum:ok, need});
+    frames.push({...f, pts, resolved, cum:run, showCum:ok, need});
     idx+=own;
   });
   const bonusNeed = (reg.length===N && T.tenthBonus) ? frames[N-1].need : 0;
@@ -223,7 +251,7 @@ function scorePlayer(pid){
   const bonus=extra.slice(0,used), unused=extra.slice(used);
   const bonusRolls=bonus.flatMap(f=>f.rolls).slice(0,bonusNeed);
   const stillNeeded=Math.max(0, bonusNeed-bonusRolls.length);
-  return {pid, frames, bonus, unused, bonusRolls, total:run, complete: reg.length===N && frames.every(f=>f.resolved), regCount:reg.length, stillNeeded};
+  return {pid, frames, bonus, unused, bonusRolls, total:run, complete: reg.length===N && frames.every(f=>f.resolved), regCount:reg.length, stillNeeded, playing:playingGame(pid)};
 }
 function nextSlot(pid){
   const r=scorePlayer(pid);
@@ -244,6 +272,7 @@ function standings(){
   let rank=0, last=null; rows.forEach((x,i)=>{ if(x.r.total!==last){ rank=i+1; last=x.r.total; } x.rank=rank; });
   return rows;
 }
+function playedArenaIds(pid, exceptId){ return new Set(T.games.filter(g=>g.playerId===pid && g.id!==exceptId && g.status!=='playing').slice(0,T.frames).map(g=>g.arenaId)); }
 
 /* ================= shared pieces ================= */
 function sheetHTML(r){
@@ -253,26 +282,27 @@ function sheetHTML(r){
     if(f) cells = last ? symbols(f.rolls.concat(r.bonusRolls)) : (f.type==='strike' ? ['','X'] : symbols(f.rolls));
     const slots = last ? (T.tenthBonus?3:2) : 2;
     while(cells.length<slots) cells.unshift('');
-    const a=f?A(f.g.arenaId):null;
-    h+=`<div class="fr" title="${a?esc(a.name):''}"><div class="fn">${k+1}</div><div class="rolls">${cells.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cum ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):''}</div></div>`;
+    const a=f?A(f.g.arenaId):(r.playing && k===r.regCount ? A(r.playing.arenaId) : null);
+    const live = !f && a;
+    h+=`<div class="fr" title="${a?esc(a.name):''}"><div class="fn">${k+1}</div><div class="fa ${live?'live':''}">${a?esc(abbr(a)):'&nbsp;'}</div><div class="rolls">${cells.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cum ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):(live?'▶':'')}</div></div>`;
   }
   return h+`<div class="fr tot"><div class="fn">Total</div><div class="big">${r.total}</div></div></div></div>`;
 }
 function scoreText(g){
+  if(Array.isArray(g.balls) && g.balls.length) return g.balls.map((s,i)=>`Ball ${i+1}: ${fmt(s)}`).join(', ');
   const parts=[];
   if(g.hitBall===1) parts.push('Target on ball 1'); else parts.push(`Ball 1: ${fmt(g.b1)}`);
   if(g.hitBall>=2) parts.push(`target on ball ${g.hitBall}`);
   if(g.final!=null) parts.push(`final: ${fmt(g.final)}`);
   return parts.join(', ');
 }
-function frameListHTML(r, admin){
+function frameListHTML(r, mode){ // mode: 'admin' | 'self' | 'view'
   const rows=[];
   r.frames.forEach((f,k)=>rows.push({f, label:String(k+1), kind:'frame'}));
   r.bonus.forEach(f=>rows.push({f, label:'B', kind:'bonus'}));
   r.unused.forEach(f=>rows.push({f, label:'–', kind:'unused'}));
-  if(!rows.length) return '<p class="note" style="margin-top:.6rem">No games played yet.</p>';
-  const all = T.games.filter(g=>g.playerId===r.pid);
-  return `<ul class="flist">${rows.map(({f,label,kind})=>{
+  const all=T.games.filter(g=>g.playerId===r.pid && g.status!=='playing');
+  let html = rows.map(({f,label,kind})=>{
     const a=A(f.g.arenaId), sy=f.type==='strike'?['X']:symbols(f.rolls);
     const what = f.type==='strike'?'Strike':f.type==='spare'?'Spare':`${f.rolls[0]+f.rolls[1]} pins`;
     let pts='', sub='';
@@ -280,36 +310,45 @@ function frameListHTML(r, admin){
     else if(kind==='bonus'){ pts='bonus'; sub=`for frame ${T.frames}`; }
     else { pts='—'; sub='not counted'; }
     const i=all.findIndex(g=>g.id===f.g.id);
-    const acts = admin && !readOnly() ? `<div class="facts">
+    let acts='';
+    if(!readOnly() && mode==='admin') acts=`<div class="facts">
       <button class="btn small" data-edit="${f.g.id}">Edit</button>
-      <button class="btn small" data-move="${f.g.id}" data-dir="-1" ${i===0?'disabled':''} aria-label="Move earlier">Earlier</button>
-      <button class="btn small" data-move="${f.g.id}" data-dir="1" ${i===all.length-1?'disabled':''} aria-label="Move later">Later</button>
-      <button class="btn small danger" data-del="${f.g.id}">Delete</button></div>` : '';
+      <button class="btn small" data-move="${f.g.id}" data-dir="-1" ${i===0?'disabled':''}>Move up</button>
+      <button class="btn small" data-move="${f.g.id}" data-dir="1" ${i===all.length-1?'disabled':''}>Move down</button>
+      <button class="btn small danger" data-del="${f.g.id}">Delete</button></div>`;
+    else if(!readOnly() && mode==='self' && Array.isArray(f.g.balls)) acts=`<div class="facts"><button class="btn small" data-fix="${f.g.id}">Fix my scores</button></div>`;
     return `<li class="fl ${kind==='unused'?'dim':''}"><span class="fno">${label}</span>
-      <div class="fmid"><b>${esc(a?a.name:'Removed machine')}</b><small>${esc(scoreText(f.g))}</small></div>
-      <div class="fmk"><span>${sy.map(s=>`<em class="${s==='X'||s==='/'?'mk':''}" style="font-style:normal">${s}</em>`).join(' ')}</span><small>${what}</small></div>
+      <div class="fmid"><b><span class="tag">${esc(abbr(a))}</span> ${esc(a?a.name:'Removed machine')}</b><small>${esc(scoreText(f.g))}</small></div>
+      <div class="fmk"><span>${sy.map(s=>`<em class="${s==='X'||s==='/'?'mk':''}">${s}</em>`).join(' ')}</span><small>${what}</small></div>
       <div class="fpt"><span>${pts}</span><small>${sub}</small></div>${acts}</li>`;
-  }).join('')}</ul>`;
+  }).join('');
+  if(r.playing){
+    const a=A(r.playing.arenaId);
+    html += `<li class="fl live"><span class="fno">▶</span><div class="fmid"><b><span class="tag">${esc(abbr(a))}</span> ${esc(a?a.name:'')}</b><small>Playing now. ${esc(scoreText(r.playing))}</small></div><div class="fmk"><small>ball ${r.playing.balls.length+1} next</small></div><div class="fpt"></div>
+      ${mode==='admin'&&!readOnly()?`<div class="facts"><button class="btn small danger" data-del="${r.playing.id}">Delete</button></div>`:''}</li>`;
+  }
+  if(!html) return '<p class="note" style="margin-top:.6rem">No games played yet.</p>';
+  return `<ul class="flist">${html}</ul>`;
 }
 function bindGameActions(root){
   root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const g=T.games.find(x=>x.id===b.dataset.edit);
     Object.assign(F,{playerId:g.playerId, arenaId:g.arenaId, hitBall:g.hitBall, b1:g.b1!=null?fmt(g.b1):'', final:g.final!=null?fmt(g.final):'', editingId:g.id}); go('enter'); window.scrollTo(0,0); });
   root.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>change(`/games/${b.dataset.move}/move`,'POST',{dir:Number(b.dataset.dir)}));
   root.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this game? This cannot be undone.')) change(`/games/${b.dataset.del}`,'DELETE',null,'Game deleted'); });
+  root.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{ PF.fixId=b.dataset.fix; go('play'); window.scrollTo(0,0); });
 }
 function brackets(a){
   const t=a.target; if(!t) return '<p class="note">Target score not set yet.</p>';
   const li=[`<li class="hit"><b>Strike</b><span>target on ball 1</span></li>`, `<li class="hit"><b>Spare</b><span>target on ball 2 or 3</span></li>`];
   for(let n=9;n>=0;n--){
     const lo=Math.ceil(n*t/10), hi=n===9?t-1:Math.ceil((n+1)*t/10)-1;
-    const range = n===9 && a.balls===5 ? `${fmt(lo)} or more` : `${fmt(lo)}–${fmt(hi)}`;
-    li.push(`<li><b>${n} pin${n===1?'':'s'}</b><span>${range}</span></li>`);
+    li.push(`<li><b>${n} pin${n===1?'':'s'}</b><span>${n===9&&a.balls===5?`${fmt(lo)} or more`:`${fmt(lo)}–${fmt(hi)}`}</span></li>`);
   }
   return `<ul class="brackets">${li.join('')}</ul>`;
 }
 
 /* ================= header, nav, routing ================= */
-const PLAYER_TABS=[['mine','My card'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
+const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['rules','Rules']];
 function tabs(){ return ADMIN ? ADMIN_TABS : PLAYER_TABS; }
 function go(t){ tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
@@ -327,19 +366,34 @@ function render(){
   renderHeader();
   if(screen==='setup') return renderSetupScreen();
   if(screen==='login') return renderLogin();
-  if(!T){ $('#main').innerHTML = ADMIN ? '' : '<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } return; }
-  if(!ADMIN && tab==='mine' && !myName() && !store.get('pb-watch')) return renderPicker();
-  const fn={mine:renderMine, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins}[tab];
+  if(screen==='pin') return renderPin();
+  if(!T){ if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
+  if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins}[tab];
   (fn||renderStandings)();
 }
 
-$('#tsel').onchange=async e=>{ await loadT(e.target.value); resetForm(false); render(); };
+$('#tsel').onchange=async e=>{ await loadT(e.target.value); resetForm(false); resetPF(); render(); };
 $('#acct').onclick=async()=>{
-  if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=store.get('pb-tab-p')||'mine'; await boot(); }
+  if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=null; await boot(); }
   else { screen='login'; render(); }
 };
+$('#share').onclick=()=>{
+  const url=location.origin+'/';
+  let svg='';
+  try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:16, scalable:true}); }catch(e){ svg='<p class="note">QR code could not load. Share the link below.</p>'; }
+  const d=$('#shareBox');
+  d.innerHTML=`<div class="sharecard" role="dialog" aria-modal="true" aria-label="Share this site"><h2>Scan to follow along</h2><div class="qr">${svg}</div><p class="url">${esc(url)}</p>
+    <div class="row" style="justify-content:center">${navigator.share?'<button class="btn primary" id="natShare">Share link</button>':''}<button class="btn" id="cpLink">Copy link</button><button class="btn" id="closeShare">Close</button></div></div>`;
+  d.hidden=false;
+  const close=()=>{ d.hidden=true; d.innerHTML=''; };
+  $('#closeShare').onclick=close; d.onclick=e=>{ if(e.target===d) close(); };
+  $('#cpLink').onclick=async()=>{ try{ await navigator.clipboard.writeText(url); toast('Link copied'); }catch(e){ toast(url); } };
+  if($('#natShare')) $('#natShare').onclick=()=>navigator.share({title:'Pinbowl', text:'Pinbowl standings and scores', url}).catch(()=>{});
+  $('#closeShare').focus();
+};
 
-/* ================= screens: setup, login, picker ================= */
+/* ================= screens: setup, login, picker, PIN ================= */
 function renderSetupScreen(){
   $('#main').innerHTML=`<div class="panel" style="max-width:32rem"><h2>Create the first admin</h2>
     <p class="note">This account runs the tournament. You can add more admins later.</p>
@@ -353,41 +407,145 @@ function renderLogin(){
     <label for="ln">Name</label><input type="text" id="ln" autocomplete="username">
     <label for="lp">Password</label><input type="password" id="lp" autocomplete="current-password">
     <div class="row" style="margin-top:1rem"><button class="btn primary" id="lgo">Log in</button><button class="btn" id="lback">Back</button></div><p class="err" id="lerr"></p></div>`;
-  const go2=async()=>{ try{ await api('/api/login','POST',{name:$('#ln').value,password:$('#lp').value}); screen=null; tab=store.get('pb-tab-a')||'enter'; await boot(); }catch(e){ $('#lerr').textContent=e.message; } };
-  $('#lgo').onclick=go2; $('#lp').onkeydown=e=>{ if(e.key==='Enter') go2(); };
+  const doLogin=async()=>{ try{ await api('/api/login','POST',{name:$('#ln').value,password:$('#lp').value}); screen=null; tab=null; await boot(); }catch(e){ $('#lerr').textContent=e.message; } };
+  $('#lgo').onclick=doLogin; $('#lp').onkeydown=e=>{ if(e.key==='Enter') doLogin(); };
   $('#lback').onclick=()=>{ screen=null; render(); };
   $('#ln').focus();
 }
 function renderPicker(){
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
   $('#main').innerHTML=`<div class="panel"><h2>Which player are you?</h2>
-    <p class="note">This phone will remember your choice, including in future weeks. Just signed up? Your name shows up here within a minute.</p>
+    <p class="note">This phone remembers you, including in future weeks. Just signed up? Your name shows up here within a minute.</p>
     ${players.length?`<div class="pick">${players.map(p=>`<button data-me="${esc(p.name)}">${esc(p.name)}</button>`).join('')}</div>`:'<p class="note" style="margin-top:.8rem">No players have signed up yet.</p>'}
     <div class="row" style="margin-top:1rem"><button class="btn" id="watch">I'm just watching</button></div></div>`;
-  $$('[data-me]').forEach(b=>b.onclick=()=>{ store.set('pb-me', b.dataset.me); store.del('pb-watch'); render(); });
+  $$('[data-me]').forEach(b=>b.onclick=()=>{ pickName=b.dataset.me; screen='pin'; render(); });
   $('#watch').onclick=()=>{ store.set('pb-watch','1'); go('standings'); };
 }
+async function renderPin(){
+  let exists=false; try{ exists=(await api('/api/player/exists?name='+encodeURIComponent(pickName))).exists; }catch(e){}
+  $('#main').innerHTML=`<div class="panel" style="max-width:30rem"><h2>${esc(pickName)}</h2>
+    <p class="note">${exists?'Enter your 4-digit PIN.':'Create a 4-digit PIN. You\'ll use it if you switch phones, and it keeps anyone else from entering scores as you.'}</p>
+    <label for="pin">${exists?'PIN':'New PIN'}</label><input type="password" id="pin" inputmode="numeric" maxlength="4" autocomplete="off" style="max-width:10rem;font-size:1.4rem;letter-spacing:.4em">
+    <div class="row" style="margin-top:1rem"><button class="btn primary" id="pgo">${exists?'Continue':'Save PIN'}</button><button class="btn" id="pback">Back</button></div>
+    <p class="err" id="perr"></p>${exists?'<p class="note" style="margin-top:.6rem">Forgot it? Ask an admin to reset your PIN.</p>':''}</div>`;
+  const submit=async()=>{ try{ await api('/api/player/claim','POST',{name:pickName,pin:$('#pin').value}); store.del('pb-watch'); screen=null; await refreshList(); tab=tab==='play'?'play':'mine'; render(); toast(`Welcome, ${pickName}`); }catch(e){ $('#perr').textContent=e.message; } };
+  $('#pgo').onclick=submit; $('#pin').onkeydown=e=>{ if(e.key==='Enter') submit(); };
+  $('#pback').onclick=()=>{ screen=null; renderHeader(); renderPicker(); };
+  $('#pin').focus();
+}
+async function switchPlayer(){ try{ await api('/api/player/logout','POST'); }catch(e){} PLAYER=null; store.del('pb-watch'); resetPF(); tab='mine'; render(); }
 
 /* ================= player: my card ================= */
+function notInTournament(){
+  return `<div class="panel"><h2>${PLAYER?esc(PLAYER.name):'My card'}</h2>
+    <p class="note">${PLAYER?'You are not in this tournament yet. If you just signed up in Matchplay, your name will appear within a minute.':'Pick your name to see your card.'}</p>
+    <div class="row" style="margin-top:.8rem"><button class="btn" id="chg">${PLAYER?'Switch player':'Choose my name'}</button></div></div>`;
+}
 function renderMine(){
   const p=me();
-  if(!p){
-    $('#main').innerHTML=`<div class="panel"><h2>${myName()?esc(myName()):'My card'}</h2>
-      <p class="note">${myName()?'You are not in this tournament yet. If you just signed up, your name will appear within a minute.':'Pick your name to see your card.'}</p>
-      <div class="row" style="margin-top:.8rem"><button class="btn" id="chg">Choose my name</button></div></div>`;
-    $('#chg').onclick=()=>{ store.del('pb-me'); store.del('pb-watch'); renderPicker(); }; return;
-  }
+  if(!p){ $('#main').innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; return; }
   const rows=standings(), mine=rows.find(x=>x.p.id===p.id), r=mine.r;
-  const played=new Set(T.games.filter(g=>g.playerId===p.id).map(g=>g.arenaId));
+  const played=playedArenaIds(p.id);
   const left=T.arenas.filter(a=>a.active && !played.has(a.id));
-  const status = r.complete ? 'Card complete' : r.stillNeeded ? `Play one more bonus game for frame ${T.frames}` : `${r.regCount} of ${T.frames} frames played`;
+  const status = r.playing ? `Playing ${A(r.playing.arenaId)?.name||''}` : r.complete ? 'Card complete' : r.stillNeeded ? `Play a bonus game for frame ${T.frames}` : `${r.regCount} of ${T.frames} frames played`;
   $('#main').innerHTML=`<div class="panel">
     <div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(p.name)}</h2><button class="linkbtn" id="chg" style="color:var(--muted)">Not you?</button></div>
     <p style="margin:.2rem 0 .8rem"><b>Place ${mine.rank} of ${rows.length}</b> <span class="note">${status}</span></p>
-    ${sheetHTML(r)}${frameListHTML(r,false)}
-    ${!r.complete && !r.stillNeeded && left.length && !readOnly() ? `<h3>Machines you haven't played</h3><p>${left.map(a=>esc(a.name)).join(', ')}</p>`:''}
+    ${sheetHTML(r)}
+    ${!readOnly() && !r.complete ? `<div class="row" style="margin-top:.9rem"><button class="btn primary" id="toPlay">${r.playing?'Enter my next ball':'Start a game'}</button></div>`:''}
+    ${frameListHTML(r,'self')}
+    ${!r.complete && !r.stillNeeded && left.length && !readOnly() ? `<h3>Machines you haven't played</h3><p>${left.map(a=>`<span class="tag">${esc(abbr(a))}</span> ${esc(a.name)}`).join('<br>')}</p>`:''}
   </div>`;
-  $('#chg').onclick=()=>{ store.del('pb-me'); store.del('pb-watch'); renderPicker(); };
+  $('#chg').onclick=switchPlayer;
+  if($('#toPlay')) $('#toPlay').onclick=()=>go('play');
+  bindGameActions($('#main'));
+}
+
+/* ================= player: enter score ball by ball ================= */
+const PF={arenaId:'', score:'', fixId:null};
+function resetPF(){ PF.arenaId=''; PF.score=''; PF.fixId=null; }
+function ballHint(a, ballNo, score){
+  if(score==null) return '';
+  const t=a.target, pct=Math.floor(score*100/t);
+  if(score>=t){
+    if(ballNo===1) return '<span class="big">X</span> That reaches the target on ball 1: a strike!';
+    if(ballNo<=SPARE_LAST_BALL) return `<span class="big">/</span> That reaches the target on ball ${ballNo}: a spare!`;
+    return `That reaches the target on ball ${ballNo}: 9 pins.`;
+  }
+  const last = ballNo>=a.balls;
+  return `${pct}% of the target: <b>${pins(score,t)} pin${pins(score,t)===1?'':'s'}</b>${last?' final.':' so far.'}`;
+}
+function renderPlay(){
+  const m=$('#main'), p=me();
+  if(!p){ m.innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; return; }
+  if(readOnly()){ m.innerHTML='<div class="panel">This tournament is archived, so scores are locked.</div>'; return; }
+  if(PF.fixId) return renderFix(p);
+  const g=playingGame(p.id), r=scorePlayer(p.id);
+  let body='';
+  if(g){
+    const a=A(g.arenaId), n=g.balls.length+1;
+    body=`<h2><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h2>
+      <p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
+      <ul class="balllist">${g.balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>
+      <label for="bs">Score after ball ${n}</label>
+      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
+      <div class="preview" id="bhint"></div>
+      <div class="row"><button class="btn primary" id="bgo">Save ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
+      <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>`;
+  } else {
+    const slot=nextSlot(p.id);
+    if(slot.kind==='done'){ m.innerHTML=`<div class="panel"><h2>Your card is complete</h2><p>Final score: <b>${r.total}</b>. Check the Standings tab to see where you finished.</p></div>`; return; }
+    const played=playedArenaIds(p.id), repeatOK=T.allowRepeats || slot.kind==='bonus';
+    const arenas=T.arenas.filter(a=>a.active);
+    const a=A(PF.arenaId);
+    body=`<h2>${slot.kind==='frame'?`Frame ${slot.n} of ${T.frames}`:`Bonus game for frame ${T.frames}`}</h2>
+      <p class="note">${slot.kind==='bonus'?'Pick any machine.':'Pick the machine you are about to play.'}</p>
+      <div class="choices" style="margin-top:.6rem">${arenas.map(x=>{ const blocked=(!repeatOK && played.has(x.id)) || !x.target;
+        return `<button class="choice" data-parena="${x.id}" aria-pressed="${x.id===PF.arenaId}" ${blocked?'disabled':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${!x.target?'no target yet':played.has(x.id)&&!repeatOK?'already played':`${x.balls} balls, target ${fmt(x.target)}`}</small></button>`; }).join('')}</div>
+      ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)}</label>
+      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
+      <div class="preview" id="bhint"></div>
+      <div class="row"><button class="btn primary" id="bgo">Save ball 1</button></div>`:''}`;
+  }
+  m.innerHTML=`<div class="two"><div class="panel">${body}</div><div class="panel"><h2>My card</h2>${sheetHTML(r)}</div></div>`;
+
+  $$('[data-parena]').forEach(b=>b.onclick=()=>{ PF.arenaId=b.dataset.parena; renderPlay(); const i=$('#bs'); if(i) i.focus(); });
+  const inp=$('#bs');
+  if(inp){
+    const arena = g ? A(g.arenaId) : A(PF.arenaId), ballNo = g ? g.balls.length+1 : 1;
+    const upd=()=>{ PF.score=inp.value; const s=num(inp.value); const min=g?g.balls[g.balls.length-1]:0;
+      $('#bhint').innerHTML = s==null ? '' : s<min ? `<span class="err">That's lower than your ball ${g.balls.length} score.</span>` : ballHint(arena, ballNo, s); };
+    inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); PF.score=inp.value; } };
+    inp.onkeydown=e=>{ if(e.key==='Enter') $('#bgo').click(); };
+    upd();
+    $('#bgo').onclick=async()=>{
+      const s=num(inp.value); if(s==null){ toast('Enter your score.'); return; }
+      $('#bgo').disabled=true;
+      const j=await pchange('/ball','POST', g?{score:s}:{arenaId:PF.arenaId, score:s});
+      if(!j){ $('#bgo').disabled=false; return; }
+      PF.score='';
+      const cur=T.games.find(x=>x.id===(g?g.id:null)) || T.games.filter(x=>x.playerId===p.id).slice(-1)[0];
+      if(cur && cur.status==='done'){ PF.arenaId=''; const rr=gameRolls(cur); toast(rr.type==='strike'?'Strike!':rr.type==='spare'?'Spare!':`Game saved: ${rr.rolls[0]+rr.rolls[1]} pins`); go('mine'); }
+      else { toast(`Ball ${ballNo} saved. Good luck on ball ${ballNo+1}!`); renderPlay(); }
+    };
+  }
+  if($('#fixCur')) $('#fixCur').onclick=()=>{ PF.fixId=g.id; renderPlay(); };
+  if($('#cancelG')) $('#cancelG').onclick=async()=>{ if(!confirm('Cancel this game? Its scores will be removed.')) return; const j=await pchange(`/games/${g.id}`,'DELETE',null,'Game cancelled'); if(j){ resetPF(); renderPlay(); } };
+}
+function renderFix(p){
+  const g=T.games.find(x=>x.id===PF.fixId && x.playerId===p.id);
+  if(!g || !Array.isArray(g.balls)){ PF.fixId=null; return renderPlay(); }
+  const a=A(g.arenaId);
+  $('#main').innerHTML=`<div class="panel" style="max-width:34rem"><h2>Fix scores: ${esc(a.name)}</h2>
+    <p class="note">Change any ball's score. Each ball's score is your total on the machine when that ball ended.</p>
+    ${g.balls.map((s,i)=>`<label for="fx${i}">Score after ball ${i+1}</label><input type="text" inputmode="numeric" id="fx${i}" data-fx="${i}" value="${fmt(s)}">`).join('')}
+    <div class="row" style="margin-top:1rem"><button class="btn primary" id="fxSave">Save changes</button><button class="btn" id="fxBack">Back</button></div></div>`;
+  $('#fxBack').onclick=()=>{ PF.fixId=null; renderPlay(); };
+  $('#fxSave').onclick=async()=>{
+    const balls=$$('[data-fx]').map(i=>num(i.value));
+    const j=await pchange(`/games/${g.id}`,'PUT',{balls},'Scores fixed');
+    if(j){ PF.fixId=null; const now=T.games.find(x=>x.id===g.id); go(now&&now.status==='playing'?'play':'mine'); }
+  };
 }
 
 /* ================= standings ================= */
@@ -396,34 +554,38 @@ function renderStandings(){
   const rows=standings(), mine=me();
   $('#main').innerHTML = rows.map(x=>{
     const isMe = mine && x.p.id===mine.id;
-    const st = x.r.complete ? 'Complete' : `${x.r.regCount} of ${T.frames} frames${x.r.stillNeeded?', bonus game needed':''}`;
+    const st = x.r.playing ? `Playing ${esc(A(x.r.playing.arenaId)?.name||'')} now` : x.r.complete ? 'Complete' : `${x.r.regCount} of ${T.frames} frames${x.r.stillNeeded?', bonus game needed':''}`;
     return `<details class="panel stand ${isMe?'me':''}" data-pid="${x.p.id}" ${isMe?'open':''}><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.p.name)}<small>${st}</small></span><span class="ptotal">${x.r.total}</span></summary>
-      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, !!ADMIN)}</div></details>`;
-  }).join('') + `<p class="note">Tap a name to see their card. A “…” means a frame is waiting on its strike or spare bonus.</p>`;
+      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, ADMIN?'admin':(isMe?'self':'view'))}</div></details>`;
+  }).join('') + `<p class="note">Tap a name to see their card. A “…” means a frame is waiting on its strike or spare bonus.${ADMIN?' Move up and Move down change the order a player\'s games count in, which changes which frames their bonuses come from. Use them if games were entered out of order.':''}</p>`;
   bindGameActions($('#main'));
 }
 
 /* ================= machines ================= */
 function renderMachines(){
+  const edit = ADMIN && !readOnly();
   const list = ADMIN ? T.arenas : T.arenas.filter(a=>a.active);
+  const src = a => a.targetSource==='mp' ? '<span class="tag">from Matchplay</span>' : a.targetSource==='saved' ? '<span class="tag">saved from last time</span>' : '';
   const cards = list.map(a=>{
-    const gs=T.games.filter(g=>g.arenaId===a.id), strikes=gs.filter(g=>g.hitBall===1).length;
+    const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>g.hitBall===1).length;
     const avg = gs.length ? (gs.reduce((s,g)=>{ const r=gameRolls(g); return s+(r.type==='open'?r.rolls[0]+r.rolls[1]:10); },0)/gs.length).toFixed(1) : '–';
-    const ctl = ADMIN && !readOnly() ? `<div class="row" style="margin-top:.6rem">
+    const ctl = edit ? `<div class="row" style="margin-top:.6rem">
+        <div style="flex:0 0 5.5rem"><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div>
         <div style="flex:0 0 5rem"><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
         <div class="grow"><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div></div>
         <label class="check"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label>
         <button class="btn small danger" data-rma="${a.id}" style="margin-top:.4rem">Remove machine</button>` : '';
-    return `<div class="panel mcard"><h3>${esc(a.name)}</h3>
-      <p class="note">${a.balls} balls, target ${a.target?fmt(a.target):'not set'}${a.targetFromMp?' <span class="tag">from Matchplay</span>':''}${!a.active?' <span class="tag">closed</span>':''}</p>
+    return `<div class="panel mcard"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
+      <p class="note">${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${!a.active?' <span class="tag">closed</span>':''}</p>
       <div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
       ${brackets(a)}${ctl}</div>`;
   }).join('');
-  const add = ADMIN && !readOnly() ? `<div class="panel"><h2>Add a machine</h2><div class="row"><div class="grow"><label for="na">Machine name</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div>
-    <p class="note" style="margin-top:.5rem">Machines linked to Matchplay are added automatically. Matchplay target scores are used when Matchplay shares them; typing your own target replaces it.</p></div>` : '';
+  const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered. When a machine comes back in a later tournament, they fill in automatically.</p>
+    <div class="row" style="margin-top:.5rem"><div class="grow"><label for="na">Add a machine by hand</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div></div>` : '';
   $('#main').innerHTML = add + (list.length?`<div class="mgrid">${cards}</div>`:'<div class="panel note">No machines yet.</div>');
-  if(!ADMIN || readOnly()) return;
+  if(!edit) return;
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
+  $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
   $$('[data-target]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'));
   $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},'Saved'));
@@ -432,60 +594,60 @@ function renderMachines(){
 
 /* ================= rules ================= */
 function exampleSheet(games){
-  const saved={T};
-  const fakeT={...T, frames:3, tenthBonus:false, arenas:[{id:'x',target:100,balls:3}], games:games.map((g,i)=>({id:'e'+i,playerId:'e',arenaId:'x',...g}))};
-  T=fakeT; const r=scorePlayer('e'); const html=sheetHTML(r); T=saved.T; return html;
+  const saved=T;
+  T={...T, frames:3, tenthBonus:false, arenas:[{id:'x',target:100,balls:3,abbr:'EX'}], games:games.map((g,i)=>({id:'e'+i,playerId:'e',arenaId:'x',status:'done',...g}))};
+  const html=sheetHTML(scorePlayer('e')); T=saved; return html;
 }
 function renderRules(){
   const a=T.arenas.find(x=>x.target)||{name:'King Kong',target:150000000,balls:3};
-  const t=a.target, pctScore=p=>Math.round(t*p/100);
+  const t=a.target, at=p=>fmt(Math.round(t*p/100));
   $('#main').innerHTML=`<div class="panel">
   <h2>How pinbowl works</h2>
-  <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score is added up just like real bowling, so the best possible card is 300.</p>
-  <p>Every machine has a target score. Check the Machines tab to see each target and exactly what score earns each pin count.</p>
+  <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
+  <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
+
+  <h3>Entering your scores</h3>
+  <p>Open Enter score, pick the machine, and type your total score after each ball, before you plunge the next one. The app tells you right away if you got a strike or spare. Made a typo? Use Fix my scores on your card.</p>
 
   <h3>Strike, spare, or pins</h3>
   <p><b class="mk">Strike (X):</b> reach the target score on ball 1.</p>
   <p><b class="mk">Spare (/):</b> reach the target on ball 2 or ball 3.</p>
-  <p><b>Pins:</b> if you don't reach the target by ball 3, you get 1 pin for every 10% of the target you reach, from 0 up to 9 pins. Your score after ball 1 counts as your first ball, and your final score counts as your whole frame.</p>
+  <p><b>Pins:</b> if you don't reach the target by ball 3, you get 1 pin for every 10% of the target, from 0 up to 9 pins. Your ball 1 score is your first throw, and your final score is your whole frame.</p>
   <div class="example"><b>Example on ${esc(a.name)}</b>, target ${fmt(t)}:<br>
-  After ball 1 you have ${fmt(pctScore(26))}. That's 26% of the target, so your first ball knocks down <b>2 pins</b>.<br>
-  Your game ends at ${fmt(pctScore(68))}. That's 68%, so the frame is <b>6 pins</b> total. Your card shows <b>2 4</b>.<br>
+  After ball 1 you have ${at(26)}. That's 26% of the target, so your first throw knocks down <b>2 pins</b>.<br>
+  Your game ends at ${at(68)}. That's 68%, so the frame is <b>6 pins</b> total. Your card shows <b>2 4</b>.<br>
   If you had reached ${fmt(t)} on ball 2 or 3 instead, your card would show <b>2 /</b>, a spare.</div>
 
   <h3>Bonus points carry over</h3>
-  <p>Strikes and spares are worth 10 plus a bonus from the frames that come next, so a frame can't be fully scored until you play your next game. Until then, your card shows “…”. Frames count in the order you play them.</p>
-  <div class="example"><b>Strike, then an open frame.</b> Frame 1 is a strike. In frame 2 you get 3 pins on ball 1 and 7 pins total. The strike earns 10 plus the next two balls (3 + 4), so frame 1 is worth 17. Frame 2 adds 7, for 24.
+  <p>Strikes and spares are worth 10 plus a bonus from the frames that come next, so they can't be fully scored until you play your next game. Until then, your card shows “…”. Frames count in the order you play them. The short name above each frame shows which machine you played there.</p>
+  <div class="example"><b>Strike, then an open frame.</b> Frame 1 is a strike. In frame 2 you get 3 pins on ball 1 and 7 pins total. The strike earns 10 plus the next two throws (3 + 4), so frame 1 is worth 17. Frame 2 adds 7, for 24.
   ${exampleSheet([{hitBall:1},{hitBall:0,b1:30,final:70},{hitBall:0,b1:0,final:0}])}</div>
-  <div class="example"><b>Spare, then an open frame.</b> Frame 1 is a spare. In frame 2 you get 6 pins on ball 1. The spare earns 10 plus the next ball (6), so frame 1 is worth 16.
+  <div class="example"><b>Spare, then an open frame.</b> Frame 1 is a spare. In frame 2 you get 6 pins on ball 1. The spare earns 10 plus the next throw (6), so frame 1 is worth 16.
   ${exampleSheet([{hitBall:2,b1:40},{hitBall:0,b1:60,final:80},{hitBall:0,b1:0,final:0}])}</div>
   <div class="example"><b>Strikes in a row.</b> Two strikes and then 8 pins on ball 1: frame 1 is worth 10 + 10 + 8 = 28. Three strikes in a row (a turkey) makes the first one worth 30.
   ${exampleSheet([{hitBall:1},{hitBall:1},{hitBall:0,b1:85,final:92}])}</div>
 
   <h3>The last frame</h3>
-  ${T.tenthBonus?`<p>If frame ${T.frames} is a strike, you play bonus games until you have two more balls: one more game, or two if the bonus game is also a strike. If frame ${T.frames} is a spare, you play one bonus game and its first ball counts. Bonus games can be on any machine.</p>`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
-
-  <h3>Scores</h3>
-  <p>Report your score after ball 1 and your final score to a scorekeeper after every game. Standings update for everyone as scores are entered.</p>
+  ${T.tenthBonus?`<p>If frame ${T.frames} is a strike, you play bonus games until you have two more throws: one more game, or two if the bonus game is also a strike. If frame ${T.frames} is a spare, you play one bonus game and its first throw counts. Bonus games can be on any machine.</p>`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
   </div>`;
 }
 
 /* ================= admin: enter score ================= */
 const F={playerId:'', arenaId:'', hitBall:null, b1:'', final:'', editingId:null};
 function resetForm(keepArena){ Object.assign(F,{playerId:'', hitBall:null, b1:'', final:'', editingId:null}); if(!keepArena) F.arenaId=''; }
-function formDirty(){ return !!(F.playerId || F.hitBall!==null || F.b1 || F.final || F.editingId); }
+function formDirty(){ return !!(F.playerId || F.hitBall!==null || F.b1 || F.final || F.editingId || PF.score || PF.fixId); }
 
 function renderEnter(){
   const m=$('#main');
   if(readOnly()){ m.innerHTML='<div class="panel">This tournament is archived. Reopen it on the Tournaments tab to change scores.</div>'; return; }
   if(!T.players.length || !T.arenas.length){ m.innerHTML='<div class="panel">Add players and machines first, or link this tournament to Matchplay on the Tournaments tab.</div>'; return; }
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
-  const slot = F.playerId ? nextSlot(F.playerId) : null;
+  const slot = F.playerId ? nextSlot(F.playerId) : null, live = F.playerId && playingGame(F.playerId);
   let slotTxt='';
   if(F.editingId) slotTxt='<div class="slot">Editing a saved game</div>';
+  else if(live) slotTxt=`<div class="slot warn">Playing ${esc(A(live.arenaId)?.name||'')} now and entering their own scores</div>`;
   else if(slot) slotTxt = slot.kind==='frame' ? `<div class="slot">Frame ${slot.n} of ${T.frames}</div>` : slot.kind==='bonus' ? `<div class="slot">Bonus game for frame ${T.frames} (any machine)</div>` : '<div class="slot warn">This player has finished their card</div>';
-  const regular=F.playerId ? T.games.filter(g=>g.playerId===F.playerId && g.id!==F.editingId).slice(0,T.frames) : [];
-  const played=new Set(regular.map(g=>g.arenaId));
+  const played=F.playerId ? playedArenaIds(F.playerId, F.editingId) : new Set();
   const repeatOK = T.allowRepeats || (slot && slot.kind==='bonus');
   const a=A(F.arenaId);
   m.innerHTML=`<div class="two"><div class="panel">
@@ -495,21 +657,19 @@ function renderEnter(){
     ${slotTxt}
     <label>Machine</label>
     <div class="choices">${T.arenas.filter(x=>x.active || x.id===F.arenaId).map(x=>{ const blocked=!repeatOK && played.has(x.id);
-      return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b>${esc(x.name)}</b><small>${x.balls} balls, target ${x.target?fmt(x.target):'not set'}</small></button>`; }).join('')}</div>
+      return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${x.balls} balls, target ${x.target?fmt(x.target):'not set'}</small></button>`; }).join('')}</div>
     <label>Target reached on</label>
     <div class="balls">${[1,2,3,0].map(b=>`<button class="choice" data-ball="${b}" aria-pressed="${F.hitBall===b}">${b?`Ball ${b}`:(a&&a.balls===5?'Ball 4–5 or never':'Never')}</button>`).join('')}</div>
     <div id="inputs"></div>
     <div class="preview" id="preview"></div>
     <div class="row"><button class="btn primary" id="saveBtn">${F.editingId?'Save changes':'Save game'}</button>${F.editingId?'<button class="btn" id="cancelEdit">Cancel</button>':''}</div>
   </div><div class="panel" id="side"></div></div>`;
-
   let h='';
   if(F.hitBall!==null){
     h+=`<label for="b1">Score after ball 1${F.hitBall===1?' (optional)':''}</label><input type="text" inputmode="numeric" id="b1" value="${esc(F.b1)}">`;
     h+=`<label for="fin">Final score${F.hitBall!==0?' (optional)':''}</label><input type="text" inputmode="numeric" id="fin" value="${esc(F.final)}">`;
   }
   $('#inputs').innerHTML=h;
-
   $('#psel').onchange=e=>{ F.playerId=e.target.value; renderEnter(); };
   $$('[data-arena]').forEach(b=>b.onclick=()=>{ F.arenaId=b.dataset.arena; renderEnter(); });
   $$('[data-ball]').forEach(b=>b.onclick=()=>{ F.hitBall=Number(b.dataset.ball); renderEnter(); const i=$('#b1'); if(i && F.hitBall!==1) i.focus(); });
@@ -527,24 +687,24 @@ function validate(){
   const a=A(F.arenaId);
   if(!a.target) return {err:`Set a target score for ${a.name} on the Machines tab.`};
   if(!F.editingId){
+    if(playingGame(F.playerId)) return {err:`${P(F.playerId).name} has a game in progress. Let them finish it, or delete it on their card.`};
     const slot=nextSlot(F.playerId);
     if(slot.kind==='done') return {err:`${P(F.playerId).name} has finished their card.`};
-    const regular=T.games.filter(g=>g.playerId===F.playerId).slice(0,T.frames);
-    if(slot.kind==='frame' && !T.allowRepeats && regular.some(g=>g.arenaId===F.arenaId)) return {err:`${P(F.playerId).name} already played ${a.name}.`};
+    if(slot.kind==='frame' && !T.allowRepeats && playedArenaIds(F.playerId).has(F.arenaId)) return {err:`${P(F.playerId).name} already played ${a.name}.`};
   }
   if(F.hitBall===null) return {err:'Pick the ball the target was reached on.'};
   const b1=num(F.b1), fin=num(F.final), g={playerId:F.playerId, arenaId:F.arenaId, hitBall:F.hitBall, b1, final:fin};
   if(b1!=null && fin!=null && fin<b1) return {err:'The final score is lower than the ball 1 score.'};
   if(F.hitBall===1){
     if(b1!=null && b1<a.target) return {err:'The ball 1 score is below the target, so this is not a strike.'};
-    return {g, text:'<span class="big">X</span><br>Strike: 10 pins plus the next two balls.'};
+    return {g, text:'<span class="big">X</span><br>Strike: 10 pins plus the next two throws.'};
   }
   if(b1==null) return {err:'Enter the score after ball 1.'};
   if(b1>=a.target) return {err:'The ball 1 score reaches the target. That is a strike, so pick Ball 1.'};
   const first=pins(b1,a.target), pct=v=>Math.min(100,Math.floor(v*100/a.target));
   if(F.hitBall>=2){
     if(fin!=null && fin<a.target) return {err:'The final score is below the target, so this is not a spare.'};
-    return {g, text:`<span class="big">${first||'–'} /</span><br>${first} pins on ball 1 (${pct(b1)}% of target), then a spare: 10 plus the next ball.`};
+    return {g, text:`<span class="big">${first||'–'} /</span><br>${first} pins on ball 1 (${pct(b1)}% of target), then a spare.`};
   }
   if(fin==null) return {err:'Enter the final score.'};
   if(a.balls===3 && fin>=a.target) return {err:'The final score reaches the target. Pick the ball it was reached on.'};
@@ -566,12 +726,14 @@ function renderSide(pid){
   const id=pid||F.playerId, el=$('#side'); if(!el) return;
   if(!id || !P(id)){ el.innerHTML='<h2>Scorecard</h2><p class="note">Choose a player to see their card.</p>'; return; }
   const r=scorePlayer(id);
-  el.innerHTML=`<h2>${esc(P(id).name)}</h2>${sheetHTML(r)}${frameListHTML(r,true)}`;
+  el.innerHTML=`<h2>${esc(P(id).name)}</h2>${sheetHTML(r)}${frameListHTML(r,'admin')}`;
   bindGameActions(el);
 }
 
 /* ================= admin: players ================= */
-function renderPlayers(){
+async function renderPlayers(){
+  try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings=adminSettings||{pins:[]}; }
+  const pinSet=new Set(adminSettings.pins||[]);
   const ago = T.lastSync ? new Date(T.lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : null;
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
   $('#main').innerHTML=`<div class="panel"><h2>Players (${players.length})</h2>
@@ -580,9 +742,12 @@ function renderPlayers(){
       ${readOnly()?'':'<div class="row" style="margin-top:.6rem"><button class="btn" id="syncNow">Check Matchplay now</button></div>'}`
       :'<p class="note">This tournament is not linked to Matchplay. Add players by hand, or link it on the Tournaments tab.</p>'}
     ${readOnly()?'':`<div class="row" style="margin-top:.8rem"><div class="grow"><label for="np">Add a player by hand</label><input type="text" id="np" placeholder="Name"></div><button class="btn" id="npGo">Add player</button></div>`}
-    <div class="tablewrap" style="margin-top:.8rem"><table><thead><tr><th>Name</th><th class="n">Games</th><th class="n">Total</th><th></th></tr></thead><tbody>
-    ${players.map(p=>`<tr><td>${esc(p.name)} ${p.mpId!=null?'<span class="tag">Matchplay</span>':''}</td><td class="n">${T.games.filter(g=>g.playerId===p.id).length}</td><td class="n">${scorePlayer(p.id).total}</td><td class="n">${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove</button>`}</td></tr>`).join('')}
+    <p class="note" style="margin-top:.8rem">Players set a 4-digit PIN the first time they pick their name. If someone forgets it, reset it and they'll make a new one.</p>
+    <div class="tablewrap" style="margin-top:.5rem"><table><thead><tr><th>Name</th><th class="n">Games</th><th class="n">Total</th><th></th></tr></thead><tbody>
+    ${players.map(p=>`<tr><td>${esc(p.name)} ${p.mpId!=null?'<span class="tag">Matchplay</span>':''} ${pinSet.has(p.name.toLowerCase())?'<span class="tag">PIN set</span>':''}</td><td class="n">${T.games.filter(g=>g.playerId===p.id && g.status!=='playing').length}</td><td class="n">${scorePlayer(p.id).total}</td>
+      <td class="n" style="white-space:nowrap">${pinSet.has(p.name.toLowerCase())?`<button class="btn small" data-pin="${esc(p.name)}">Reset PIN</button> `:''}${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove</button>`}</td></tr>`).join('')}
     </tbody></table></div></div>`;
+  $$('[data-pin]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Reset ${b.dataset.pin}'s PIN? They will make a new one next time they pick their name.`)) return; try{ await api('/api/admin/pin-reset','POST',{name:b.dataset.pin}); toast('PIN reset'); renderPlayers(); }catch(e){ toast(e.message); } });
   if(readOnly()) return;
   if($('#syncNow')) $('#syncNow').onclick=async()=>{ const j=await change('/sync','POST'); if(j) toast(`Checked Matchplay: ${j.addedPlayers} new players, ${j.addedArenas} new machines`); };
   $('#npGo').onclick=()=>{ const v=$('#np').value.trim(); if(v) change('/players','POST',{name:v},`Added ${v}`); };
@@ -592,14 +757,14 @@ function renderPlayers(){
 
 /* ================= admin: tournaments ================= */
 async function renderTournaments(){
-  if(!adminSettings){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[]}; } }
+  if(!adminSettings || adminSettings.hasToken===undefined){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[],pins:[]}; } }
   const cur=T;
   $('#main').innerHTML=`
   <div class="panel"><h2>Start a new tournament</h2>
-    <p class="note">Create the tournament in Matchplay first, then paste its link here. Players and machines come over automatically.</p>
+    <p class="note">Create the tournament in Matchplay first, then paste its link here. Players and machines come over automatically, and saved targets fill in for machines you've used before.</p>
     <label for="nmp">Matchplay tournament link or ID</label><input type="text" id="nmp" placeholder="https://app.matchplay.events/tournaments/123456">
     <label for="nname">Name (optional, Matchplay's name is used if blank)</label><input type="text" id="nname">
-    ${LIST.length?'<label class="check"><input type="checkbox" id="ncopy" checked> Copy machines, targets and rules from the latest tournament</label>':''}
+    ${LIST.length?'<label class="check"><input type="checkbox" id="ncopy"> Also copy the machine list from the latest tournament (for events not linked to Matchplay)</label>':''}
     <div class="row" style="margin-top:.8rem"><button class="btn primary" id="ngo">Create tournament</button></div></div>
 
   ${cur?`<div class="panel"><h2>${esc(cur.name)}</h2>
@@ -650,7 +815,7 @@ function renderTotals(){
     <div class="row" style="margin:.7rem 0"><button class="btn" id="cpAll">Copy all totals</button><button class="btn" id="csv">Download CSV</button></div>
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th>${Array.from({length:N},(_,k)=>`<th class="n">${k+1}</th>`).join('')}<th class="n">Total</th><th></th></tr></thead><tbody>
     ${rows.map(x=>`<tr><td>${x.rank}</td><td>${esc(x.p.name)}${x.r.complete?'':' <span class="tag">in progress</span>'}</td>${pts(x.r).map((v,k)=>`<td class="n">${v===''?'':(x.r.frames[k].resolved?v:v+'…')}</td>`).join('')}<td class="n"><b>${x.r.total}</b></td><td><button class="btn small" data-cp="${x.p.id}">Copy</button></td></tr>`).join('')}
-    </tbody></table></div><p class="note">A “…” means the frame is still waiting on bonus balls.</p></div>`;
+    </tbody></table></div><p class="note">A “…” means the frame is still waiting on bonus throws.</p></div>`;
   const copy=async txt=>{ try{ await navigator.clipboard.writeText(txt); }catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } toast('Copied'); };
   $('#cpAll').onclick=()=>copy(rows.map(x=>`${x.p.name}\t${x.r.total}`).join('\n'));
   $$('[data-cp]').forEach(b=>b.onclick=()=>copy(pts(rows.find(x=>x.p.id===b.dataset.cp).r).join('\t')));
@@ -665,7 +830,7 @@ function renderTotals(){
 async function renderAdmins(){
   try{ adminSettings=await api('/api/admin/settings'); }catch(e){ toast(e.message); return; }
   $('#main').innerHTML=`<div class="panel"><h2>Admins</h2>
-    <p class="note">Admins can enter and edit scores, manage machines and players, and run tournaments. Players never need a login.</p>
+    <p class="note">Admins can enter and edit anyone's scores, manage machines and players, and run tournaments.</p>
     <div class="tablewrap" style="margin-top:.6rem"><table><tbody>
     ${adminSettings.admins.map(a=>`<tr><td>${esc(a.name)}${a.id===ADMIN.id?' <span class="tag">you</span>':''}</td><td class="n">${a.id===ADMIN.id?'':`<button class="btn small" data-pw="${a.id}">Reset password</button> <button class="btn small danger" data-rmadm="${a.id}">Remove</button>`}</td></tr>`).join('')}
     </tbody></table></div>
@@ -682,7 +847,7 @@ async function renderAdmins(){
 }
 
 /* ================= loading and live updates ================= */
-async function refreshList(){ const s=await api('/api/state'); LIST=s.tournaments; ADMIN=s.admin; NEEDS_SETUP=s.needsSetup; }
+async function refreshList(){ const s=await api('/api/state'); LIST=s.tournaments; ADMIN=s.admin; PLAYER=s.player; NEEDS_SETUP=s.needsSetup; }
 async function loadT(id){ try{ T=await api('/api/t/'+id); store.set('pb-tid',id); }catch(e){ T=null; } }
 async function boot(){
   try{ await refreshList(); }catch(e){ $('#main').innerHTML='<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
@@ -700,9 +865,10 @@ setInterval(async()=>{
     const fresh=await api('/api/t/'+T.id); const changed=JSON.stringify(fresh)!==JSON.stringify(T);
     T=fresh; if(ADMIN) await refreshList();
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
-    const openDetails=$$('details[open]').map(d=>d.dataset.pid||'');
-    if(changed && !typing && !(tab==='enter' && formDirty()) && tab!=='tournaments' && tab!=='admins'){
-      const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openDetails.includes(d.dataset.pid); }); window.scrollTo(0,y);
+    const openIds=$$('details[open]').map(d=>d.dataset.pid||'');
+    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players'].includes(tab) || !$('#shareBox').hidden;
+    if(changed && !busy){
+      const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); window.scrollTo(0,y);
     }
   }catch(e){}
 }, 20000);
