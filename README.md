@@ -9,6 +9,7 @@ Admins log in to enter and fix scores, run weekly tournaments and archive old on
 - `server.js` – the server. It saves everything, checks Matchplay for new
   sign-ups every minute, and keeps your Matchplay token private.
 - `public/index.html` – the web page players and admins see.
+- `public/qrcode.js` – draws the Share QR code (MIT-licensed library by Kazuhiko Arase).
 - `package.json` – tells the host how to start it (`npm start`).
 
 No extra packages are needed. It needs Node.js 18 or newer.
@@ -47,6 +48,17 @@ plans without a persistent disk: the scores would be wiped on each restart.
 | `MATCHPLAY_TOKEN` | Optional. Token to use if none is saved in the app. |
 | `SYNC_SECONDS` | How often to check Matchplay. Default 60. |
 | `RESET_ADMIN` | Locked out? Set to `Name:newpassword`, restart, log in, then delete it. |
+
+## Players
+
+Players pick their name and set a 4-digit PIN the first time. After that the phone
+remembers them for a year. Admins can reset a forgotten PIN on the Players tab.
+Players enter their score after each ball; admins can enter or fix anyone's game.
+
+## Machines
+
+Targets, ball counts and short names are saved per machine and filled in
+automatically the next time that machine is in a tournament.
 
 ## Backups
 
