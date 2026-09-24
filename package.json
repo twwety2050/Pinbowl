@@ -1,0 +1,8 @@
+{
+  "name": "pinbowl",
+  "version": "1.0.0",
+  "description": "Pinbowl tournament scoring linked to Matchplay",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
