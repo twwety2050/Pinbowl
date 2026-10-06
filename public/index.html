@@ -124,6 +124,9 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .mstats div{background:var(--ink);color:var(--paper);border-radius:8px;padding:.45rem .6rem}
 .mstats small{display:block;font-size:.75rem;opacity:.8}
 .mstats b{font:400 1.15rem/1.2 var(--display)}
+.ranges{margin-top:.2rem}
+.ranges summary{cursor:pointer;font-weight:600;color:var(--ink);padding:.45rem 0;border-top:1px solid var(--grid)}
+.ranges[open] summary{margin-bottom:.2rem}
 .brackets{list-style:none;padding:0;margin:.3rem 0 0;font-variant-numeric:tabular-nums}
 .brackets li{display:flex;justify-content:space-between;gap:.5rem;padding:.12rem 0;border-bottom:1px dashed var(--grid);font-size:.95rem}
 .brackets li b{font-family:var(--cond);font-size:1.02rem}
@@ -578,11 +581,13 @@ function renderMachines(){
     return `<div class="panel mcard"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
       <p class="note">${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${!a.active?' <span class="tag">closed</span>':''}</p>
       <div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
-      ${brackets(a)}${ctl}</div>`;
+      ${a.target?`<details class="ranges" data-mid="${a.id}"><summary>Score needed for each pin count</summary>${brackets(a)}</details>`:brackets(a)}${ctl}</div>`;
   }).join('');
   const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered. When a machine comes back in a later tournament, they fill in automatically.</p>
     <div class="row" style="margin-top:.5rem"><div class="grow"><label for="na">Add a machine by hand</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div></div>` : '';
-  $('#main').innerHTML = add + (list.length?`<div class="mgrid">${cards}</div>`:'<div class="panel note">No machines yet.</div>');
+  const toggle = list.some(a=>a.target) ? `<div class="row" style="margin-bottom:.8rem"><button class="btn small" id="rangesAll">Show all score ranges</button></div>` : '';
+  $('#main').innerHTML = add + toggle + (list.length?`<div class="mgrid">${cards}</div>`:'<div class="panel note">No machines yet.</div>');
+  if($('#rangesAll')) $('#rangesAll').onclick=()=>{ const ds=$$('details.ranges'), open=!ds.every(d=>d.open); ds.forEach(d=>d.open=open); $('#rangesAll').textContent=open?'Hide all score ranges':'Show all score ranges'; };
   if(!edit) return;
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
@@ -865,10 +870,10 @@ setInterval(async()=>{
     const fresh=await api('/api/t/'+T.id); const changed=JSON.stringify(fresh)!==JSON.stringify(T);
     T=fresh; if(ADMIN) await refreshList();
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
-    const openIds=$$('details[open]').map(d=>d.dataset.pid||'');
+    const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
     const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players'].includes(tab) || !$('#shareBox').hidden;
     if(changed && !busy){
-      const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); window.scrollTo(0,y);
+      const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); $$('details[data-mid]').forEach(d=>{ d.open=openIds.includes(d.dataset.mid); }); window.scrollTo(0,y);
     }
   }catch(e){}
 }, 20000);
