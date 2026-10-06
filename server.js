@@ -8,7 +8,8 @@ const crypto = require('crypto');
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
-const MP = process.env.MP_BASE || 'https://app.matchplay.events';
+// Matchplay moved its API to the api. subdomain. The website itself stays at app.matchplay.events.
+const MP = process.env.MP_BASE || 'https://api.matchplay.events';
 const SYNC_MS = Number(process.env.SYNC_SECONDS || 60) * 1000;
 const ADMIN_DAYS = 30, PLAYER_DAYS = 365;
 const SPARE_LAST_BALL = 3;
