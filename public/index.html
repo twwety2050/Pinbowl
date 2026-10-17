@@ -29,11 +29,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 a{color:inherit}
 
 .top{position:sticky;top:0;z-index:5;background:var(--ink);color:var(--paper);padding:.6rem 1rem .4rem}
-.bar{display:flex;align-items:center;gap:.7rem;max-width:1100px;margin:0 auto}
+.bar{display:flex;align-items:center;gap:.45rem;max-width:1100px;margin:0 auto}
 .bar h1{font:400 1.7rem/1 var(--display)}
-.bar select{flex:1;min-width:0;background:transparent;color:var(--paper);border:1px solid color-mix(in srgb,var(--paper) 40%,transparent);border-radius:6px;padding:.35rem .5rem;font-weight:600}
+.bar select{flex:1 1 0;min-width:0;background:transparent;color:var(--paper);border:1px solid color-mix(in srgb,var(--paper) 40%,transparent);border-radius:6px;padding:.62rem .35rem;font-size:.6rem;line-height:1.2;font-weight:600}
 .bar select option{color:#16324F;background:#fff}
-.linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem;white-space:nowrap}
+.linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem .15rem;white-space:nowrap}
 nav{display:flex;gap:.2rem;overflow-x:auto;max-width:1100px;margin:.5rem auto 0;scrollbar-width:none}
 nav button{background:none;border:0;color:inherit;opacity:.72;padding:.45rem .75rem;border-radius:6px 6px 0 0;cursor:pointer;white-space:nowrap;font-weight:600}
 nav button[aria-selected="true"]{opacity:1;background:var(--paper);color:var(--ink)}
@@ -118,6 +118,7 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .stand .inner{padding:0 1rem 1rem}
 
 /* machines */
+.mcard[hidden]{display:none}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
 .mcard h3{margin:0 0 .15rem}
 .mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;margin:.7rem 0}
@@ -163,6 +164,49 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--
 .qr{background:#fff;border-radius:8px;padding:.4rem;max-width:18rem;margin:0 auto}
 .qr svg{display:block;width:100%;height:auto}
 .url{margin:.8rem 0;font-weight:600;word-break:break-all}
+
+.brackets li.cur{background:var(--me);font-weight:700;border-radius:4px;padding-left:.3rem;padding-right:.3rem}
+.search{position:relative;margin-bottom:.8rem}
+.search input{padding-left:2.1rem;font-size:1.05rem}
+.search svg{position:absolute;left:.65rem;top:50%;transform:translateY(-50%);width:1.05rem;height:1.05rem;color:var(--muted);pointer-events:none}
+.ranges-enter{margin-top:.8rem}
+
+/* TV board */
+.tvctl{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.8rem}
+.tvctl label{margin:0;display:flex;gap:.4rem;align-items:center;font-weight:600}
+.tvctl select{width:auto;padding:.35rem .5rem}
+.tv{--s:1;background:var(--ink);color:var(--paper);border-radius:10px;padding:calc(.9rem*var(--s));display:flex;flex-direction:column;font-size:calc(clamp(13px,1.15vw,30px)*var(--s));overflow:hidden}
+.tv.max{position:fixed;inset:0;z-index:50;border-radius:0}
+.tv:fullscreen{border-radius:0;width:100vw;height:100vh}
+.tvhead{display:flex;align-items:baseline;gap:1em;flex-wrap:wrap;margin-bottom:.6em}
+.tvhead h2{font:400 1.9em/1.1 var(--display);color:var(--paper);margin:0;flex:1;min-width:0}
+.tvhead span{opacity:.75;font-size:.9em}
+.tvexit{background:none;border:1px solid color-mix(in srgb,var(--paper) 40%,transparent);color:var(--paper);border-radius:6px;padding:.2em .7em;cursor:pointer;font-size:.8em;opacity:.6}
+.tv:not(.max):not(:fullscreen) .tvexit{display:none}
+.tvgrid{display:grid;grid-template-columns:2.4em minmax(9em,2fr) repeat(calc(var(--n) - 1),minmax(0,1fr)) minmax(0,1.45fr) 3.8em;column-gap:0}
+.tvcols{font:600 .8em var(--cond);opacity:.75;padding:0 0 .3em;text-align:center}
+.tvcols > :nth-child(2){text-align:left;padding-left:.5em}
+.tvbody{flex:1;overflow-y:auto;scrollbar-width:thin;height:72vh}
+.tv.max .tvbody,.tv:fullscreen .tvbody{height:auto}
+.tvrow{background:var(--card);color:var(--ink);border-radius:.35em;margin-bottom:.35em;overflow:hidden;align-items:stretch}
+.tvrank{font:400 1.4em/1 var(--display);color:var(--lane);display:flex;align-items:center;justify-content:center;background:var(--ink)}
+.tvrow.top3 .tvrank{background:var(--lane);color:var(--laneInk)}
+.tvname{padding:.25em .5em;display:flex;flex-direction:column;justify-content:center;min-width:0;border-right:2px solid var(--ink)}
+.tvname b{font:700 1.25em/1.1 var(--cond);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvname small{font-size:.72em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvname small.live{color:var(--lane);font-weight:700}
+.tvf{border-right:1px solid var(--grid);display:flex;flex-direction:column;min-width:0}
+.tvf .ab{font:700 .66em/1.5 var(--cond);text-align:center;color:var(--muted);white-space:nowrap;overflow:hidden}
+.tvf .ab.live{color:var(--lane)}
+.tvf .rl{display:flex;justify-content:flex-end;height:1.35em}
+.tvf .rl i{font:700 1em/1.35em var(--cond);font-style:normal;width:1.25em;text-align:center;border-left:1px solid var(--grid);border-bottom:1px solid var(--grid)}
+.tvf .cm{font:700 1.15em/1.6em var(--cond);text-align:center}
+.tvf .cm.pend{color:var(--muted);font-weight:500}
+.tvtot{display:flex;align-items:center;justify-content:center;font:400 1.55em/1 var(--display);background:var(--paper)}
+.tvempty{padding:2em;text-align:center;opacity:.8}
+body.tvmode .top,body.tvmode .banner{display:none}
+body.tvmode main{max-width:none;padding:0}
+body.tvmode .tvctl{display:none}
 #toast{position:fixed;left:50%;bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(160%);background:var(--ink);color:var(--paper);padding:.7rem 1.1rem;border-radius:8px;font-weight:600;transition:transform .25s;max-width:92vw;z-index:10}
 #toast.show{transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
@@ -287,9 +331,17 @@ function sheetHTML(r){
     while(cells.length<slots) cells.unshift('');
     const a=f?A(f.g.arenaId):(r.playing && k===r.regCount ? A(r.playing.arenaId) : null);
     const live = !f && a;
-    h+=`<div class="fr" title="${a?esc(a.name):''}"><div class="fn">${k+1}</div><div class="fa ${live?'live':''}">${a?esc(abbr(a)):'&nbsp;'}</div><div class="rolls">${cells.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cum ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):(live?'▶':'')}</div></div>`;
+    h+=`<div class="fr" title="${a?esc(a.name):''}"><div class="fn">${k+1}</div><div class="fa ${live?'live':''}">${a?esc(frameAbbr(r,k)):'&nbsp;'}</div><div class="rolls">${cells.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cum ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):(live?'▶':'')}</div></div>`;
   }
   return h+`<div class="fr tot"><div class="fn">Total</div><div class="big">${r.total}</div></div></div></div>`;
+}
+// Short name for a frame. The last frame adds the machines of its bonus games, e.g. KK+GZL.
+function frameAbbr(r,k){
+  const f=r.frames[k];
+  if(!f) return r.playing && k===r.regCount ? abbr(A(r.playing.arenaId)) : '';
+  let s=abbr(A(f.g.arenaId));
+  if(k===T.frames-1){ r.bonus.forEach(b=>{ s+='+'+abbr(A(b.g.arenaId)); }); if(r.playing && r.stillNeeded) s+='+'+abbr(A(r.playing.arenaId)); }
+  return s;
 }
 function scoreText(g){
   if(Array.isArray(g.balls) && g.balls.length) return g.balls.map((s,i)=>`Ball ${i+1}: ${fmt(s)}`).join(', ');
@@ -340,19 +392,30 @@ function bindGameActions(root){
   root.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this game? This cannot be undone.')) change(`/games/${b.dataset.del}`,'DELETE',null,'Game deleted'); });
   root.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{ PF.fixId=b.dataset.fix; go('play'); window.scrollTo(0,0); });
 }
-function brackets(a){
+// score/ballNo are optional: when given, the matching row is highlighted
+function brackets(a, score, ballNo){
   const t=a.target; if(!t) return '<p class="note">Target score not set yet.</p>';
-  const li=[`<li class="hit"><b>Strike</b><span>target on ball 1</span></li>`, `<li class="hit"><b>Spare</b><span>target on ball 2 or 3</span></li>`];
+  let cur=null;
+  if(score!=null){ if(score>=t) cur = ballNo===1 ? 'strike' : (ballNo>=2 && ballNo<=SPARE_LAST_BALL) ? 'spare' : 9; else cur=pins(score,t); }
+  const li=[`<li class="hit ${cur==='strike'?'cur':''}"><b>Strike</b><span>target on ball 1</span></li>`, `<li class="hit ${cur==='spare'?'cur':''}"><b>Spare</b><span>target on ball 2 or 3</span></li>`];
   for(let n=9;n>=0;n--){
     const lo=Math.ceil(n*t/10), hi=n===9?t-1:Math.ceil((n+1)*t/10)-1;
-    li.push(`<li><b>${n} pin${n===1?'':'s'}</b><span>${n===9&&a.balls===5?`${fmt(lo)} or more`:`${fmt(lo)}–${fmt(hi)}`}</span></li>`);
+    li.push(`<li class="${cur===n?'cur':''}"><b>${n} pin${n===1?'':'s'}</b><span>${n===9&&a.balls===5?`${fmt(lo)} or more`:`${fmt(lo)}–${fmt(hi)}`}</span></li>`);
   }
   return `<ul class="brackets">${li.join('')}</ul>`;
 }
+// Collapsible score ranges for the Enter score screens. Remembers if it was left open.
+function rangesBox(a, score, ballNo){
+  if(!a || !a.target) return '';
+  const open = store.get('pb-rng')==='1';
+  return `<details class="ranges ranges-enter" id="rngBox" ${open?'open':''}><summary>Score needed for each pin count on ${esc(abbr(a))}</summary><div id="rngList">${brackets(a,score,ballNo)}</div></details>`;
+}
+function bindRanges(){ const d=$('#rngBox'); if(d) d.addEventListener('toggle',()=>store.set('pb-rng', d.open?'1':'0')); }
+function updateRanges(a, score, ballNo){ const el=$('#rngList'); if(el && a) el.innerHTML=brackets(a,score,ballNo); }
 
 /* ================= header, nav, routing ================= */
 const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
-const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['rules','Rules']];
+const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['tv','TV board'],['rules','Rules']];
 function tabs(){ return ADMIN ? ADMIN_TABS : PLAYER_TABS; }
 function go(t){ tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
@@ -366,13 +429,14 @@ function renderHeader(){
   $('#banner').innerHTML = T && readOnly() ? '<div>This tournament is archived. Scores are read-only.</div>' : '';
 }
 function render(){
+  if(TVMODE){ tab='tv'; if(!T){ $('#main').innerHTML='<div class="tv max"><div class="tvempty">No tournament is open yet. This screen will update by itself.</div></div>'; return; } return renderTv(); }
   renderHeader();
   if(screen==='setup') return renderSetupScreen();
   if(screen==='login') return renderLogin();
   if(screen==='pin') return renderPin();
   if(!T){ if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv}[tab];
   (fn||renderStandings)();
 }
 
@@ -466,6 +530,7 @@ function renderMine(){
 
 /* ================= player: enter score ball by ball ================= */
 const PF={arenaId:'', score:'', fixId:null};
+let MSEARCH='';
 function resetPF(){ PF.arenaId=''; PF.score=''; PF.fixId=null; }
 function ballHint(a, ballNo, score){
   if(score==null) return '';
@@ -494,7 +559,8 @@ function renderPlay(){
       <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
       <div class="preview" id="bhint"></div>
       <div class="row"><button class="btn primary" id="bgo">Save ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
-      <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>`;
+      <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>
+      ${rangesBox(a)}`;
   } else {
     const slot=nextSlot(p.id);
     if(slot.kind==='done'){ m.innerHTML=`<div class="panel"><h2>Your card is complete</h2><p>Final score: <b>${r.total}</b>. Check the Standings tab to see where you finished.</p></div>`; return; }
@@ -508,16 +574,18 @@ function renderPlay(){
       ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)}</label>
       <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
       <div class="preview" id="bhint"></div>
-      <div class="row"><button class="btn primary" id="bgo">Save ball 1</button></div>`:''}`;
+      <div class="row"><button class="btn primary" id="bgo">Save ball 1</button></div>${rangesBox(a)}`:''}`;
   }
   m.innerHTML=`<div class="two"><div class="panel">${body}</div><div class="panel"><h2>My card</h2>${sheetHTML(r)}</div></div>`;
+  bindRanges();
 
   $$('[data-parena]').forEach(b=>b.onclick=()=>{ PF.arenaId=b.dataset.parena; renderPlay(); const i=$('#bs'); if(i) i.focus(); });
   const inp=$('#bs');
   if(inp){
     const arena = g ? A(g.arenaId) : A(PF.arenaId), ballNo = g ? g.balls.length+1 : 1;
     const upd=()=>{ PF.score=inp.value; const s=num(inp.value); const min=g?g.balls[g.balls.length-1]:0;
-      $('#bhint').innerHTML = s==null ? '' : s<min ? `<span class="err">That's lower than your ball ${g.balls.length} score.</span>` : ballHint(arena, ballNo, s); };
+      $('#bhint').innerHTML = s==null ? '' : s<min ? `<span class="err">That's lower than your ball ${g.balls.length} score.</span>` : ballHint(arena, ballNo, s);
+      updateRanges(arena, s!=null&&s>=min?s:null, ballNo); };
     inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); PF.score=inp.value; } };
     inp.onkeydown=e=>{ if(e.key==='Enter') $('#bgo').click(); };
     upd();
@@ -578,7 +646,7 @@ function renderMachines(){
         <div class="grow"><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div></div>
         <label class="check"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label>
         <button class="btn small danger" data-rma="${a.id}" style="margin-top:.4rem">Remove machine</button>` : '';
-    return `<div class="panel mcard"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
+    return `<div class="panel mcard" data-find="${esc((a.name+' '+abbr(a)).toLowerCase())}"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
       <p class="note">${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${!a.active?' <span class="tag">closed</span>':''}</p>
       <div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
       ${a.target?`<details class="ranges" data-mid="${a.id}"><summary>Score needed for each pin count</summary>${brackets(a)}</details>`:brackets(a)}${ctl}</div>`;
@@ -586,7 +654,13 @@ function renderMachines(){
   const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered. When a machine comes back in a later tournament, they fill in automatically.</p>
     <div class="row" style="margin-top:.5rem"><div class="grow"><label for="na">Add a machine by hand</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div></div>` : '';
   const toggle = list.some(a=>a.target) ? `<div class="row" style="margin-bottom:.8rem"><button class="btn small" id="rangesAll">Show all score ranges</button></div>` : '';
-  $('#main').innerHTML = add + toggle + (list.length?`<div class="mgrid">${cards}</div>`:'<div class="panel note">No machines yet.</div>');
+  const search = list.length>1 ? `<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+    <input type="search" id="msearch" placeholder="Search machines by name or short name" aria-label="Search machines" value="${esc(MSEARCH)}" autocomplete="off"></div>` : '';
+  $('#main').innerHTML = add + search + toggle + (list.length?`<div class="mgrid">${cards}</div><p class="note" id="mnone" hidden>No machines match that search.</p>`:'<div class="panel note">No machines yet.</div>');
+  const filterMachines=()=>{ const q=MSEARCH.trim().toLowerCase(); let shown=0;
+    $$('.mcard').forEach(c=>{ const hit=!q || (c.dataset.find||'').includes(q); c.hidden=!hit; if(hit) shown++; });
+    if($('#mnone')) $('#mnone').hidden = shown>0; };
+  if($('#msearch')){ $('#msearch').oninput=e=>{ MSEARCH=e.target.value; filterMachines(); }; filterMachines(); }
   if($('#rangesAll')) $('#rangesAll').onclick=()=>{ const ds=$$('details.ranges'), open=!ds.every(d=>d.open); ds.forEach(d=>d.open=open); $('#rangesAll').textContent=open?'Hide all score ranges':'Show all score ranges'; };
   if(!edit) return;
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
@@ -596,6 +670,95 @@ function renderMachines(){
   $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},'Saved'));
   $$('[data-rma]').forEach(b=>b.onclick=()=>{ const n=T.games.filter(g=>g.arenaId===b.dataset.rma).length; if(confirm(n?`${n} games were played on this machine. Removing it deletes them. Continue?`:'Remove this machine?')) change(`/arenas/${b.dataset.rma}`,'DELETE',null,'Machine removed'); });
 }
+
+/* ================= TV board ================= */
+// Opened as an admin tab, or on any TV with the link ?tv (no login needed, view only).
+const TVMODE = new URLSearchParams(location.search).has('tv');
+const TV_FIXED_T = new URLSearchParams(location.search).get('t');
+const TV = { auto: store.get('pb-tv-auto')!=='0', speed: Number(store.get('pb-tv-speed'))||40, size: Number(store.get('pb-tv-size'))||1, raf:0, pauseUntil:0, last:0, dir:1, wake:null };
+
+function tvRows(){
+  const N=T.frames, rows=standings();
+  if(!rows.length) return '<div class="tvempty">No players yet.</div>';
+  return rows.map(x=>{
+    const r=x.r;
+    let cells='';
+    for(let k=0;k<N;k++){
+      const f=r.frames[k], last=k===N-1; let sy=[];
+      if(f) sy = last ? symbols(f.rolls.concat(r.bonusRolls)) : (f.type==='strike' ? ['','X'] : symbols(f.rolls));
+      const slots = last ? (T.tenthBonus?3:2) : 2;
+      while(sy.length<slots) sy.unshift('');
+      const ab=frameAbbr(r,k), live=!f && ab;
+      cells+=`<div class="tvf"><div class="ab ${live||(last&&r.playing&&r.stillNeeded)?'live':''}">${esc(ab)||'&nbsp;'}</div><div class="rl">${sy.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cm ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):(live?'▶':'')}</div></div>`;
+    }
+    const st = r.playing ? `<small class="live">Playing ${esc(A(r.playing.arenaId)?.name||'')}</small>` : `<small>${r.complete?'Complete':r.stillNeeded?'Bonus game needed':`${r.regCount} of ${N} frames`}</small>`;
+    return `<div class="tvgrid tvrow ${x.rank<=3&&r.total>0?'top3':''}"><div class="tvrank">${x.rank}</div><div class="tvname"><b>${esc(x.p.name)}</b>${st}</div>${cells}<div class="tvtot">${r.total}</div></div>`;
+  }).join('');
+}
+function tvHead(){
+  const done=T.players.filter(p=>scorePlayer(p.id).complete).length;
+  return `${T.players.length} players, ${done} finished · updated ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
+}
+function renderTv(){
+  const N=T.frames, link=location.origin+'/?tv=1';
+  const cols=`<div class="tvgrid tvcols"><div>#</div><div>Player</div>${Array.from({length:N},(_,k)=>`<div>${k+1}</div>`).join('')}<div>Total</div></div>`;
+  $('#main').innerHTML=`${TVMODE?'':`<div class="panel tvctl">
+      <button class="btn primary" id="tvFull">Full screen</button>
+      <label><input type="checkbox" id="tvAuto" ${TV.auto?'checked':''}> Auto-scroll</label>
+      <label>Speed <select id="tvSpeed">${[[20,'Slow'],[40,'Medium'],[80,'Fast']].map(([v,l])=>`<option value="${v}" ${TV.speed===v?'selected':''}>${l}</option>`).join('')}</select></label>
+      <label>Text <select id="tvSize">${[[.75,'Small'],[1,'Medium'],[1.3,'Large']].map(([v,l])=>`<option value="${v}" ${TV.size===v?'selected':''}>${l}</option>`).join('')}</select></label>
+      <button class="btn" id="tvLink">Copy TV link</button>
+      <p class="note" style="flex-basis:100%">Open the TV link in the TV's web browser. It shows only this board, needs no login, and switches to each week's new tournament by itself.</p></div>`}
+    <div class="tv ${TVMODE?'max':''}" id="tvwrap" style="--n:${N};--s:${TV.size}">
+      <div class="tvhead"><h2>${esc(T.name)}</h2><span id="tvinfo">${tvHead()}</span><button class="tvexit" id="tvExit">Exit full screen</button></div>
+      ${cols}<div class="tvbody" id="tvbody">${tvRows()}</div>
+    </div>`;
+  const wrap=$('#tvwrap'), body=$('#tvbody');
+  // touching or scrolling by hand pauses auto-scroll for a bit
+  ['wheel','touchstart','mousedown','keydown'].forEach(ev=>body.addEventListener(ev,()=>{ TV.pauseUntil=performance.now()+12000; },{passive:true}));
+  body.tabIndex=0;
+  if(!TVMODE){
+    $('#tvFull').onclick=async()=>{ wrap.classList.add('max'); try{ await wrap.requestFullscreen?.(); }catch(e){} keepAwake(); };
+    $('#tvAuto').onchange=e=>{ TV.auto=e.target.checked; store.set('pb-tv-auto',TV.auto?'1':'0'); };
+    $('#tvSpeed').onchange=e=>{ TV.speed=Number(e.target.value); store.set('pb-tv-speed',TV.speed); };
+    $('#tvSize').onchange=e=>{ TV.size=Number(e.target.value); store.set('pb-tv-size',TV.size); wrap.style.setProperty('--s',TV.size); };
+    $('#tvLink').onclick=async()=>{ try{ await navigator.clipboard.writeText(link); toast('TV link copied'); }catch(e){ toast(link); } };
+  } else keepAwake();
+  $('#tvExit').onclick=()=>{ if(document.fullscreenElement) document.exitFullscreen(); wrap.classList.remove('max'); };
+  startAutoScroll();
+}
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement){ const w=$('#tvwrap'); if(w && !TVMODE) w.classList.remove('max'); } });
+function updateTv(){
+  const body=$('#tvbody'); if(!body) return render();
+  const y=body.scrollTop; body.innerHTML=tvRows(); body.scrollTop=y;
+  $('#tvinfo').textContent=tvHead();
+  const h=$('.tvhead h2'); if(h) h.textContent=T.name;
+}
+// Slowly scroll the standings, pause at the top and bottom, then start over.
+function startAutoScroll(){
+  cancelAnimationFrame(TV.raf); TV.last=0; TV.pauseUntil=performance.now()+5000;
+  const step=t=>{
+    const body=$('#tvbody'); if(!body) return;
+    TV.raf=requestAnimationFrame(step);
+    const dt=TV.last?Math.min(100,t-TV.last):0; TV.last=t;
+    const max=body.scrollHeight-body.clientHeight;
+    if(!TV.auto || max<=2 || t<TV.pauseUntil) return;
+    body.scrollTop += TV.speed*TV.size*dt/1000;
+    if(body.scrollTop>=max-1){ TV.pauseUntil=t+5000; setTimeout(()=>{ const b=$('#tvbody'); if(b){ b.scrollTop=0; TV.pauseUntil=performance.now()+5000; } },5000); }
+  };
+  TV.raf=requestAnimationFrame(step);
+}
+async function keepAwake(){ try{ if('wakeLock' in navigator && !TV.wake) { TV.wake=await navigator.wakeLock.request('screen'); TV.wake.addEventListener('release',()=>{ TV.wake=null; }); } }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && (TVMODE || tab==='tv')) keepAwake(); });
+// The board refreshes every 15 seconds without losing its scroll position.
+setInterval(async()=>{
+  if(document.hidden || !(TVMODE || tab==='tv') || screen) return;
+  try{
+    if(TVMODE && !TV_FIXED_T){ await refreshList(); const want=(LIST.find(t=>t.status==='active')||LIST[0]||{}).id; if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
+    if(!T) return;
+    T=await api('/api/t/'+T.id); updateTv();
+  }catch(e){}
+},15000);
 
 /* ================= rules ================= */
 function exampleSheet(games){
@@ -668,7 +831,9 @@ function renderEnter(){
     <div id="inputs"></div>
     <div class="preview" id="preview"></div>
     <div class="row"><button class="btn primary" id="saveBtn">${F.editingId?'Save changes':'Save game'}</button>${F.editingId?'<button class="btn" id="cancelEdit">Cancel</button>':''}</div>
+    ${rangesBox(a)}
   </div><div class="panel" id="side"></div></div>`;
+  bindRanges();
   let h='';
   if(F.hitBall!==null){
     h+=`<label for="b1">Score after ball 1${F.hitBall===1?' (optional)':''}</label><input type="text" inputmode="numeric" id="b1" value="${esc(F.b1)}">`;
@@ -679,7 +844,7 @@ function renderEnter(){
   $$('[data-arena]').forEach(b=>b.onclick=()=>{ F.arenaId=b.dataset.arena; renderEnter(); });
   $$('[data-ball]').forEach(b=>b.onclick=()=>{ F.hitBall=Number(b.dataset.ball); renderEnter(); const i=$('#b1'); if(i && F.hitBall!==1) i.focus(); });
   [['b1','b1'],['fin','final']].forEach(([id,key])=>{ const el=$('#'+id); if(!el) return;
-    el.oninput=()=>{ F[key]=el.value; updatePreview(); };
+    el.oninput=()=>{ F[key]=el.value; updatePreview(); const s=num(el.value); if(a) updateRanges(a, s, key==='b1'?1:(F.hitBall||a.balls)); };
     el.onblur=()=>{ const n=num(el.value); if(n!=null){ el.value=fmt(n); F[key]=el.value; } };
     el.onkeydown=e=>{ if(e.key==='Enter') $('#saveBtn').click(); }; });
   $('#saveBtn').onclick=saveGame;
@@ -856,6 +1021,7 @@ async function refreshList(){ const s=await api('/api/state'); LIST=s.tournament
 async function loadT(id){ try{ T=await api('/api/t/'+id); store.set('pb-tid',id); }catch(e){ T=null; } }
 async function boot(){
   try{ await refreshList(); }catch(e){ $('#main').innerHTML='<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
+  if(TVMODE){ document.body.classList.add('tvmode'); const id=(LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.status==='active')||LIST[0]||{}).id; T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
   if(NEEDS_SETUP){ screen='setup'; render(); return; }
   const saved=store.get('pb-tid');
   const pickId = (LIST.find(t=>t.id===saved) || LIST.find(t=>t.status==='active') || LIST[0] || {}).id;
@@ -865,7 +1031,7 @@ async function boot(){
   render();
 }
 setInterval(async()=>{
-  if(document.hidden || screen || !T || T.status!=='active') return;
+  if(document.hidden || screen || !T || T.status!=='active' || TVMODE || tab==='tv') return;
   try{
     const fresh=await api('/api/t/'+T.id); const changed=JSON.stringify(fresh)!==JSON.stringify(T);
     T=fresh; if(ADMIN) await refreshList();
