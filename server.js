@@ -17,7 +17,7 @@ const SPARE_LAST_BALL = 3;
 /* ---------------- storage ---------------- */
 fs.mkdirSync(DATA_DIR, { recursive: true });
 function emptyDb() {
-  return { admins: [], sessions: {}, settings: { mpToken: '' }, tournaments: [], machineLib: {}, playerAccounts: {}, playerSessions: {} };
+  return { admins: [], sessions: {}, settings: { mpToken: '' }, tournaments: [], machines: [], playerAccounts: {}, playerSessions: {} };
 }
 function loadDb() {
   try { return { ...emptyDb(), ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; }
@@ -60,21 +60,39 @@ function abbrOf(name) {
   return (words[0] || name).replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase();
 }
 const cleanAbbr = s => String(s || '').replace(/[^A-Za-z0-9&]/g, '').slice(0, 5).toUpperCase();
-function libKeys(a) { const k = []; if (a.mpId != null) k.push('mp:' + a.mpId); k.push('name:' + lower(a.name)); return k; }
-function libGet(a) { for (const k of libKeys(a)) if (db.machineLib[k]) return db.machineLib[k]; return null; }
-function libPut(a) { const v = { target: a.target || 0, balls: a.balls || 3, abbr: a.abbr || abbrOf(a.name) }; for (const k of libKeys(a)) db.machineLib[k] = { ...v }; }
+// Stored machines: every machine ever used, with its saved target, ball count and short name.
+// A tournament's machine (arena) points at its stored machine with arena.mid.
+function storedFor(a) {
+  return (a.mid && db.machines.find(m => m.id === a.mid))
+    || (a.mpId != null && db.machines.find(m => m.mpId === a.mpId))
+    || db.machines.find(m => lower(m.name) === lower(a.name)) || null;
+}
+function remember(a, when = Date.now()) {
+  let m = storedFor(a);
+  if (!m) { m = { id: uid(), name: a.name, mpId: a.mpId ?? null, target: 0, balls: 3, abbr: a.abbr || abbrOf(a.name), inDraw: true, addedAt: when }; db.machines.push(m); }
+  a.mid = m.id; m.name = a.name;
+  if (a.mpId != null) m.mpId = a.mpId;
+  if (a.target) m.target = a.target;
+  if (a.balls) m.balls = a.balls;
+  if (a.abbr) m.abbr = a.abbr;
+  m.lastUsed = Math.max(m.lastUsed || 0, when);
+  return m;
+}
+const libPut = a => remember(a);
 function newArena(name, mpId) {
   const a = { id: uid(), name, mpId: mpId ?? null, balls: 3, target: 0, active: true, abbr: abbrOf(name), targetSource: '' };
-  const l = libGet(a);
+  const l = storedFor(a);
   if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; if (a.target) a.targetSource = 'saved'; }
   return a;
 }
-// Upgrade data from the earlier version and fill the library from past tournaments.
+// Upgrade data from earlier versions and build the stored machines list from past tournaments.
+if (!Array.isArray(db.machines)) db.machines = [];
 db.tournaments.sort((a, b) => a.createdAt - b.createdAt).forEach(t => t.arenas.forEach(a => {
   if (!a.abbr) a.abbr = abbrOf(a.name);
   if (!a.targetSource) a.targetSource = a.targetFromMp ? 'mp' : (a.target ? 'admin' : '');
-  if (a.target) libPut(a);
+  remember(a, t.createdAt);
 }));
+delete db.machineLib;
 
 /* ---------------- scoring (mirrors the page) ---------------- */
 function pins(score, target) { if (score == null || !target) return 0; return Math.max(0, Math.min(9, Math.floor(score * 10 / target))); }
@@ -96,7 +114,55 @@ function slotFor(t, pid) {
   const last = all[N - 1];
   const need = last.type === 'strike' ? 2 : last.type === 'spare' ? 1 : 0;
   const have = all.slice(N).flatMap(f => f.rolls).length;
-  return have < need ? { kind: 'bonus' } : { kind: 'done' };
+  return have < need ? { kind: 'bonus', idx: done.length - N } : { kind: 'done' };
+}
+
+/* ---------------- bonus frames 11 and 12: one random machine each, the same for everyone ---------------- */
+// Highest bonus game anyone needs right now: -1 none, 0 frame 11, 1 frame 12.
+function bonusNeeded(t) {
+  if (!t.tenthBonus) return -1;
+  const N = t.frames; let max = -1;
+  for (const p of t.players) {
+    const done = t.games.filter(g => g.playerId === p.id && g.status !== 'playing');
+    if (done.length < N) continue;
+    const last = rollsOf(t, done[N - 1]);
+    if (last.type === 'open') continue;
+    max = Math.max(max, 0);
+    if (last.type === 'strike' && done[N] && rollsOf(t, done[N]).type === 'strike') max = 1;
+  }
+  return max;
+}
+function arenaForStored(t, m) {
+  let a = t.arenas.find(x => x.mid === m.id)
+    || t.arenas.find(x => (m.mpId != null && x.mpId === m.mpId) || lower(x.name) === lower(m.name));
+  if (!a) { a = newArena(m.name, m.mpId); a.active = false; a.bonusOnly = true; t.arenas.push(a); }
+  a.mid = m.id;
+  if (!a.target) { a.target = m.target; a.targetSource = 'saved'; }
+  return a;
+}
+// Pick the machine for bonus game idx: the one asked for, or a random stored machine with a target.
+function pickBonus(t, idx, machineId) {
+  t.bonusArenas = t.bonusArenas || [];
+  const otherMids = t.bonusArenas.filter((id, i) => i !== idx && id).map(id => (t.arenas.find(a => a.id === id) || {}).mid);
+  let m;
+  if (machineId) m = db.machines.find(x => x.id === machineId) || fail(404, 'Machine not found.');
+  else {
+    const pool = db.machines.filter(x => x.target > 0 && x.inDraw !== false && !otherMids.includes(x.id));
+    if (!pool.length) return null;
+    m = pool[crypto.randomInt(pool.length)];
+  }
+  if (!m.target) fail(400, `${m.name} has no target score. Set one on the Stored machines tab first.`);
+  const a = arenaForStored(t, m);
+  t.bonusArenas[idx] = a.id; t.bonusDrawnAt = Date.now();
+  return a;
+}
+// Draw frame 11 the first time someone needs it, and frame 12 the first time someone strikes 10 and 11.
+function ensureBonus(t) {
+  const need = bonusNeeded(t);
+  t.bonusArenas = t.bonusArenas || [];
+  for (let i = 0; i <= need; i++) {
+    if (!t.bonusArenas[i] || !t.arenas.some(a => a.id === t.bonusArenas[i])) pickBonus(t, i);
+  }
 }
 // Work out strike/spare/open from ball-by-ball scores
 function derive(g, a) {
@@ -230,7 +296,9 @@ async function syncTournament(t) {
     // Matchplay's target wins over a saved one, but not over one an admin typed for this tournament
     if (targets[id] && a.targetSource !== 'admin' && a.target !== targets[id]) { a.target = targets[id]; a.targetSource = 'mp'; rederive(t, a); libPut(a); }
     if (balls[id] && !a.ballsSetByAdmin) a.balls = balls[id];
+    remember(a, t.createdAt);
   });
+  ensureBonus(t);
   const samples = {};
   for (const [k, v] of Object.entries(d)) if (Array.isArray(v) && v.length && typeof v[0] === 'object') samples[k] = v[0];
   t.mpRaw = { fetchedAt: Date.now(), tournamentKeys: Object.keys(d), firstItemOfEachList: samples };
@@ -331,16 +399,23 @@ async function route(req, res, url) {
         if (score < last) fail(400, `Your score can't be lower than after ball ${playing.balls.length} (${last.toLocaleString('en-US')}).`);
         playing.balls.push(score); derive(playing, a); playing.editedAt = Date.now();
       } else {
-        const a = t.arenas.find(x => x.id === String(b.arenaId || '')) || fail(400, 'Pick a machine.');
-        if (!a.active) fail(400, `${a.name} is closed right now.`);
-        if (!a.target) fail(400, `${a.name} has no target score yet. Ask an admin.`);
         const slot = slotFor(t, me.id);
         if (slot.kind === 'done') fail(409, 'Your card is complete.');
+        let a;
+        if (slot.kind === 'bonus') {
+          // everyone plays the same drawn machine for frames 11 and 12
+          ensureBonus(t);
+          a = t.arenas.find(x => x.id === t.bonusArenas[slot.idx]) || fail(409, 'The bonus machine has not been picked yet. Ask an admin.');
+        } else {
+          a = t.arenas.find(x => x.id === String(b.arenaId || '')) || fail(400, 'Pick a machine.');
+          if (!a.active) fail(400, `${a.name} is closed right now.`);
+        }
+        if (!a.target) fail(400, `${a.name} has no target score yet. Ask an admin.`);
         if (slot.kind === 'frame' && !t.allowRepeats && slot.regular.some(g => g.arenaId === a.id)) fail(409, `You already played ${a.name}.`);
         const g = { id: uid(), playerId: me.id, arenaId: a.id, balls: [score], ts: Date.now(), by: player };
         derive(g, a); t.games.push(g);
       }
-      save(); return send(res, 200, { tournament: publicT(t) });
+      ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
     }
     if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
       const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
@@ -350,7 +425,7 @@ async function route(req, res, url) {
       const trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
       if (trial.status === 'playing' && playing && playing.id !== g.id) fail(409, 'Finish your current game first.');
       Object.assign(g, trial, { editedBy: player, editedAt: Date.now() });
-      save(); return send(res, 200, { tournament: publicT(t) });
+      ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
     }
     if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
       const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
@@ -423,6 +498,53 @@ async function route(req, res, url) {
     save(); return send(res, 200, { ok: true });
   }
 
+  // ----- stored machines -----
+  if (m === 'GET' && p === '/api/admin/machines') {
+    const list = db.machines.map(x => {
+      let tournaments = 0, games = 0, current = false;
+      for (const t of db.tournaments) {
+        const ids = t.arenas.filter(a => a.mid === x.id).map(a => a.id);
+        if (!ids.length) continue;
+        tournaments++; games += t.games.filter(g => ids.includes(g.arenaId) && g.status !== 'playing').length;
+        if (t.status === 'active') current = true;
+      }
+      return { ...x, tournaments, games, current };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    return send(res, 200, { machines: list });
+  }
+  if (m === 'POST' && p === '/api/admin/machines') {
+    const b = await readBody(req), name = String(b.name || '').trim();
+    if (!name) fail(400, 'Enter a machine name.');
+    if (db.machines.some(x => lower(x.name) === lower(name))) fail(409, 'That machine is already stored.');
+    const x = { id: uid(), name, mpId: null, target: toInt(b.target) || 0, balls: b.balls === 5 ? 5 : 3, abbr: cleanAbbr(b.abbr) || abbrOf(name), inDraw: true, addedAt: Date.now() };
+    db.machines.push(x); save();
+    return send(res, 200, { machine: x });
+  }
+  if (m === 'PATCH' && (mt = p.match(/^\/api\/admin\/machines\/(\w+)$/))) {
+    const x = db.machines.find(y => y.id === mt[1]) || fail(404, 'Machine not found.'), b = await readBody(req);
+    if (typeof b.abbr === 'string') x.abbr = cleanAbbr(b.abbr) || abbrOf(x.name);
+    if (b.balls === 3 || b.balls === 5) x.balls = b.balls;
+    if (b.target !== undefined) x.target = toInt(b.target) || 0;
+    if (typeof b.inDraw === 'boolean') x.inDraw = b.inDraw;
+    // keep open tournaments that use this machine in step
+    for (const t of db.tournaments) {
+      if (t.status !== 'active') continue;
+      for (const a of t.arenas) {
+        if (a.mid !== x.id) continue;
+        if (b.target !== undefined) { a.target = x.target; a.targetSource = x.target ? 'admin' : ''; }
+        if (b.balls === 3 || b.balls === 5) { a.balls = x.balls; a.ballsSetByAdmin = true; }
+        if (typeof b.abbr === 'string') a.abbr = x.abbr;
+        rederive(t, a);
+      }
+      ensureBonus(t);
+    }
+    save(); return send(res, 200, { machine: x });
+  }
+  if (m === 'DELETE' && (mt = p.match(/^\/api\/admin\/machines\/(\w+)$/))) {
+    db.machines = db.machines.filter(y => y.id !== mt[1]); save();
+    return send(res, 200, { ok: true });
+  }
+
   if (m === 'POST' && p === '/api/admin/tournaments') {
     const b = await readBody(req);
     const mpId = toInt(String(b.mp || '').match(/tournaments\/(\d+)/)?.[1] ?? b.mp);
@@ -433,7 +555,7 @@ async function route(req, res, url) {
     };
     const prev = db.tournaments.slice().sort((a, b) => b.createdAt - a.createdAt)[0];
     if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats });
-    if (b.copyMachines && prev) t.arenas = prev.arenas.map(a => ({ ...newArena(a.name, a.mpId), active: a.active }));
+    if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
     let note = '';
     if (t.mpId) { try { await syncTournament(t); } catch (e) { t.lastSyncError = e.message; note = e.message; save(); } }
@@ -450,6 +572,7 @@ async function route(req, res, url) {
     if (b.frames != null) t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10));
     if (typeof b.tenthBonus === 'boolean') t.tenthBonus = b.tenthBonus;
     if (typeof b.allowRepeats === 'boolean') t.allowRepeats = b.allowRepeats;
+    if (t.status === 'active') ensureBonus(t);
     if (b.mp !== undefined) t.mpId = toInt(String(b.mp).match(/tournaments\/(\d+)/)?.[1] ?? b.mp) || null;
     save(); return send(res, 200, { tournament: publicT(t) });
   }
@@ -462,6 +585,13 @@ async function route(req, res, url) {
   if (m === 'POST' && sub === '/sync') { const t = openT(tid), r = await syncTournament(t); return send(res, 200, { tournament: publicT(t), ...r }); }
   if (m === 'GET' && sub === '/raw') return send(res, 200, getT(tid).mpRaw || {});
 
+  if (m === 'POST' && sub === '/bonus') {
+    const t = openT(tid), b = await readBody(req), idx = b.index === 1 ? 1 : 0;
+    if (!t.tenthBonus) fail(409, 'Bonus frames are turned off for this tournament.');
+    const a = pickBonus(t, idx, b.machineId ? String(b.machineId) : null);
+    if (!a) fail(409, 'No stored machines have target scores yet, so there is nothing to draw from.');
+    save(); return send(res, 200, { tournament: publicT(t) });
+  }
   if (m === 'POST' && sub === '/players') {
     const t = openT(tid), b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a name.');
@@ -478,7 +608,7 @@ async function route(req, res, url) {
   if (m === 'POST' && sub === '/arenas') {
     const t = openT(tid), b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a machine name.');
-    t.arenas.push(newArena(name, null)); save();
+    const a = newArena(name, null); remember(a, t.createdAt); t.arenas.push(a); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PATCH' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
@@ -489,7 +619,7 @@ async function route(req, res, url) {
     if (b.balls === 3 || b.balls === 5) { a.balls = b.balls; a.ballsSetByAdmin = true; }
     if (b.target !== undefined) { a.target = toInt(b.target) || 0; a.targetSource = a.target ? 'admin' : ''; }
     if (typeof b.active === 'boolean') a.active = b.active;
-    rederive(t, a); libPut(a); save();
+    rederive(t, a); libPut(a); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
@@ -501,13 +631,19 @@ async function route(req, res, url) {
   if (m === 'POST' && sub === '/games') {
     const t = openT(tid), g = adminGame(t, await readBody(req));
     if (t.games.some(x => x.playerId === g.playerId && x.status === 'playing')) fail(409, 'This player has a game in progress. Finish or delete it first.');
-    t.games.push({ id: uid(), ...g, ts: Date.now(), by: admin.name }); save();
+    const slot = slotFor(t, g.playerId);
+    if (slot.kind === 'bonus') {
+      ensureBonus(t);
+      const ba = t.arenas.find(x => x.id === t.bonusArenas[slot.idx]);
+      if (ba && g.arenaId !== ba.id) fail(409, `Frame ${t.frames + 1 + slot.idx} is played on ${ba.name} by everyone.`);
+    }
+    t.games.push({ id: uid(), ...g, ts: Date.now(), by: admin.name }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
     const t = openT(tid), g = adminGame(t, await readBody(req));
     const old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
-    Object.assign(old, g, { editedBy: admin.name, editedAt: Date.now() }); save();
+    Object.assign(old, g, { editedBy: admin.name, editedAt: Date.now() }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
@@ -519,7 +655,7 @@ async function route(req, res, url) {
     const g = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
     const idxs = t.games.map((x, i) => x.playerId === g.playerId ? i : -1).filter(i => i >= 0);
     const i = t.games.indexOf(g), other = idxs[idxs.indexOf(i) + dir];
-    if (other !== undefined) { [t.games[i], t.games[other]] = [t.games[other], t.games[i]]; save(); }
+    if (other !== undefined) { [t.games[i], t.games[other]] = [t.games[other], t.games[i]]; ensureBonus(t); save(); }
     return send(res, 200, { tournament: publicT(t) });
   }
   fail(404, 'Not found.');
