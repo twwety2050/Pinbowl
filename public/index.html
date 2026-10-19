@@ -548,7 +548,11 @@ function renderHeader(){
   const nv=$('#nav'), on=$('#nav [aria-selected="true"]');
   if(nv && on && (on.offsetLeft < nv.scrollLeft || on.offsetLeft+on.offsetWidth > nv.scrollLeft+nv.clientWidth)) nv.scrollLeft = on.offsetLeft - 40;
   navArrows();
-  $('#banner').innerHTML = T && readOnly() ? '<div>This tournament is archived. Scores are read-only.</div>' : '';
+  let bn='';
+  if(T && T.daily && T.status==='active') bn=`<div class="bonus">Open until ${ctTime(T.daily.end)}. Join any time and play your 10 frames. The highest total when it closes wins.</div>`;
+  else if(T && T.daily && readOnly()) bn = `<div>${(T.winners||[]).length ? `Winner${T.winners.length>1?'s':''}: ${T.winners.map(w=>`<b>${esc(w.name)}</b>`).join(' and ')} with ${T.winners[0].total}. ` : 'This challenge ended with no scores. '}Scores are locked.</div>`;
+  else if(T && readOnly()) bn='<div>This tournament is archived. Scores are read-only.</div>';
+  $('#banner').innerHTML = bn;
 }
 function render(){
   if(TVMODE || STREAMMODE){ tab='tv'; if(!T){ $('#main').innerHTML=`<div class="${STREAMMODE?'stream':'tv max'}"><div class="tvempty">No tournament is open yet. This screen will update by itself.</div></div>`; return; } return renderTv(); }
@@ -569,7 +573,7 @@ window.addEventListener('resize',navArrows);
 $('#navL').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:-n.clientWidth*0.7}); };
 $('#navR').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:n.clientWidth*0.7}); };
 $('#nav').addEventListener('wheel',e=>{ const n=$('#nav'); if(n.scrollWidth>n.clientWidth && Math.abs(e.deltaY)>Math.abs(e.deltaX)){ n.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
-$('#tsel').onchange=async e=>{ await loadT(e.target.value); resetForm(false); resetPF(); render(); };
+$('#tsel').onchange=async e=>{ store.set('pb-tid-at',Date.now()); await loadT(e.target.value); resetForm(false); resetPF(); KNOWN=null; render(); };
 $('#acct').onclick=async()=>{
   if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=null; await boot(); }
   else { screen='login'; render(); }
@@ -621,7 +625,48 @@ function renderLogin(){
   $('#lback').onclick=()=>{ screen=null; render(); };
   $('#ln').focus();
 }
+/* ---------- NPC Daily Pinbowl Challenge ---------- */
+const dailyOpen = () => !!(T && T.daily && T.status==='active');
+const ctTime = ms => { const s=new Date(ms).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'}); return s==='12:00 AM'?'midnight':s; };
+const ctDay = ms => new Date(ms).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',timeZone:'America/Chicago'});
+const inT = name => !!(T && T.players.some(p=>p.name.toLowerCase()===String(name).toLowerCase()));
+// The challenge running right now, if any; it's the default unless someone picked another tournament recently
+function liveDailyId(){ return (LIST.find(t=>t.daily && t.status==='active')||{}).id; }
+function pickDefaultId(){
+  const saved=store.get('pb-tid'), live=liveDailyId(), recent=Date.now()-Number(store.get('pb-tid-at')||0) < 6*3600e3;
+  if(live && !(recent && LIST.some(t=>t.id===saved))) return live;
+  return (LIST.find(t=>t.id===saved) || LIST.find(t=>t.status==='active') || LIST[0] || {}).id;
+}
+async function joinDaily(){
+  try{ const j=await api(`/api/player/t/${T.id}/join`,'POST'); T=j.tournament; toast("You're in! Pick a machine to start."); return true; }
+  catch(e){ toast(e.message); return false; }
+}
+let KNOWN=null, JSEARCH='';
+async function renderJoinPicker(){
+  if(!KNOWN){ try{ KNOWN=(await api('/api/players/known')).names; }catch(e){ KNOWN=[]; } }
+  const playing=[...T.players].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>p.name);
+  const before=KNOWN.filter(n=>!inT(n));
+  const btns=list=>list.map(n=>`<button data-me="${esc(n)}" data-find="${esc(n.toLowerCase())}">${esc(n)}</button>`).join('');
+  $('#main').innerHTML=`<div class="panel"><h2>Join the challenge</h2>
+    <p class="note">Pick your name if you've played before, or add yourself as a new player.</p>
+    <div class="search" style="margin-top:.8rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="jsearch" placeholder="Find your name" aria-label="Find your name" value="${esc(JSEARCH)}" autocomplete="off"></div>
+    ${playing.length?`<h3>Playing today</h3><div class="pick">${btns(playing)}</div>`:''}
+    ${before.length?`<h3>Played before</h3><div class="pick">${btns(before)}</div>`:''}
+    <p class="note" id="jnone" hidden style="margin-top:.6rem">No one by that name yet. Add yourself below.</p>
+    <h3>New player</h3>
+    <div class="row"><div class="grow"><label for="jnew" style="margin-top:0">Your name</label><input type="text" id="jnew" maxlength="40" autocomplete="name"></div><button class="btn primary" id="jgo">Join</button></div>
+    <div class="row" style="margin-top:1rem"><button class="btn" id="watch">I'm just watching</button></div></div>`;
+  const filt=()=>{ const q=JSEARCH.trim().toLowerCase(); let n=0; $$('[data-me]').forEach(b=>{ const hit=!q||b.dataset.find.includes(q); b.hidden=!hit; if(hit) n++; }); $('#jnone').hidden = !q || n>0; };
+  $('#jsearch').oninput=e=>{ JSEARCH=e.target.value; filt(); if(!$('#jnew').value || $('#jnew').dataset.auto) { $('#jnew').value=e.target.value; $('#jnew').dataset.auto='1'; } }; filt();
+  $$('[data-me]').forEach(b=>b.onclick=()=>{ pickName=b.dataset.me; screen='pin'; render(); });
+  $('#jnew').oninput=e=>{ delete e.target.dataset.auto; };
+  const addNew=()=>{ const n=$('#jnew').value.trim().replace(/\s+/g,' '); if(!n){ toast('Type your name.'); return; }
+    const same=KNOWN.find(k=>k.toLowerCase()===n.toLowerCase()); pickName=same||n; screen='pin'; render(); };
+  $('#jgo').onclick=addNew; $('#jnew').onkeydown=e=>{ if(e.key==='Enter') addNew(); };
+  $('#watch').onclick=()=>{ store.set('pb-watch','1'); go('standings'); };
+}
 function renderPicker(){
+  if(dailyOpen()) return renderJoinPicker();
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
   $('#main').innerHTML=`<div class="panel"><h2>Which player are you?</h2>
     <p class="note">This phone remembers you, including in future weeks. Just signed up? Your name shows up here within a minute.</p>
@@ -637,7 +682,9 @@ async function renderPin(){
     <label for="pin">${exists?'PIN':'New PIN'}</label><input type="password" id="pin" inputmode="numeric" maxlength="4" autocomplete="off" style="max-width:10rem;font-size:1.4rem;letter-spacing:.4em">
     <div class="row" style="margin-top:1rem"><button class="btn primary" id="pgo">${exists?'Continue':'Save PIN'}</button><button class="btn" id="pback">Back</button></div>
     <p class="err" id="perr"></p>${exists?'<p class="note" style="margin-top:.6rem">Forgot it? Ask an admin to reset your PIN.</p>':''}</div>`;
-  const submit=async()=>{ try{ await api('/api/player/claim','POST',{name:pickName,pin:$('#pin').value}); store.del('pb-watch'); screen=null; await refreshList(); tab=tab==='play'?'play':'mine'; render(); toast(`Welcome, ${pickName}`); }catch(e){ $('#perr').textContent=e.message; } };
+  const submit=async()=>{ try{ await api('/api/player/claim','POST',{name:pickName,pin:$('#pin').value}); store.del('pb-watch'); screen=null; await refreshList();
+      if(dailyOpen() && !inT(pickName)){ KNOWN=null; await joinDaily(); tab='play'; } else { tab=tab==='play'?'play':'mine'; toast(`Welcome, ${pickName}`); }
+      render(); }catch(e){ $('#perr').textContent=e.message; } };
   $('#pgo').onclick=submit; $('#pin').onkeydown=e=>{ if(e.key==='Enter') submit(); };
   $('#pback').onclick=()=>{ screen=null; renderHeader(); renderPicker(); };
   $('#pin').focus();
@@ -646,13 +693,16 @@ async function switchPlayer(){ try{ await api('/api/player/logout','POST'); }cat
 
 /* ================= player: my card ================= */
 function notInTournament(){
+  if(PLAYER && dailyOpen()) return `<div class="panel"><h2>${esc(PLAYER.name)}</h2>
+    <p class="note">The challenge is open until ${ctTime(T.daily.end)}. Join to start your card.</p>
+    <div class="row" style="margin-top:.8rem"><button class="btn primary" id="joinNow">Join today's challenge</button><button class="btn" id="chg">Switch player</button></div></div>`;
   return `<div class="panel"><h2>${PLAYER?esc(PLAYER.name):'My card'}</h2>
     <p class="note">${PLAYER?'You are not in this tournament yet. If you just signed up in Matchplay, your name will appear within a minute.':'Pick your name to see your card.'}</p>
     <div class="row" style="margin-top:.8rem"><button class="btn" id="chg">${PLAYER?'Switch player':'Choose my name'}</button></div></div>`;
 }
 function renderMine(){
   const p=me();
-  if(!p){ $('#main').innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; return; }
+  if(!p){ $('#main').innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; if($('#joinNow')) $('#joinNow').onclick=async()=>{ if(await joinDaily()) go('play'); }; return; }
   const rows=standings(), mine=rows.find(x=>x.p.id===p.id), r=mine.r;
   const played=playedArenaIds(p.id);
   const left=T.arenas.filter(a=>a.active && !played.has(a.id));
@@ -687,7 +737,7 @@ function ballHint(a, ballNo, score){
 }
 function renderPlay(){
   const m=$('#main'), p=me();
-  if(!p){ m.innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; return; }
+  if(!p){ m.innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; if($('#joinNow')) $('#joinNow').onclick=async()=>{ if(await joinDaily()) renderPlay(); }; return; }
   if(readOnly()){ m.innerHTML='<div class="panel">This tournament is archived, so scores are locked.</div>'; return; }
   if(PF.fixId) return renderFix(p);
   const g=playingGame(p.id), r=scorePlayer(p.id);
@@ -997,7 +1047,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && (TVMOD
 setInterval(async()=>{
   if(document.hidden || !(TVMODE || STREAMMODE || tab==='tv') || screen) return;
   try{
-    if((TVMODE || STREAMMODE) && !TV_FIXED_T){ await refreshList(); const want=(LIST.find(t=>t.status==='active')||LIST[0]||{}).id; if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
+    if((TVMODE || STREAMMODE) && !TV_FIXED_T){ await refreshList(); const want=liveDailyId()||(LIST.find(t=>t.status==='active')||LIST[0]||{}).id; if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
     if(!T) return;
     T=await api('/api/t/'+T.id); updateTv();
   }catch(e){}
@@ -1029,7 +1079,7 @@ async function renderStored(){
         <div style="flex:0 0 7rem"><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
         <div style="flex:0 0 5rem"><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}"><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
         <div class="grow"><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div></div>
-      <label class="check"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be drawn for bonus frames${m.target?'':' (needs a target)'}</label>
+      <label class="check"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random (bonus frames and the daily challenge)${m.target?'':' (needs a target)'}</label>
       <button class="btn small danger" data-srm="${m.id}" style="margin-top:.4rem">Remove from stored machines</button></div>`).join('');
   $('#main').innerHTML=`<div class="panel"><h2>Stored machines</h2>
     <p class="note">Every machine used in a tournament. Targets, ball counts and short names here fill in automatically when a machine comes back. Changing one also updates any open tournament that has the machine.</p>
@@ -1060,6 +1110,7 @@ function renderRules(){
   const t=a.target, at=p=>fmt(Math.round(t*p/100));
   $('#main').innerHTML=`<div class="panel">
   <h2>How pinbowl works</h2>
+  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins.</p>`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
 
@@ -1227,8 +1278,13 @@ async function renderPlayers(){
 /* ================= admin: tournaments ================= */
 async function renderTournaments(){
   if(!adminSettings || adminSettings.hasToken===undefined){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[],pins:[]}; } }
-  const cur=T;
-  $('#main').innerHTML=`
+  const cur=T, dl=adminSettings.daily||{on:true}, run=LIST.find(t=>t.id===dl.running);
+  const dailyPanel=`<div class="panel"><h2>NPC Daily Pinbowl Challenge</h2>
+    <p class="note">Runs by itself Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM (Central). Each one gets 10 machines picked from Stored machines: 3 Classic, 3 Mid, 3 Modern and 1 more from any category. Players join from the list of past players or add themselves. When it closes, scores lock and the highest total wins.</p>
+    <label class="check"><input type="checkbox" id="dOn" ${dl.on!==false?'checked':''}> Run the daily challenge automatically</label>
+    <p style="margin-top:.6rem">${run?`<b>Running now:</b> ${esc(run.name)}, until ${ctTime(run.end)}.`:(dl.on!==false && dl.next?`<b>Next:</b> ${ctDay(dl.next.start)}, ${ctTime(dl.next.start)} to ${ctTime(dl.next.end)}.`:'Not scheduled.')}</p>
+    <div class="row" style="margin-top:.6rem">${run?`<button class="btn" id="dOpen">Show it</button><button class="btn danger" id="dEnd">End now and pick the winner</button>`:`<button class="btn" id="dStart">Start one now</button>`}</div></div>`;
+  $('#main').innerHTML=`${dailyPanel}
   <div class="panel"><h2>Start a new tournament</h2>
     <p class="note">Create the tournament in Matchplay first, then paste its link here. Players and machines come over automatically, and saved targets fill in for machines you've used before.</p>
     <label for="nmp">Matchplay tournament link or ID</label><input type="text" id="nmp" placeholder="https://app.matchplay.events/tournaments/123456">
@@ -1262,7 +1318,13 @@ async function renderTournaments(){
       T=j.tournament; store.set('pb-tid',T.id); await refreshList(); toast(j.note?`Created. ${j.note}`:'Tournament created'); go('machines'); }
     catch(e){ toast(e.message); } };
   $('#tokGo').onclick=async()=>{ try{ await api('/api/admin/settings','PUT',{mpToken:$('#tok').value}); adminSettings=null; toast('Token saved'); renderTournaments(); }catch(e){ toast(e.message); } };
-  $$('[data-open]').forEach(b=>b.onclick=async()=>{ await loadT(b.dataset.open); resetForm(false); render(); });
+  $('#dOn').onchange=async e=>{ try{ await api('/api/admin/settings','PUT',{dailyOn:e.target.checked}); adminSettings=null; toast(e.target.checked?'Daily challenge turned on':'Daily challenge turned off'); renderTournaments(); }catch(err){ toast(err.message); } };
+  if($('#dStart')) $('#dStart').onclick=async()=>{ if(!confirm('Start a daily challenge now? It picks 10 machines and stays open until the end of today\'s normal hours, or 8 hours if today has none.')) return;
+    try{ const j=await api('/api/admin/daily/start','POST'); T=j.tournament; store.set('pb-tid',T.id); store.set('pb-tid-at',Date.now()); adminSettings=null; await refreshList(); toast('Challenge started'); go('machines'); }catch(e){ toast(e.message); } };
+  if($('#dOpen')) $('#dOpen').onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(run.id); go('standings'); };
+  if($('#dEnd')) $('#dEnd').onclick=async()=>{ if(!confirm('End the challenge now? Scores lock and the highest total wins.')) return;
+    try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); if(T && T.id===run.id) T=j.tournament; adminSettings=null; await refreshList(); toast('Challenge ended'); renderTournaments(); }catch(e){ toast(e.message); } };
+  $$('[data-open]').forEach(b=>b.onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(b.dataset.open); resetForm(false); render(); });
   if(!cur) return;
   if(readOnly()){
     $('#reopen').onclick=async()=>{ if(confirm('Reopen this tournament so scores can be changed?')){ await change('','PATCH',{status:'active'},'Reopened'); await refreshList(); render(); } };
@@ -1320,10 +1382,9 @@ async function refreshList(){ const s=await api('/api/state'); LIST=s.tournament
 async function loadT(id){ try{ T=await api('/api/t/'+id); store.set('pb-tid',id); }catch(e){ T=null; } }
 async function boot(){
   try{ await refreshList(); }catch(e){ $('#main').innerHTML='<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
-  if(TVMODE || STREAMMODE){ document.body.classList.add(STREAMMODE?'streammode':'tvmode'); const id=(LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.status==='active')||LIST[0]||{}).id; T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
+  if(TVMODE || STREAMMODE){ document.body.classList.add(STREAMMODE?'streammode':'tvmode'); const id=(LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.id===liveDailyId())||LIST.find(t=>t.status==='active')||LIST[0]||{}).id; T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
   if(NEEDS_SETUP){ screen='setup'; render(); return; }
-  const saved=store.get('pb-tid');
-  const pickId = (LIST.find(t=>t.id===saved) || LIST.find(t=>t.status==='active') || LIST[0] || {}).id;
+  const pickId = pickDefaultId();
   T=null; if(pickId) await loadT(pickId);
   const valid=tabs().map(x=>x[0]);
   if(!valid.includes(tab)){ const s=store.get('pb-tab-'+(ADMIN?'a':'p')); tab=valid.includes(s)?s:valid[0]; }
