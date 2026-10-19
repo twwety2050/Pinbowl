@@ -324,6 +324,9 @@ body.streammode.clear{background:transparent}
 .tvcut,.stcut{display:flex;align-items:center;gap:.5em;color:var(--lane);font:700 .75em var(--cond);margin:.1em 0 .45em}
 .tvcut::before,.tvcut::after,.stcut::before,.stcut::after{content:'';flex:1;border-top:2px dashed var(--lane)}
 .stcut{color:var(--mark)}.stcut::before,.stcut::after{border-color:var(--mark)}
+.bbox{display:grid;grid-template-columns:repeat(var(--n,3),minmax(0,1fr));gap:.5rem;margin:.3rem 0 .4rem}.bbox label{margin-top:0}.bbox input:disabled{background:var(--grid);opacity:.55;cursor:not-allowed}
+#fsc .balls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.35rem}#fsc .balls .choice{padding:.35rem .4rem;font-size:.85rem}
+.bbox input{padding-left:.5rem;padding-right:.4rem}
 #fsc .choices{grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem}#fsc .choice{padding:.4rem .55rem}
 .fgf{margin-bottom:1rem}
 .fgfh{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2em .6em;background:var(--head);color:var(--headInk);padding:.35em .6em;border-radius:.35em .35em 0 0;border-top:3px solid var(--lane)}
@@ -576,7 +579,7 @@ function frameListHTML(r, mode){ // mode: 'admin' | 'self' | 'view'
 }
 function bindGameActions(root){
   root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const g=T.games.find(x=>x.id===b.dataset.edit);
-    Object.assign(F,{playerId:g.playerId, arenaId:g.arenaId, hitBall:g.hitBall, b1:g.b1!=null?fmt(g.b1):'', final:g.final!=null?fmt(g.final):'', editingId:g.id}); go('enter'); window.scrollTo(0,0); });
+    Object.assign(F,{playerId:g.playerId, arenaId:g.arenaId, hitBall:g.hitBall, b1:g.b1!=null?fmt(g.b1):'', final:g.final!=null?fmt(g.final):'', editingId:g.id, balls:ballsFromRecord(g, A(g.arenaId))}); go('enter'); window.scrollTo(0,0); });
   root.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>change(`/games/${b.dataset.move}/move`,'POST',{dir:Number(b.dataset.dir)}));
   root.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this game? This cannot be undone.')) change(`/games/${b.dataset.del}`,'DELETE',null,'Game deleted'); });
   root.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{ PF.fixId=b.dataset.fix; go('play'); window.scrollTo(0,0); });
@@ -1421,70 +1424,50 @@ let SFS=''; // score being typed by staff
 // Staff: enter any player's score after each ball, like players do for themselves
 function staffScorerHTML(g){
   const ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99)), pid=FED.pid, list=g.scores[pid]||[null,null,null];
-  const stat=q=>{ const l=g.scores[q]||[], c=l.findIndex(r=>r&&r.status==='playing'); if(c>=0) return `Game ${c+1}, ball ${(l[c].balls||[]).length+1} next`; const n=[0,1,2].find(i=>!l[i]); return n==null?'All 3 done':`Game ${n+1} next`; };
-  let h=`<div class="fedit" id="fsc"><b>Enter scores</b> <span class="note">Pick a player, then type their score after each ball.</span>
+  const stat=q=>{ const l=g.scores[q]||[], c=l.findIndex(r=>r&&r.status==='playing'); if(c>=0) return `Game ${c+1} in progress`; const n=[0,1,2].find(i=>!l[i]); return n==null?'All 3 done':`Game ${n+1} next`; };
+  let h=`<div class="fedit" id="fsc"><b>Enter scores</b> <span class="note">Pick a player and game, then type the total score after each ball.</span>
     <div class="choices" style="margin-top:.4rem">${ordP.map(q=>`<button class="choice" data-fscp="${q}" aria-pressed="${q===pid}"><b>${g.positions[q]}. ${esc(fName(q))}</b><small>${stat(q)}</small></button>`).join('')}</div>`;
   if(pid){
-    const card=fCard(g,pid);
-    h+=`<ul class="balllist" style="margin-top:.5rem">${g.machines.map((aid,i)=>{ const r=list[i], f=card.frames[i];
-      return `<li><span>Game ${i+1}</span><b>${esc(abbr(A(aid)))}</b><small>${f?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:(r&&r.status==='playing'?'playing now':'not played')}</small>${r?` <button class="btn small" data-fscfix="${i}">Fix</button>`:''}</li>`; }).join('')}</ul>`;
-    if(FED.fix!=null){
-      const i=FED.fix, r=list[i]||{}, a=A(g.machines[i]);
-      let balls = Array.isArray(r.balls)&&r.balls.length ? r.balls.slice() : [r.b1, r.hitBall===1?null:r.final].filter(x=>x!=null);
-      // a game entered as ball 1 + final score: fill the missing balls with the final score so it stays finished
-      if(!(Array.isArray(r.balls)&&r.balls.length) && r.hitBall===0 && r.final!=null) while(balls.length<(a.balls||3)) balls.push(r.final);
-      const n=Math.max(1, Math.min(a.balls||3, FED.nb||balls.length||1));
-      h+=`<div style="margin-top:.5rem"><b>Fix game ${i+1}: ${esc(a.name)}</b> <span class="note">target ${fmt(a.target)}</span>
-        ${Array.from({length:n},(_,k)=>`<label for="fsx${k}">Score after ball ${k+1}</label><input type="text" inputmode="numeric" id="fsx${k}" data-fsx value="${balls[k]!=null?fmt(balls[k]):''}">`).join('')}
-        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fsxSave">Save</button>${n<(a.balls||3)?'<button class="btn small" id="fsxAdd">Add a ball</button>':''}<button class="btn small" id="fsxBack">Back</button><button class="btn small danger" id="fsxClear">Clear this game</button></div></div>`;
-    } else {
-      const cur=list.findIndex(r=>r&&r.status==='playing'), next=cur>=0?cur:list.findIndex(r=>!r);
-      if(next<0) h+=`<p class="good" style="margin-top:.4rem">${esc(fName(pid))} has finished all 3 games.</p>`;
-      else {
-        const a=A(g.machines[next]), r=list[next], balls=r&&r.balls?r.balls:[], n=balls.length+1;
-        h+=`<h3 style="margin-top:.6rem">${esc(fName(pid))}, game ${next+1}: ${esc(a.name)}</h3><p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
-          ${balls.length?`<ul class="balllist">${balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>`:''}
-          <label for="fss">Score after ball ${n}</label><input type="text" inputmode="numeric" id="fss" value="${esc(SFS)}" placeholder="Score on the machine now" autocomplete="off">
-          <div class="preview" id="fshint"></div>
-          <div class="row"><button class="btn primary" id="fssSave">Save ball ${n}</button>${balls.length?'<button class="btn danger" id="fssCancel">Cancel this game</button>':''}</div>
-          ${rangesBox(a)}`;
-      }
-    }
+    const card=fCard(g,pid), i=FED.game, a=A(g.machines[i]);
+    h+=`<div class="balls" style="margin-top:.5rem">${g.machines.map((aid,k)=>{ const r=list[k], f=card.frames[k];
+      return `<button class="choice" data-fscg="${k}" aria-pressed="${k===i}"><b>Game ${k+1}: ${esc(abbr(A(aid)))}</b><small>${f?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:(r&&r.status==='playing'?'in progress':'not played')}</small></button>`; }).join('')}</div>
+      <h3 style="margin-top:.6rem">${esc(fName(pid))}, game ${i+1}: ${esc(a.name)}</h3><p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
+      ${ballBoxesHTML(a, FED.vals, 'f')}
+      <div class="preview" id="fshint"></div>
+      <div class="row"><button class="btn primary" id="fssSave" data-bxsave="f">Save</button>${list[i]?'<button class="btn danger" id="fssClear">Clear this game</button>':''}</div>
+      ${rangesBox(a)}`;
   }
   return h+`<div class="row" style="margin-top:.6rem"><button class="btn small" data-fpickcancel>Done</button></div></div>`;
 }
+// which game to show for a player: the one in progress, else the next one not played
+function staffGameFor(g, pid){ const l=g.scores[pid]||[], c=l.findIndex(r=>r&&r.status==='playing'); if(c>=0) return c; const n=[0,1,2].find(i=>!l[i]); return n==null?2:n; }
+function staffOpen(g, pid, game){ const i = game!=null ? game : staffGameFor(g,pid); FED={sc:g.id, pid, game:i, vals:ballsFromRecord((g.scores[pid]||[])[i], A(g.machines[i]))}; }
 function bindStaffScorer(cur){
   if(!FED || FED.sc==null) return;
   const g=cur.groups.find(x=>x.id===FED.sc); if(!g) return;
   const sp=async(path,body,msg)=>{ try{ const j=await api(`/api/admin/t/${T.id}/finals/${path}`,'POST',{gid:g.id,pid:FED.pid,...body}); T=j.tournament; if(msg) toast(msg); return j; }catch(e){ toast(e.message); return null; } };
-  const grp=()=>T.finals.rounds.at(-1).groups.find(x=>x.id===g.id);
-  $$('[data-fscp]').forEach(b=>b.onclick=()=>{ FED={sc:g.id,pid:b.dataset.fscp,fix:null}; SFS=''; renderFinals(); const e=$('#fss'); if(e) e.focus(); });
-  $$('[data-fscfix]').forEach(b=>b.onclick=()=>{ FED.fix=Number(b.dataset.fscfix); FED.nb=null; renderFinals(); });
-  if($('#fsxBack')) $('#fsxBack').onclick=()=>{ FED.fix=null; renderFinals(); };
-  if($('#fsxAdd')) $('#fsxAdd').onclick=()=>{ FED.nb=$$('[data-fsx]').length+1; renderFinals(); };
-  $$('[data-fsx]').forEach(e=>e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); });
-  if($('#fsxSave')) $('#fsxSave').onclick=async()=>{ const balls=$$('[data-fsx]').map(i=>num(i.value)).filter(x=>x!=null); const j=await sp('fix',{game:FED.fix,balls},'Fixed'); if(j){ FED.fix=null; renderFinals(); } };
-  if($('#fsxClear')) $('#fsxClear').onclick=async()=>{ if(!confirm('Clear this game?')) return; const j=await sp('cancel',{game:FED.fix},'Cleared'); if(j){ FED.fix=null; renderFinals(); } };
-  const inp=$('#fss'); if(!inp) return;
-  const list=g.scores[FED.pid]||[], c=list.findIndex(r=>r&&r.status==='playing'), idx=c>=0?c:list.findIndex(r=>!r);
-  const a=A(g.machines[idx]), balls=(list[idx]&&list[idx].balls)||[], ballNo=balls.length+1, min=balls.length?balls[balls.length-1]:0;
+  $$('[data-fscp]').forEach(b=>b.onclick=()=>{ staffOpen(g, b.dataset.fscp); renderFinals(); const e=$('#f0'); if(e) e.focus(); });
+  $$('[data-fscg]').forEach(b=>b.onclick=()=>{ staffOpen(g, FED.pid, Number(b.dataset.fscg)); renderFinals(); });
+  if(!$('#fssSave')) return;
+  const a=A(g.machines[FED.game]);
   bindRanges();
-  const upd=()=>{ SFS=inp.value; const s=num(inp.value); $('#fshint').innerHTML = s==null?'' : s<min?`<span class="err">That's lower than the ball ${balls.length} score.</span>` : ballHint(a, ballNo, s); updateRanges(a, s!=null&&s>=min?s:null, ballNo); };
-  inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); SFS=inp.value; } }; inp.onkeydown=e=>{ if(e.key==='Enter') $('#fssSave').click(); }; upd();
+  bindBallBoxes('f', a, FED.vals, rd=>{ $('#fshint').innerHTML=ballVerdict(a, rd); const last=rd.nums.length?rd.nums[rd.nums.length-1]:null; updateRanges(a, last, Math.max(1,rd.nums.length)); });
   $('#fssSave').onclick=async()=>{
-    const s=num(inp.value); if(s==null){ toast('Enter the score.'); return; } $('#fssSave').disabled=true;
-    const who=fName(FED.pid), j=await sp('ball',{score:s}); if(!j){ $('#fssSave').disabled=false; return; }
-    SFS=''; const ng=grp(), r=(ng.scores[FED.pid]||[])[idx];
+    const rd=ballRead(a, FED.vals); if(rd.err){ toast(rd.err); return; } if(!rd.nums.length){ toast('Enter the score after ball 1.'); return; }
+    $('#fssSave').disabled=true;
+    const who=fName(FED.pid), idx=FED.game, j=await sp('fix',{game:idx, balls:rd.nums});
+    if(!j){ $('#fssSave').disabled=false; return; }
+    const ng=T.finals.rounds.at(-1).groups.find(x=>x.id===g.id), r=(ng.scores[FED.pid]||[])[idx];
     if(r && r.status!=='playing'){
       toast(`${who}: ${r.hitBall===1?'Strike!':r.hitBall>=2?'Spare!':'game saved'}`);
       // move on to the next player who still needs this game
       const ordP=ng.players.slice().sort((x,y)=>(ng.positions[x]||99)-(ng.positions[y]||99)), at=ordP.indexOf(FED.pid);
       const nxt=[...ordP.slice(at+1),...ordP.slice(0,at)].find(q=>{ const x=(ng.scores[q]||[])[idx]; return !x || x.status==='playing'; });
-      if(nxt) FED.pid=nxt;
-    } else toast(`Ball ${ballNo} saved`);
-    renderFinals(); const e=$('#fss'); if(e) e.focus();
+      staffOpen(ng, nxt||FED.pid, nxt?idx:null);
+    } else { toast(`${who}: saved, game still in progress`); staffOpen(ng, FED.pid, idx); }
+    renderFinals(); const e=$('#f0'); if(e && !e.value) e.focus();
   };
-  if($('#fssCancel')) $('#fssCancel').onclick=async()=>{ if(!confirm('Cancel this game? Its scores will be removed.')) return; if(await sp('cancel',{},'Game cancelled')) renderFinals(); };
+  if($('#fssClear')) $('#fssClear').onclick=async()=>{ if(!confirm('Clear this game? Its scores will be removed.')) return; if(await sp('cancel',{game:FED.game},'Cleared')){ staffOpen(T.finals.rounds.at(-1).groups.find(x=>x.id===g.id), FED.pid, FED.game); renderFinals(); } };
 }
 function fGroupHTML(g, round, ri, live, edit){
   const res=fResult(g, round.final), N=g.players.length;
@@ -1685,10 +1668,10 @@ function renderFinals(){
   if($('#fImIn')) $('#fImIn').onclick=()=>{ store.del('pb-watch'); renderPicker(); };
   const fpost=(path,body,msg)=>change('/finals/'+path,'POST',body,msg);
   $$('[data-fe]').forEach(b=>b.onclick=()=>{ const [gid,pid,i]=b.dataset.fe.split('|'), g=cur.groups.find(x=>x.id===gid), r=(g.scores[pid]||[])[+i];
-    FED={sc:gid, pid, fix: r && r.status!=='playing' ? +i : null}; SFS=''; renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
+    staffOpen(g, pid, +i); renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
   $$('[data-fsc]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===b.dataset.fsc), ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99));
     const k=[0,1,2].find(i=>ordP.some(q=>{ const x=(g.scores[q]||[])[i]; return !x||x.status==='playing'; })), pid=k==null?ordP[0]:ordP.find(q=>{ const x=(g.scores[q]||[])[k]; return !x||x.status==='playing'; });
-    FED={sc:g.id, pid, fix:null}; SFS=''; renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
+    staffOpen(g, pid); renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
   bindStaffScorer(cur);
   $$('[data-fpicksave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpicksave, ms=$$(`[data-fpick="${gid}"]`).map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } const j=await fpost('picks',{gid,machines:ms},'Games saved'); if(j){ FED=null; renderFinals(); } });
   $$('[data-fpossave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpossave, pos={}; $$(`[data-fposg="${gid}"]`).forEach(s=>{ if(s.value) pos[s.dataset.fpos]=Number(s.value); }); const j=await fpost('picks',{gid,positions:pos},'Positions saved'); if(j){ FED=null; renderFinals(); } });
@@ -1797,9 +1780,53 @@ function renderRules(){
 }
 
 /* ================= admin: enter score ================= */
-const F={playerId:'', arenaId:'', hitBall:null, b1:'', final:'', editingId:null};
-function resetForm(keepArena){ Object.assign(F,{playerId:'', hitBall:null, b1:'', final:'', editingId:null}); if(!keepArena) F.arenaId=''; }
-function formDirty(){ return !!(F.playerId || F.hitBall!==null || F.b1 || F.final || F.editingId || PF.score || PF.fixId); }
+// Staff enter a game as the score after each ball; balls after the one that reached the target are greyed out
+function ballsFromRecord(r, a){
+  if(!r) return [];
+  if(Array.isArray(r.balls) && r.balls.length) return r.balls.map(fmt);
+  const t=a&&a.target||0, out=[];
+  if(r.hitBall===1){ out.push(fmt(r.b1!=null?r.b1:t)); return out; }
+  if(r.b1!=null) out.push(fmt(r.b1));
+  const end = r.hitBall>=2 ? r.hitBall : (a&&a.balls||3), last = r.final!=null ? r.final : (r.hitBall>=2 ? t : r.b1);
+  while(out.length<end-1) out.push(fmt(r.b1));
+  if(last!=null) out.push(fmt(last));
+  return out;
+}
+function ballRead(a, vals){
+  const n=a&&a.balls||3, nums=[]; let hit=0, err='';
+  for(let i=0;i<n;i++){ const v=num(vals[i]); if(v==null) break; if(nums.length && v<nums[nums.length-1]){ err=`Ball ${i+1}'s score is lower than ball ${i}'s.`; break; } nums.push(v); if(a.target && v>=a.target){ hit=i+1; break; } }
+  const done = !err && nums.length && (hit>0 || nums.length>=n);
+  const hitBall = hit && hit<=SPARE_LAST_BALL ? hit : 0;
+  return {nums, hit, done, err, hitBall, b1:nums[0], final:nums[nums.length-1], n};
+}
+function ballBoxesHTML(a, vals, key){
+  const n=a&&a.balls||3, rd=ballRead(a, vals), stop=rd.hit||99;
+  return `<div class="bbox" style="--n:${n}">${Array.from({length:n},(_,i)=>{ const off=i>=stop; return `<div><label for="${key}${i}">Ball ${i+1}</label><input type="text" inputmode="numeric" id="${key}${i}" data-bx="${key}" data-bi="${i}" value="${off?'':esc(vals[i]||'')}" ${off?'disabled placeholder="—"':''} autocomplete="off"></div>`; }).join('')}</div>`;
+}
+function ballVerdict(a, rd){
+  if(rd.err) return `<span class="err">${esc(rd.err)}</span>`;
+  if(!rd.nums.length) return '';
+  const t=a.target, first=pins(rd.nums[0],t), pct=v=>Math.min(100,Math.floor(v*100/t));
+  if(rd.hit===1) return '<span class="big">X</span><br>Strike: 10 pins plus the next two throws.';
+  if(rd.hitBall>=2) return `<span class="big">${first||'–'} /</span><br>${first} pins on ball 1 (${pct(rd.nums[0])}%), then a spare on ball ${rd.hitBall}.`;
+  const tot=Math.max(first,pins(rd.final,t));
+  if(!rd.done) return `${first} pins on ball 1 (${pct(rd.nums[0])}%)${rd.nums.length>1?`, ${tot} pins so far (${pct(rd.final)}%)`:''}. <span class="note">Game not finished yet.</span>`;
+  return `<span class="big">${first||'–'} ${tot-first||'–'}</span><br>${first} pins on ball 1 (${pct(rd.nums[0])}%), ${tot} pins for the game (${pct(rd.final)}%).`;
+}
+// keep greying-out live while typing, without redrawing the page
+function bindBallBoxes(key, a, vals, onChange){
+  const boxes=$$(`[data-bx="${key}"]`);
+  const sync=()=>{ boxes.forEach((b,i)=>{ if(!b.disabled) vals[i]=b.value; }); const rd=ballRead(a, vals), stop=rd.hit||99;
+    boxes.forEach((b,i)=>{ const off=i>=stop; if(off && !b.disabled){ b.value=''; vals[i]=''; } b.disabled=off; b.placeholder=off?'—':''; });
+    for(let i=stop;i<vals.length;i++) vals[i]='';
+    onChange && onChange(rd); };
+  boxes.forEach((b,i)=>{ b.oninput=sync; b.onblur=()=>{ const n=num(b.value); if(n!=null){ b.value=fmt(n); vals[i]=b.value; } };
+    b.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const nx=boxes.slice(i+1).find(x=>!x.disabled); if(nx && !(num(b.value)!=null && a.target && num(b.value)>=a.target)) nx.focus(); else document.querySelector(`[data-bxsave="${key}"]`)?.click(); } }; });
+  sync();
+}
+const F={playerId:'', arenaId:'', hitBall:null, b1:'', final:'', editingId:null, balls:[]};
+function resetForm(keepArena){ Object.assign(F,{playerId:'', hitBall:null, b1:'', final:'', editingId:null, balls:[]}); if(!keepArena) F.arenaId=''; }
+function formDirty(){ return !!(F.playerId || F.balls.some(Boolean) || F.editingId || PF.score || PF.fixId); }
 
 function renderEnter(){
   const m=$('#main');
@@ -1826,27 +1853,16 @@ function renderEnter(){
     <label>Machine</label>
     <div class="choices">${(bonusA?[bonusA]:T.arenas.filter(x=>x.active || x.id===F.arenaId)).map(x=>{ const blocked=!repeatOK && played.has(x.id);
       return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${x.balls} balls, target ${x.target?fmt(x.target):'not set'}</small></button>`; }).join('')}</div>
-    <label>Target${a&&a.target?` (${fmt(a.target)})`:''} reached on</label>
-    <div class="balls">${[1,2,3,0].map(b=>`<button class="choice" data-ball="${b}" aria-pressed="${F.hitBall===b}">${b?`Ball ${b}`:(a&&a.balls===5?'Ball 4–5 or never':'Never')}</button>`).join('')}</div>
-    <div id="inputs"></div>
+    ${a ? `<p class="note" style="margin-top:.7rem">Enter the total score after each ball${a.target?` (target ${fmt(a.target)})`:''}. Balls after the target is reached are greyed out.</p>${ballBoxesHTML(a, F.balls, 'q')}` : ''}
     <div class="preview" id="preview"></div>
     <div class="row"><button class="btn primary" id="saveBtn">${F.editingId?'Save changes':'Save game'}</button>${F.editingId?'<button class="btn" id="cancelEdit">Cancel</button>':''}</div>
     ${rangesBox(a)}
   </div><div class="panel" id="side"></div></div>`;
   bindRanges();
-  let h='';
-  if(F.hitBall!==null){
-    h+=`<label for="b1">Score after ball 1${F.hitBall===1?' (optional)':''}</label><input type="text" inputmode="numeric" id="b1" value="${esc(F.b1)}">`;
-    h+=`<label for="fin">Final score${F.hitBall!==0?' (optional)':''}</label><input type="text" inputmode="numeric" id="fin" value="${esc(F.final)}">`;
-  }
-  $('#inputs').innerHTML=h;
+  $('#saveBtn').dataset.bxsave='q';
   $('#psel').onchange=e=>{ F.playerId=e.target.value; renderEnter(); };
-  $$('[data-arena]').forEach(b=>b.onclick=()=>{ F.arenaId=b.dataset.arena; renderEnter(); });
-  $$('[data-ball]').forEach(b=>b.onclick=()=>{ F.hitBall=Number(b.dataset.ball); renderEnter(); const i=$('#b1'); if(i && F.hitBall!==1) i.focus(); });
-  [['b1','b1'],['fin','final']].forEach(([id,key])=>{ const el=$('#'+id); if(!el) return;
-    el.oninput=()=>{ F[key]=el.value; updatePreview(); const s=num(el.value); if(a) updateRanges(a, s, key==='b1'?1:(F.hitBall||a.balls)); };
-    el.onblur=()=>{ const n=num(el.value); if(n!=null){ el.value=fmt(n); F[key]=el.value; } };
-    el.onkeydown=e=>{ if(e.key==='Enter') $('#saveBtn').click(); }; });
+  $$('[data-arena]').forEach(b=>b.onclick=()=>{ F.arenaId=b.dataset.arena; renderEnter(); const i=$('#q0'); if(i) i.focus(); });
+  if(a) bindBallBoxes('q', a, F.balls, rd=>{ updatePreview(); const last=rd.nums.length?rd.nums[rd.nums.length-1]:null; updateRanges(a, last, Math.max(1,rd.nums.length)); });
   $('#saveBtn').onclick=saveGame;
   if($('#cancelEdit')) $('#cancelEdit').onclick=()=>{ resetForm(false); go('standings'); };
   updatePreview(); renderSide();
@@ -1862,24 +1878,11 @@ function validate(){
     if(slot.kind==='done') return {err:`${P(F.playerId).name} has finished their card.`};
     if(slot.kind==='frame' && !T.allowRepeats && playedArenaIds(F.playerId).has(F.arenaId)) return {err:`${P(F.playerId).name} already played ${a.name}.`};
   }
-  if(F.hitBall===null) return {err:'Pick the ball the target was reached on.'};
-  const b1=num(F.b1), fin=num(F.final), g={playerId:F.playerId, arenaId:F.arenaId, hitBall:F.hitBall, b1, final:fin};
-  if(b1!=null && fin!=null && fin<b1) return {err:'The final score is lower than the ball 1 score.'};
-  if(F.hitBall===1){
-    if(b1!=null && b1<a.target) return {err:'The ball 1 score is below the target, so this is not a strike.'};
-    return {g, text:'<span class="big">X</span><br>Strike: 10 pins plus the next two throws.'};
-  }
-  if(b1==null) return {err:'Enter the score after ball 1.'};
-  if(b1>=a.target) return {err:'The ball 1 score reaches the target. That is a strike, so pick Ball 1.'};
-  const first=pins(b1,a.target), pct=v=>Math.min(100,Math.floor(v*100/a.target));
-  if(F.hitBall>=2){
-    if(fin!=null && fin<a.target) return {err:'The final score is below the target, so this is not a spare.'};
-    return {g, text:`<span class="big">${first||'–'} /</span><br>${first} pins on ball 1 (${pct(b1)}% of target), then a spare.`};
-  }
-  if(fin==null) return {err:'Enter the final score.'};
-  if(a.balls===3 && fin>=a.target) return {err:'The final score reaches the target. Pick the ball it was reached on.'};
-  const tot=Math.max(first,pins(fin,a.target));
-  return {g, text:`<span class="big">${first||'–'} ${tot-first||'–'}</span><br>${first} pins on ball 1 (${pct(b1)}%), ${tot} pins for the game (${pct(fin)}%).`};
+  const rd=ballRead(a, F.balls);
+  if(rd.err) return {err:rd.err};
+  if(!rd.nums.length) return {err:'Enter the score after ball 1.'};
+  if(!rd.done) return {err:`Enter every ball, or stop at the ball that reached the target. ${ballVerdict(a, rd).replace(/<[^>]+>/g,'')}`};
+  return {g:{playerId:F.playerId, arenaId:F.arenaId, balls:rd.nums, hitBall:rd.hitBall, b1:rd.b1, final:rd.final}, text:ballVerdict(a, rd)};
 }
 function updatePreview(){ const v=validate(); $('#preview').innerHTML = v.err ? `<span class="err">${esc(v.err)}</span>` : v.text; }
 async function saveGame(){
