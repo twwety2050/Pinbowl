@@ -324,6 +324,7 @@ body.streammode.clear{background:transparent}
 .tvcut,.stcut{display:flex;align-items:center;gap:.5em;color:var(--lane);font:700 .75em var(--cond);margin:.1em 0 .45em}
 .tvcut::before,.tvcut::after,.stcut::before,.stcut::after{content:'';flex:1;border-top:2px dashed var(--lane)}
 .stcut{color:var(--mark)}.stcut::before,.stcut::after{border-color:var(--mark)}
+#fsc .choices{grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem}#fsc .choice{padding:.4rem .55rem}
 .fgf{margin-bottom:1rem}
 .fgfh{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2em .6em;background:var(--head);color:var(--headInk);padding:.35em .6em;border-radius:.35em .35em 0 0;border-top:3px solid var(--lane)}
 .fgfh b{font:400 1.2em/1.15 var(--display)}
@@ -345,8 +346,6 @@ body.streammode.clear{background:transparent}
 .stream .ftv{padding:.4em}.stream .ftv .fgrid{grid-template-columns:1fr}.stream .ftv .panel{margin:0}
 .tv .ftv .fgrid{grid-template-columns:repeat(var(--fcols,2),minmax(0,1fr))}
 .tv .ftv .fgf .strow{grid-template-columns:2.1em minmax(5em,1fr) repeat(3,4.4em) 3.2em}
-.fbulk table{width:100%}.fbulk td{padding:.25rem .2rem;vertical-align:middle}.fbulk select,.fbulk input{min-width:0;width:100%}
-@media (max-width:520px){.fbulk tr{display:grid;grid-template-columns:1fr 1fr;gap:.25rem;border-bottom:1px solid var(--grid);padding:.3rem 0}.fbulk td:first-child{grid-column:1/-1}.fbulk thead{display:none}.fbulk td[data-l]::before{content:attr(data-l);display:block;font-size:.72rem;color:var(--muted)}}
 .fgroup h3{margin:0;display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
 .fgroup .games{margin:.4rem 0 .2rem;font-size:.92rem}
 .ftable td,.ftable th{padding:.35rem .4rem}
@@ -1339,7 +1338,76 @@ function fResult(g, final){
   return {rows, ranked, complete, tie};
 }
 function roundName(i, n, r){ return r.final ? 'Final' : `Round ${i+1}`; }
-let FED=null; // score editor: {gid,pid,i,hit,b1,final}
+let FED=null; // staff editors: 'picks:gid', 'pos:gid', or the scorer {sc:gid, pid, fix:game index or null}
+let SFS=''; // score being typed by staff
+// Staff: enter any player's score after each ball, like players do for themselves
+function staffScorerHTML(g){
+  const ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99)), pid=FED.pid, list=g.scores[pid]||[null,null,null];
+  const stat=q=>{ const l=g.scores[q]||[], c=l.findIndex(r=>r&&r.status==='playing'); if(c>=0) return `Game ${c+1}, ball ${(l[c].balls||[]).length+1} next`; const n=[0,1,2].find(i=>!l[i]); return n==null?'All 3 done':`Game ${n+1} next`; };
+  let h=`<div class="fedit" id="fsc"><b>Enter scores</b> <span class="note">Pick a player, then type their score after each ball.</span>
+    <div class="choices" style="margin-top:.4rem">${ordP.map(q=>`<button class="choice" data-fscp="${q}" aria-pressed="${q===pid}"><b>${g.positions[q]}. ${esc(fName(q))}</b><small>${stat(q)}</small></button>`).join('')}</div>`;
+  if(pid){
+    const card=fCard(g,pid);
+    h+=`<ul class="balllist" style="margin-top:.5rem">${g.machines.map((aid,i)=>{ const r=list[i], f=card.frames[i];
+      return `<li><span>Game ${i+1}</span><b>${esc(abbr(A(aid)))}</b><small>${f?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:(r&&r.status==='playing'?'playing now':'not played')}</small>${r?` <button class="btn small" data-fscfix="${i}">Fix</button>`:''}</li>`; }).join('')}</ul>`;
+    if(FED.fix!=null){
+      const i=FED.fix, r=list[i]||{}, a=A(g.machines[i]);
+      let balls = Array.isArray(r.balls)&&r.balls.length ? r.balls.slice() : [r.b1, r.hitBall===1?null:r.final].filter(x=>x!=null);
+      // a game entered as ball 1 + final score: fill the missing balls with the final score so it stays finished
+      if(!(Array.isArray(r.balls)&&r.balls.length) && r.hitBall===0 && r.final!=null) while(balls.length<(a.balls||3)) balls.push(r.final);
+      const n=Math.max(1, Math.min(a.balls||3, FED.nb||balls.length||1));
+      h+=`<div style="margin-top:.5rem"><b>Fix game ${i+1}: ${esc(a.name)}</b> <span class="note">target ${fmt(a.target)}</span>
+        ${Array.from({length:n},(_,k)=>`<label for="fsx${k}">Score after ball ${k+1}</label><input type="text" inputmode="numeric" id="fsx${k}" data-fsx value="${balls[k]!=null?fmt(balls[k]):''}">`).join('')}
+        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fsxSave">Save</button>${n<(a.balls||3)?'<button class="btn small" id="fsxAdd">Add a ball</button>':''}<button class="btn small" id="fsxBack">Back</button><button class="btn small danger" id="fsxClear">Clear this game</button></div></div>`;
+    } else {
+      const cur=list.findIndex(r=>r&&r.status==='playing'), next=cur>=0?cur:list.findIndex(r=>!r);
+      if(next<0) h+=`<p class="good" style="margin-top:.4rem">${esc(fName(pid))} has finished all 3 games.</p>`;
+      else {
+        const a=A(g.machines[next]), r=list[next], balls=r&&r.balls?r.balls:[], n=balls.length+1;
+        h+=`<h3 style="margin-top:.6rem">${esc(fName(pid))}, game ${next+1}: ${esc(a.name)}</h3><p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
+          ${balls.length?`<ul class="balllist">${balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>`:''}
+          <label for="fss">Score after ball ${n}</label><input type="text" inputmode="numeric" id="fss" value="${esc(SFS)}" placeholder="Score on the machine now" autocomplete="off">
+          <div class="preview" id="fshint"></div>
+          <div class="row"><button class="btn primary" id="fssSave">Save ball ${n}</button>${balls.length?'<button class="btn danger" id="fssCancel">Cancel this game</button>':''}</div>
+          ${rangesBox(a)}`;
+      }
+    }
+  }
+  return h+`<div class="row" style="margin-top:.6rem"><button class="btn small" data-fpickcancel>Done</button></div></div>`;
+}
+function bindStaffScorer(cur){
+  if(!FED || FED.sc==null) return;
+  const g=cur.groups.find(x=>x.id===FED.sc); if(!g) return;
+  const sp=async(path,body,msg)=>{ try{ const j=await api(`/api/admin/t/${T.id}/finals/${path}`,'POST',{gid:g.id,pid:FED.pid,...body}); T=j.tournament; if(msg) toast(msg); return j; }catch(e){ toast(e.message); return null; } };
+  const grp=()=>T.finals.rounds.at(-1).groups.find(x=>x.id===g.id);
+  $$('[data-fscp]').forEach(b=>b.onclick=()=>{ FED={sc:g.id,pid:b.dataset.fscp,fix:null}; SFS=''; renderFinals(); const e=$('#fss'); if(e) e.focus(); });
+  $$('[data-fscfix]').forEach(b=>b.onclick=()=>{ FED.fix=Number(b.dataset.fscfix); FED.nb=null; renderFinals(); });
+  if($('#fsxBack')) $('#fsxBack').onclick=()=>{ FED.fix=null; renderFinals(); };
+  if($('#fsxAdd')) $('#fsxAdd').onclick=()=>{ FED.nb=$$('[data-fsx]').length+1; renderFinals(); };
+  $$('[data-fsx]').forEach(e=>e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); });
+  if($('#fsxSave')) $('#fsxSave').onclick=async()=>{ const balls=$$('[data-fsx]').map(i=>num(i.value)).filter(x=>x!=null); const j=await sp('fix',{game:FED.fix,balls},'Fixed'); if(j){ FED.fix=null; renderFinals(); } };
+  if($('#fsxClear')) $('#fsxClear').onclick=async()=>{ if(!confirm('Clear this game?')) return; const j=await sp('cancel',{game:FED.fix},'Cleared'); if(j){ FED.fix=null; renderFinals(); } };
+  const inp=$('#fss'); if(!inp) return;
+  const list=g.scores[FED.pid]||[], c=list.findIndex(r=>r&&r.status==='playing'), idx=c>=0?c:list.findIndex(r=>!r);
+  const a=A(g.machines[idx]), balls=(list[idx]&&list[idx].balls)||[], ballNo=balls.length+1, min=balls.length?balls[balls.length-1]:0;
+  bindRanges();
+  const upd=()=>{ SFS=inp.value; const s=num(inp.value); $('#fshint').innerHTML = s==null?'' : s<min?`<span class="err">That's lower than the ball ${balls.length} score.</span>` : ballHint(a, ballNo, s); updateRanges(a, s!=null&&s>=min?s:null, ballNo); };
+  inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); SFS=inp.value; } }; inp.onkeydown=e=>{ if(e.key==='Enter') $('#fssSave').click(); }; upd();
+  $('#fssSave').onclick=async()=>{
+    const s=num(inp.value); if(s==null){ toast('Enter the score.'); return; } $('#fssSave').disabled=true;
+    const who=fName(FED.pid), j=await sp('ball',{score:s}); if(!j){ $('#fssSave').disabled=false; return; }
+    SFS=''; const ng=grp(), r=(ng.scores[FED.pid]||[])[idx];
+    if(r && r.status!=='playing'){
+      toast(`${who}: ${r.hitBall===1?'Strike!':r.hitBall>=2?'Spare!':'game saved'}`);
+      // move on to the next player who still needs this game
+      const ordP=ng.players.slice().sort((x,y)=>(ng.positions[x]||99)-(ng.positions[y]||99)), at=ordP.indexOf(FED.pid);
+      const nxt=[...ordP.slice(at+1),...ordP.slice(0,at)].find(q=>{ const x=(ng.scores[q]||[])[idx]; return !x || x.status==='playing'; });
+      if(nxt) FED.pid=nxt;
+    } else toast(`Ball ${ballNo} saved`);
+    renderFinals(); const e=$('#fss'); if(e) e.focus();
+  };
+  if($('#fssCancel')) $('#fssCancel').onclick=async()=>{ if(!confirm('Cancel this game? Its scores will be removed.')) return; if(await sp('cancel',{},'Game cancelled')) renderFinals(); };
+}
 function fGroupHTML(g, round, ri, live, edit){
   const res=fResult(g, round.final), N=g.players.length;
   const picked=g.machines.length===3, posSet=Object.keys(g.positions||{}).length===N;
@@ -1373,27 +1441,10 @@ function fGroupHTML(g, round, ri, live, edit){
       h+=`<div class="fedit"><b>Playing positions</b> <span class="note">Picks go seed by seed, top seed last.</span>
         ${pickOrder.map((pid,k)=>`<div class="row" style="margin-top:.35rem;align-items:center"><span style="flex:1">${k+1}. ${esc(fName(pid))} <span class="note">#${fSeed(pid)}</span></span><select data-fpos="${pid}" data-fposg="${g.id}" aria-label="Position for ${esc(fName(pid))}" style="width:auto"><option value="">Position…</option>${Array.from({length:N},(_,j)=>`<option value="${j+1}" ${g.positions[pid]===j+1?'selected':''}>Player ${j+1}</option>`).join('')}</select></div>`).join('')}
         <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpossave="${g.id}">Save positions</button>${posSet?`<button class="btn small" data-fpickcancel>Cancel</button>`:''}</div></div>`;
-    } else if(FED && FED.bulk===g.id){
-      const a=A(g.machines[FED.i]), ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99));
-      h+=`<div class="fedit fbulk"><b>Enter results</b> <span class="note">Pick the game, then fill in each player. Leave a player blank to skip them.</span>
-        <div class="balls" style="margin-top:.4rem">${[0,1,2].map(i=>`<button class="choice" data-fbg="${i}" aria-pressed="${FED.i===i}">Game ${i+1}: ${esc(abbr(A(g.machines[i])))}</button>`).join('')}</div>
-        <p class="note" style="margin:.3rem 0">${esc(a.name)} · target ${fmt(a.target)} · ${a.balls} balls</p>
-        <table><thead><tr><th>Player</th><th>Target reached on</th><th>Score after ball 1</th><th>Final score</th></tr></thead><tbody>
-        ${ordP.map(pid=>{ const v=FED.rows[pid]||{}; return `<tr><td><b>${g.positions[pid]}. ${esc(fName(pid))}</b></td>
-          <td data-l="Target reached on"><select data-fbh="${pid}"><option value="">–</option>${[[1,'Ball 1 (strike)'],[2,'Ball 2 (spare)'],[3,'Ball 3 (spare)'],[0,a.balls===5?'Ball 4–5 or never':'Never']].map(([b,l])=>`<option value="${b}" ${v.hit===b?'selected':''}>${l}</option>`).join('')}</select></td>
-          <td data-l="Score after ball 1"><input type="text" inputmode="numeric" data-fbb1="${pid}" value="${esc(v.b1||'')}" ${v.hit===1?'placeholder="optional"':''}></td>
-          <td data-l="Final score"><input type="text" inputmode="numeric" data-fbfin="${pid}" value="${esc(v.final||'')}" ${v.hit!==0?'placeholder="optional"':''}></td></tr>`; }).join('')}
-        </tbody></table>
-        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fbsave">Save game ${FED.i+1} results</button><button class="btn small" data-fpickcancel>Cancel</button></div></div>`;
-    } else if(FED && FED.gid===g.id){
-      const a=A(g.machines[FED.i]);
-      h+=`<div class="fedit"><b>${esc(fName(FED.pid))}, game ${FED.i+1}: ${esc(a.name)}</b> <span class="note">target ${fmt(a.target)}</span>
-        <label>Target reached on</label><div class="balls">${[1,2,3,0].map(b=>`<button class="choice" data-fhit="${b}" aria-pressed="${FED.hit===b}">${b?`Ball ${b}`:(a.balls===5?'Ball 4–5 or never':'Never')}</button>`).join('')}</div>
-        <div class="row"><div class="grow"><label for="fb1">Score after ball 1${FED.hit===1?' (optional)':''}</label><input type="text" inputmode="numeric" id="fb1" value="${esc(FED.b1)}"></div>
-        <div class="grow"><label for="ffin">Final score${FED.hit!==0?' (optional)':''}</label><input type="text" inputmode="numeric" id="ffin" value="${esc(FED.final)}"></div></div>
-        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fsave">Save</button><button class="btn small" id="fcancel">Cancel</button>${(g.scores[FED.pid]||[])[FED.i]?'<button class="btn small danger" id="fclear">Clear this game</button>':''}</div></div>`;
+    } else if(FED && FED.sc===g.id){
+      h+=staffScorerHTML(g);
     }
-    if(picked && posSet && FED!=='picks:'+g.id && FED!=='pos:'+g.id && !(FED&&(FED.gid===g.id||FED.bulk===g.id))) h+=`<p class="note" style="margin-top:.5rem">Tap a game box to enter or fix one score, or enter a whole game at once.</p><div class="row" style="margin-top:.3rem"><button class="btn small primary" data-fbulk="${g.id}">Enter results</button><button class="btn small" data-fchgpicks="${g.id}">Change games</button><button class="btn small" data-fchgpos="${g.id}">Change positions</button></div>`;
+    if(picked && posSet && FED!=='picks:'+g.id && FED!=='pos:'+g.id && !(FED&&FED.sc===g.id)) h+=`<p class="note" style="margin-top:.5rem">Enter scores after each ball for any player, or tap a game box to enter or fix that game.</p><div class="row" style="margin-top:.3rem"><button class="btn small primary" data-fsc="${g.id}">Enter scores</button><button class="btn small" data-fchgpicks="${g.id}">Change games</button><button class="btn small" data-fchgpos="${g.id}">Change positions</button></div>`;
     if(res.tie || (g.order && res.complete)){
       const ordList = FORD[g.id] ? FORD[g.id].map(pid=>res.rows.find(r=>r.pid===pid)) : res.ranked;
       h+=`<div class="fedit"><b>${res.tie?'Tie: set the finishing order':'Finishing order set by hand'}</b> <span class="note">After a tiebreaker, put players in the order they finished.${FORD[g.id]?' <b>Not saved yet.</b>':''}</span>
@@ -1555,31 +1606,16 @@ function renderFinals(){
   if(mf) bindMyFinals(mf);
   if($('#fImIn')) $('#fImIn').onclick=()=>{ store.del('pb-watch'); renderPicker(); };
   const fpost=(path,body,msg)=>change('/finals/'+path,'POST',body,msg);
-  $$('[data-fe]').forEach(b=>b.onclick=()=>{ const [gid,pid,i]=b.dataset.fe.split('|'); const g=cur.groups.find(x=>x.id===gid), r=(g.scores[pid]||[])[+i];
-    FED={gid,pid,i:+i, hit:r?r.hitBall:null, b1:r&&r.b1!=null?fmt(r.b1):'', final:r&&r.final!=null?fmt(r.final):''}; renderFinals(); const e=$('#fb1'); if(e) e.scrollIntoView({block:'center'}); });
-  const bulkRows=(g,i)=>{ const o={}; g.players.forEach(pid=>{ const r=(g.scores[pid]||[])[i]; if(r && r.status!=='playing') o[pid]={hit:r.hitBall, b1:r.b1!=null?fmt(r.b1):'', final:r.final!=null?fmt(r.final):''}; }); return o; };
-  const bulkKeep=()=>{ $$('[data-fbh]').forEach(s=>{ const pid=s.dataset.fbh; FED.rows[pid]={hit:s.value===''?undefined:Number(s.value), b1:$(`[data-fbb1="${pid}"]`).value, final:$(`[data-fbfin="${pid}"]`).value}; }); };
-  $$('[data-fbulk]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===b.dataset.fbulk); let i=[0,1,2].find(k=>g.players.some(pid=>{ const r=(g.scores[pid]||[])[k]; return !r || r.status==='playing'; })); if(i==null) i=2; FED={bulk:g.id, i, rows:bulkRows(g,i)}; renderFinals(); const e=$('.fbulk'); if(e) e.scrollIntoView({block:'center'}); });
-  $$('[data-fbg]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===FED.bulk), i=Number(b.dataset.fbg); FED={bulk:g.id, i, rows:bulkRows(g,i)}; renderFinals(); });
-  $$('[data-fbh]').forEach(s=>s.onchange=()=>{ bulkKeep(); renderFinals(); });
-  $$('[data-fbb1],[data-fbfin]').forEach(e=>e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); });
-  if($('#fbsave')) $('#fbsave').onclick=async()=>{
-    bulkKeep(); const g=cur.groups.find(x=>x.id===FED.bulk), list=Object.entries(FED.rows).filter(([pid,v])=>v.hit!=null);
-    if(!list.length){ toast('Fill in at least one player.'); return; }
-    for(const [pid,v] of list){ if(v.hit!==1 && num(v.b1)==null){ toast(`Enter ${fName(pid)}'s score after ball 1.`); return; } if(v.hit===0 && num(v.final)==null){ toast(`Enter ${fName(pid)}'s final score.`); return; } }
-    $('#fbsave').disabled=true;
-    for(const [pid,v] of list){ try{ const j=await api(`/api/admin/t/${T.id}/finals/score`,'POST',{gid:g.id,pid,game:FED.i,hitBall:v.hit,b1:num(v.b1),final:num(v.final)}); T=j.tournament; }catch(e){ toast(`${fName(pid)}: ${e.message}`); renderFinals(); return; } }
-    toast(`Game ${FED.i+1} saved`); FED=null; renderFinals();
-  };
-  $$('[data-fhit]').forEach(b=>b.onclick=()=>{ FED.b1=$('#fb1').value; FED.final=$('#ffin').value; FED.hit=Number(b.dataset.fhit); renderFinals(); });
-  if($('#fsave')) $('#fsave').onclick=async()=>{ if(FED.hit==null){ toast('Pick the ball the target was reached on.'); return; } const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,hitBall:FED.hit,b1:num($('#fb1').value),final:num($('#ffin').value)},'Saved'); if(j){ FED=null; renderFinals(); } };
-  if($('#fclear')) $('#fclear').onclick=async()=>{ if(!confirm('Clear this game?')) return; const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,clear:true},'Cleared'); if(j){ FED=null; renderFinals(); } };
-  if($('#fcancel')) $('#fcancel').onclick=()=>{ FED=null; renderFinals(); };
-  ['fb1','ffin'].forEach(id=>{ const e=$('#'+id); if(e) e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); }; });
+  $$('[data-fe]').forEach(b=>b.onclick=()=>{ const [gid,pid,i]=b.dataset.fe.split('|'), g=cur.groups.find(x=>x.id===gid), r=(g.scores[pid]||[])[+i];
+    FED={sc:gid, pid, fix: r && r.status!=='playing' ? +i : null}; SFS=''; renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
+  $$('[data-fsc]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===b.dataset.fsc), ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99));
+    const k=[0,1,2].find(i=>ordP.some(q=>{ const x=(g.scores[q]||[])[i]; return !x||x.status==='playing'; })), pid=k==null?ordP[0]:ordP.find(q=>{ const x=(g.scores[q]||[])[k]; return !x||x.status==='playing'; });
+    FED={sc:g.id, pid, fix:null}; SFS=''; renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
+  bindStaffScorer(cur);
   $$('[data-fpicksave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpicksave, ms=$$(`[data-fpick="${gid}"]`).map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } const j=await fpost('picks',{gid,machines:ms},'Games saved'); if(j){ FED=null; renderFinals(); } });
   $$('[data-fpossave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpossave, pos={}; $$(`[data-fposg="${gid}"]`).forEach(s=>{ if(s.value) pos[s.dataset.fpos]=Number(s.value); }); const j=await fpost('picks',{gid,positions:pos},'Positions saved'); if(j){ FED=null; renderFinals(); } });
   $$('[data-fpos]').forEach(s=>s.onchange=()=>{ const taken=$$(`[data-fposg="${s.dataset.fposg}"]`).filter(x=>x!==s).map(x=>x.value); if(s.value && taken.includes(s.value)){ toast('That position is taken.'); s.value=''; } });
-  $$('[data-fpickcancel]').forEach(b=>b.onclick=()=>{ FED=null; renderFinals(); });
+  $$('[data-fpickcancel]').forEach(b=>b.onclick=()=>{ FED=null; SFS=''; renderFinals(); });
   $$('[data-fchgpicks]').forEach(b=>b.onclick=()=>{ FED='picks:'+b.dataset.fchgpicks; renderFinals(); });
   $$('[data-fchgpos]').forEach(b=>b.onclick=()=>{ FED='pos:'+b.dataset.fchgpos; renderFinals(); });
   $$('[data-ford]').forEach(b=>b.onclick=()=>{ const [gid,k,d]=b.dataset.ford.split('|'); const g=cur.groups.find(x=>x.id===gid); const o=FORD[gid]||fResult(g,cur.final).ranked.map(r=>r.pid); const i=+k, j=i+Number(d); [o[i],o[j]]=[o[j],o[i]]; FORD[gid]=o; renderFinals(); });
