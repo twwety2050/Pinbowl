@@ -668,13 +668,91 @@ $('#themeBtn').onclick=e=>{
 };
 document.addEventListener('click',e=>{ const m=$('#themeMenu'); if(!m.hidden && !m.contains(e.target)){ m.hidden=true; $('#themeBtn').setAttribute('aria-expanded','false'); } });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('#themeMenu').hidden){ $('#themeMenu').hidden=true; $('#themeBtn').focus(); } });
+function renderSheet(){
+  const url=location.origin+'/';
+  let svg=''; try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:0, scalable:true}); }catch(e){}
+  document.title='Pinbowl – how to play';
+  document.body.className='sheetmode';
+  document.body.innerHTML=`<style>
+    @page{size:letter portrait;margin:.45in}
+    body.sheetmode{background:#d9d9d9;margin:0;padding:0;color:#17120F;font-family:var(--body);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .sheet{width:7.6in;min-height:9.9in;margin:.3in auto;background:#fff;padding:0;box-shadow:0 2px 12px rgba(0,0,0,.25);display:flex;flex-direction:column}
+    .sh-head{background:#17120F;color:#fff;padding:.16in .3in .14in;border-top:6px solid #DE7A22;box-shadow:inset 0 6px 0 #B8461B}
+    .sh-head h1{font:400 26pt/1 "Graduate","Bowlby One",Impact,sans-serif;margin:0;letter-spacing:.01em}
+    .sh-head p{margin:.04in 0 0;font:600 11.5pt "Barlow Condensed",sans-serif;color:#F4B57A;letter-spacing:.04em;text-transform:uppercase}
+    .sh-body{padding:.16in .3in .12in;display:flex;flex-direction:column;gap:.12in;flex:1}
+    .sh-top{display:grid;grid-template-columns:2.2in 1fr;gap:.3in;align-items:center}
+    .sh-qr{border:3px solid #17120F;border-radius:10px;padding:.11in;text-align:center}
+    .sh-qr svg{width:1.8in;height:1.8in;display:block;margin:0 auto}
+    .sh-qr b{display:block;font:700 13pt "Barlow Condensed",sans-serif;margin-top:.06in}
+    .sh-qr small{display:block;font:500 9pt var(--body);color:#444;word-break:break-all}
+    .sh-steps{margin:0;padding:0;list-style:none;counter-reset:s}
+    .sh-steps li{counter-increment:s;position:relative;padding-left:.5in;margin:0 0 .07in;font-size:11.5pt;line-height:1.25}
+    .sh-steps li::before{content:counter(s);position:absolute;left:0;top:-.02in;width:.36in;height:.36in;border-radius:50%;background:#DE7A22;color:#17120F;font:700 15pt/.36in "Barlow Condensed",sans-serif;text-align:center}
+    .sh-steps b{font-weight:700}
+    .sh-big{border:4px solid #C2461A;background:#FFE7CF;border-radius:10px;padding:.1in .2in;text-align:center}
+    .sh-big strong{display:block;font:400 22pt/1.1 "Bowlby One","Graduate",Impact,sans-serif;color:#C2461A;text-transform:uppercase}
+    .sh-big span{display:block;font:700 12.5pt/1.25 "Barlow",sans-serif;margin-top:.07in}
+    .sh-grid{display:grid;grid-template-columns:1fr 1fr;gap:.16in}
+    .sh-box{border:1.5px solid #C3D2DD;border-radius:8px;padding:.09in .14in}
+    .sh-box h2{font:700 13.5pt "Barlow Condensed",sans-serif;margin:0 0 .05in;text-transform:uppercase;letter-spacing:.03em;color:#17120F;border-bottom:2px solid #DE7A22;padding-bottom:.03in}
+    .sh-box p,.sh-box li{font-size:10pt;line-height:1.28;margin:.035in 0}
+    .sh-box ul{margin:.02in 0 0;padding-left:.2in}
+    .sh-mk{color:#C2461A;font-weight:700}
+    .sh-ex{background:#EAF1F7;border-radius:6px;padding:.07in .1in;font-size:10pt!important}
+    .sh-group{display:flex;gap:.1in;align-items:center}
+    .sh-group i{font-style:normal;display:inline-flex;gap:3px}
+    .sh-group i span{width:.22in;height:.22in;border-radius:50%;background:#17120F;display:inline-block}
+    .sh-foot{margin-top:auto;padding:.08in .3in .1in;font:600 10.5pt "Barlow Condensed",sans-serif;color:#56636E;display:flex;justify-content:space-between;border-top:1px solid #C3D2DD}
+    .sh-print{position:fixed;top:12px;right:12px;font:700 15px var(--body);background:#DE7A22;color:#17120F;border:0;border-radius:8px;padding:.6em 1.1em;cursor:pointer}
+    @media print{body.sheetmode{background:#fff}.sheet{margin:0;box-shadow:none;width:7.6in;min-height:0}.sh-print{display:none}}
+  </style>
+  <button class="sh-print" onclick="window.print()">Print this page</button>
+  <div class="sheet">
+    <div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>
+    <div class="sh-body">
+      <div class="sh-top">
+        <div class="sh-qr">${svg}<b>Scan with your phone camera</b><small>${esc(url)}</small></div>
+        <ol class="sh-steps">
+          <li><b>Scan the code</b> with your phone's camera and open the link.</li>
+          <li><b>Pick your name</b> from the list and set a 4-digit PIN. You only do this once; your phone remembers you.</li>
+          <li><b>Tap Enter score</b> and pick the machine you're about to play.</li>
+          <li><b>Type your score after each ball.</b> The app tells you if you got a strike or spare and moves you to your next game.</li>
+          <li><b>Check My card and Standings</b> any time to see your frames and where you rank.</li>
+        </ol>
+      </div>
+      <div class="sh-big"><strong>Enter your score after every ball</strong><span>Type the total score showing on the machine after each ball, before you plunge the next one. Don't wait until the game is over.</span></div>
+      <div class="sh-grid">
+        <div class="sh-box"><h2>Play solo or in a group</h2>
+          <p>Play by yourself, or with other people in a group of <b>2, 3 or 4</b>, taking turns on the same machine like a normal multiplayer game.</p>
+          <p>Everyone keeps their own score on <b>their own phone</b>, after every ball.</p>
+          <p>Made a typo? Open <b>My card</b> and use <b>Fix my scores</b>, or ask a scorekeeper.</p>
+          <h2 style="margin-top:.1in">Finals</h2>
+          <p>The top half of the field moves on to finals, played in groups of up to 4, PAPA style. The app tells you when it's your turn to pick, and the top 2 in each group move on. Details are on the <b>Rules</b> tab.</p>
+        </div>
+        <div class="sh-box"><h2>How scoring works</h2>
+          <p>Each game you play is <b>one frame of bowling</b>. Play the machines in any order. Your card adds up like real bowling, so a perfect card is 300. Every machine has a <b>target score</b> (see the Machines tab).</p>
+          <ul>
+            <li><span class="sh-mk">Strike (X):</span> reach the target on ball 1.</li>
+            <li><span class="sh-mk">Spare (/):</span> reach the target on ball 2 or 3.</li>
+            <li><b>Pins:</b> otherwise, 1 pin for every 10% of the target (0 to 9).</li>
+          </ul>
+          <p class="sh-ex"><b>Example, target 100 million:</b> after ball 1 you have 26 million (26%) = <b>2 pins</b>. You finish at 68 million (68%) = <b>6 pins</b> total, shown as <b>2 4</b>. Reach 100 million on ball 2 or 3 instead for a spare: <b>2 /</b>.</p>
+          <p>Strikes and spares earn bonus pins from your next games, like bowling. Until then your card shows “…”.</p>
+        </div>
+      </div>
+    </div>
+    <div class="sh-foot"><span>Questions? Ask the tournament director or a scorekeeper.</span><span>${esc(url.replace(/^https?:\/\//,'').replace(/\/$/,''))}</span></div>
+  </div>`;
+}
 $('#share').onclick=()=>{
   const url=location.origin+'/';
   let svg='';
   try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:16, scalable:true}); }catch(e){ svg='<p class="note">QR code could not load. Share the link below.</p>'; }
   const d=$('#shareBox');
   d.innerHTML=`<div class="sharecard" role="dialog" aria-modal="true" aria-label="Share this site"><h2>Scan to follow along</h2><div class="qr">${svg}</div><p class="url">${esc(url)}</p>
-    <div class="row" style="justify-content:center">${navigator.share?'<button class="btn primary" id="natShare">Share link</button>':''}<button class="btn" id="cpLink">Copy link</button><button class="btn" id="closeShare">Close</button></div></div>`;
+    <div class="row" style="justify-content:center">${navigator.share?'<button class="btn primary" id="natShare">Share link</button>':''}<button class="btn" id="cpLink">Copy link</button><button class="btn" id="closeShare">Close</button></div>
+    ${ADMIN?`<p style="margin-top:.6rem;text-align:center"><a href="/?sheet=1" target="_blank" rel="noopener">Print the how-to-play sheet</a></p>`:''}</div>`;
   d.hidden=false;
   const close=()=>{ d.hidden=true; d.innerHTML=''; };
   $('#closeShare').onclick=close; d.onclick=e=>{ if(e.target===d) close(); };
@@ -1666,20 +1744,28 @@ function exampleSheet(games){
   T={...T, frames:3, tenthBonus:false, arenas:[{id:'x',target:100,balls:3,abbr:'EX'}], games:games.map((g,i)=>({id:'e'+i,playerId:'e',arenaId:'x',status:'done',...g}))};
   const html=sheetHTML(scorePlayer('e')); T=saved; return html;
 }
+function finalsRulesHTML(){
+  return `<h2>Finals</h2>
+  <p><b>Who makes it:</b> after qualifying, the top half of the players (rounded down) make the finals. The cut line shows on the Standings tab.</p>
+  <p><b>Groups:</b> finalists play in groups of up to 4, set up like PAPA finals so the top seeds are spread out (for 16 players: 1, 8, 9 and 16 play together, and so on). If the number of finalists isn't 4, 8, 16 or 32, the top seeds get a bye into round 2.</p>
+  <p><b>Picking games:</b> the top seed in each group picks 3 games: one Classic, one Mid and one Modern, and the order they're played. Groups take turns, starting with the group that has the highest seed. A group can't put a machine in the same game slot an earlier group already has it in, but it can use it for a different game. (If Group A plays Rush as game 1, Group B can still play Rush as game 2 or 3.)</p>
+  <p><b>Picking positions:</b> next, each player picks whether they play 1st, 2nd, 3rd or 4th. The 2nd seed picks first, then the 3rd seed, and so on, with the top seed picking last. The app tells you when it's your turn.</p>
+  <p><b>Playing:</b> the 3 games are scored as a 3-frame pinbowl card. Strikes and spares carry into the next game, and game 3 counts flat. <b>Enter your score after every ball</b> on the Finals tab, just like qualifying. Everyone in the group finishes a game before anyone starts the next one.</p>
+  <p><b>Moving on:</b> the top 2 totals in each group move on to the next round and are regrouped by seed. Ties for a spot are settled with a tiebreaker game. In the last group, the highest total wins the finals.</p>
+  <p><b>Matchplay points:</b> each finished group's totals are shared out of 21 points.</p>`;
+}
 function renderRules(){
   const a=T.arenas.find(x=>x.target)||{name:'King Kong',target:150000000,balls:3};
   const t=a.target, at=p=>fmt(Math.round(t*p/100));
   $('#main').innerHTML=`<div class="panel">
-  ${T.finals?`<h2>Finals</h2>
-  <p>Groups of up to 4 play 3 games. The top seed in each group picks one Classic, one Mid and one Modern machine, and the order they're played. Groups pick one after another, starting with the group that has the highest seed, and a group can't put a machine in the same game slot another group already has it in (it can use it for a different game). Then each player picks a playing position, starting with the 2nd seed and ending with the top seed.</p>
-  <p>The 3 games are scored as a 3-frame pinbowl card. Strikes and spares carry into the next game, and game 3 counts flat. The top 2 totals in each group move on, regrouped by seed like PAPA finals. Ties are settled with a tiebreaker game. The highest total in the final group wins.</p>
-  <h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
+  ${T.finals?`${finalsRulesHTML()}<h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
   ${T.finals?'':'<h2>How pinbowl works</h2>'}
   ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins.</p>`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
 
   <h3>Entering your scores</h3>
+  <p>You can play by yourself or with other people in a group of 2, 3 or 4. Everyone enters their own score on their own phone.</p>
   <p>Open Enter score, pick the machine, and type your total score after each ball, before you plunge the next one. The app tells you right away if you got a strike or spare. Made a typo? Use Fix my scores on your card.</p>
 
   <h3>Strike, spare, or pins</h3>
@@ -1706,6 +1792,7 @@ function renderRules(){
   <p>Frame ${T.frames+1} is played on one machine drawn at random from machines we've played before. It's drawn the first time anyone needs it, and then everyone plays that same machine. Frame ${T.frames+2} gets its own machine the same way.</p>
   <p>Machines come in three categories: Classic, Mid and Modern. Frames 1 to ${T.frames} use 3 from two categories and 4 from the third. Frames ${T.frames+1} and ${T.frames+2} come from the two categories with 3, so a full card has 4 of each.</p>
   ${bonusLine()?`<p><b>This week:</b> ${bonusLine().replace(/^Bonus frames? for everyone: /,'')}.</p>`:''}`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
+  ${!T.finals && !T.daily ? `<div style="margin-top:1.4rem">${finalsRulesHTML()}</div>` : ''}
   </div>`;
 }
 
@@ -1981,7 +2068,7 @@ setInterval(async()=>{
     }
   }catch(e){}
 }, 20000);
-boot();
+if(QS.has('sheet')) renderSheet(); else boot();
 </script>
 </body>
 </html>
