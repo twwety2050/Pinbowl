@@ -548,8 +548,7 @@ function renderHeader(){
   const nv=$('#nav'), on=$('#nav [aria-selected="true"]');
   if(nv && on && (on.offsetLeft < nv.scrollLeft || on.offsetLeft+on.offsetWidth > nv.scrollLeft+nv.clientWidth)) nv.scrollLeft = on.offsetLeft - 40;
   navArrows();
-  const bl = !['tournaments','admins','stored','players','totals'].includes(tab) ? bonusLine() : '';
-  $('#banner').innerHTML = T && readOnly() ? '<div>This tournament is archived. Scores are read-only.</div>' : (bl?`<div class="bonus">${bl}</div>`:'');
+  $('#banner').innerHTML = T && readOnly() ? '<div>This tournament is archived. Scores are read-only.</div>' : '';
 }
 function render(){
   if(TVMODE || STREAMMODE){ tab='tv'; if(!T){ $('#main').innerHTML=`<div class="${STREAMMODE?'stream':'tv max'}"><div class="tvempty">No tournament is open yet. This screen will update by itself.</div></div>`; return; } return renderTv(); }
