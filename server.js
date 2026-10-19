@@ -215,9 +215,100 @@ if (process.env.RESET_ADMIN && process.env.RESET_ADMIN.includes(':')) {
 save();
 
 function publicT(t) { const { mpRaw, ...rest } = t; return rest; }
-function summary(t) { return { id: t.id, name: t.name, status: t.status, createdAt: t.createdAt, players: t.players.length, mpId: t.mpId }; }
+function summary(t) { return { id: t.id, name: t.name, status: t.status, createdAt: t.createdAt, players: t.players.length, mpId: t.mpId, daily: !!t.daily, end: t.daily ? t.daily.end : null }; }
+
+/* ---------------- NPC Daily Pinbowl Challenge ---------------- */
+// Runs by itself: Friday 5 pm to midnight, Saturday and Sunday 11 am to 7 pm, Central time.
+const TZ = 'America/Chicago';
+const nowMs = () => Date.now() + Number(process.env.TIME_SHIFT_MS || 0); // TIME_SHIFT_MS is only for testing
+const DAILY_HOURS = { Fri: [17, 24], Sat: [11, 19], Sun: [11, 19] };
+function zoned(ms) {
+  const o = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' })
+    .formatToParts(new Date(ms)).forEach(x => { o[x.type] = x.value; });
+  return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, min: +o.minute, wd: o.weekday };
+}
+// Central wall-clock time to a real moment (handles daylight saving)
+function zonedToMs(y, m, d, h, min = 0) {
+  const want = Date.UTC(y, m - 1, d, h, min); let t = want;
+  for (let i = 0; i < 3; i++) { const z = zoned(t); t += want - Date.UTC(z.y, z.m - 1, z.d, z.h, z.min); }
+  return t;
+}
+// The challenge window for a Central calendar day, or null if there isn't one that day
+function windowFor(y, m, d) {
+  const noon = zonedToMs(y, m, d, 12), wd = zoned(noon).wd, hrs = DAILY_HOURS[wd];
+  if (!hrs) return null;
+  const start = zonedToMs(y, m, d, hrs[0]), end = zonedToMs(y, m, d, hrs[1]);
+  const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const label = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(noon));
+  return { key, start, end, label };
+}
+function nextWindow(from = nowMs()) {
+  const z = zoned(from);
+  for (let i = 0; i < 8; i++) {
+    const day = new Date(Date.UTC(z.y, z.m - 1, z.d + i));
+    const w = windowFor(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate());
+    if (w && w.end > from) return w;
+  }
+  return null;
+}
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+// 3 Classic, 3 Mid, 3 Modern, then 1 more from any category, from stored machines with a target
+function pickDailyMachines() {
+  const pool = shuffle(db.machines.filter(m => m.target > 0 && m.inDraw !== false));
+  const picked = [];
+  for (const c of CATS) picked.push(...pool.filter(m => m.cat === c).slice(0, 3));
+  const rest = pool.filter(m => !picked.includes(m));
+  while (picked.length < 10 && rest.length) picked.push(rest.shift());
+  return picked;
+}
+function createDaily(w, manual) {
+  const t = {
+    id: uid(), name: `NPC Daily Pinbowl Challenge - ${w.label}`, mpId: null, status: 'active',
+    createdAt: nowMs(), frames: 10, tenthBonus: true, allowRepeats: false,
+    players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
+    daily: { key: manual ? 'manual-' + nowMs() : w.key, start: w.start, end: w.end },
+  };
+  t.arenas = pickDailyMachines().map(m => { const a = newArena(m.name, m.mpId); a.mid = m.id; a.cat = m.cat || ''; remember(a, t.createdAt); return a; });
+  db.tournaments.push(t); save();
+  console.log(`Started ${t.name} with ${t.arenas.length} machines.`);
+  return t;
+}
+// Bowling total for one player, counting only finished games (same scoring as the page)
+function totalFor(t, pid) {
+  const N = t.frames, all = t.games.filter(g => g.playerId === pid && g.status !== 'playing').map(g => rollsOf(t, g));
+  const reg = all.slice(0, N), rolls = all.flatMap(f => f.rolls); let idx = 0, total = 0;
+  reg.forEach((f, k) => {
+    const own = f.rolls.length; let need = f.type === 'strike' ? 2 : f.type === 'spare' ? 1 : 0;
+    if (k === N - 1 && !t.tenthBonus) need = 0;
+    total += (f.type === 'open' ? f.rolls[0] + f.rolls[1] : 10) + rolls.slice(idx + own, idx + own + need).reduce((a, b) => a + b, 0);
+    idx += own;
+  });
+  return total;
+}
+function closeDaily(t) {
+  const scores = t.players.map(p => ({ name: p.name, total: totalFor(t, p.id) })).sort((a, b) => b.total - a.total);
+  const top = scores.length && scores[0].total > 0 ? scores[0].total : null;
+  t.winners = top == null ? [] : scores.filter(x => x.total === top);
+  t.status = 'archived'; t.endedAt = nowMs(); save();
+  console.log(`Closed ${t.name}. Winner: ${t.winners.map(w => w.name).join(', ') || 'none'}.`);
+}
+function dailyTick() {
+  const now = nowMs();
+  for (const t of db.tournaments) if (t.daily && t.status === 'active' && now >= t.daily.end) closeDaily(t);
+  if (db.settings.dailyOn === false) return;
+  const w = nextWindow(now);
+  if (w && now >= w.start && now < w.end && !db.tournaments.some(t => t.daily && t.daily.key === w.key)) createDaily(w);
+}
+setInterval(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 30000);
+setTimeout(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 2000);
 function getT(id) { return db.tournaments.find(t => t.id === id) || fail(404, 'Tournament not found.'); }
-function openT(id) { const t = getT(id); if (t.status === 'archived') fail(409, 'This tournament is archived. Scores are locked.'); return t; }
+function openT(id) {
+  const t = getT(id);
+  if (t.daily && t.status === 'active' && nowMs() >= t.daily.end) closeDaily(t); // a challenge locks the moment it ends
+  if (t.status === 'archived') fail(409, t.daily ? 'This challenge has closed. Scores are locked.' : 'This tournament is archived. Scores are locked.');
+  return t;
+}
 
 /* ---------------- sessions ---------------- */
 function parseCookies(req) {
@@ -383,12 +474,19 @@ async function route(req, res, url) {
     });
   }
   if (m === 'GET' && (mt = p.match(/^\/api\/t\/(\w+)$/))) return send(res, 200, publicT(getT(mt[1])));
+  if (m === 'GET' && p === '/api/players/known') {
+    const names = new Map();
+    db.tournaments.forEach(t => t.players.forEach(x => names.set(lower(x.name), x.name)));
+    Object.values(db.playerAccounts).forEach(a => { if (!names.has(lower(a.name))) names.set(lower(a.name), a.name); });
+    return send(res, 200, { names: [...names.values()].sort((a, b) => a.localeCompare(b)) });
+  }
 
   // ----- players: PIN and own scores -----
   if (m === 'GET' && p === '/api/player/exists') return send(res, 200, { exists: !!db.playerAccounts[lower(url.searchParams.get('name'))] });
   if (m === 'POST' && p === '/api/player/claim') {
     const b = await readBody(req), name = String(b.name || '').trim(), pin = String(b.pin || '');
     if (!name) fail(400, 'Pick your name.');
+    if (name.length > 40) fail(400, 'Use a shorter name.');
     if (!/^\d{4}$/.test(pin)) fail(400, 'Your PIN is 4 digits.');
     const bad = throttle('pin:' + ipOf(req) + ':' + lower(name), 8);
     const acct = db.playerAccounts[lower(name)];
@@ -401,6 +499,14 @@ async function route(req, res, url) {
     const tok = parseCookies(req).pb_player; if (tok) { delete db.playerSessions[tok]; save(); }
     setCookie(res, req, 'pb_player', '', 0);
     return send(res, 200, { ok: true });
+  }
+  if (m === 'POST' && (mt = p.match(/^\/api\/player\/t\/(\w+)\/join$/))) {
+    if (!player) fail(401, 'Pick your name and enter your PIN first.');
+    const t = openT(mt[1]);
+    if (!t.daily) fail(409, 'Sign up for this tournament in Matchplay.');
+    if (nowMs() >= t.daily.end) fail(409, 'This challenge has closed.');
+    if (!t.players.some(x => lower(x.name) === lower(player))) { t.players.push({ id: uid(), name: player, mpId: null, joinedAt: nowMs() }); save(); }
+    return send(res, 200, { tournament: publicT(t) });
   }
   if ((mt = p.match(/^\/api\/player\/t\/(\w+)(\/.*)$/))) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
@@ -484,7 +590,20 @@ async function route(req, res, url) {
   const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {
-    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), admins: db.admins.map(a => ({ id: a.id, name: a.name })), pins: Object.keys(db.playerAccounts), scorekeepers: db.scorekeepers });
+    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), admins: db.admins.map(a => ({ id: a.id, name: a.name })), pins: Object.keys(db.playerAccounts), scorekeepers: db.scorekeepers,
+      daily: { on: db.settings.dailyOn !== false, next: nextWindow(), running: (db.tournaments.find(t => t.daily && t.status === 'active') || {}).id || null } });
+  }
+  if (m === 'POST' && p === '/api/admin/daily/start') {
+    const now = nowMs(), w = nextWindow(now), open = w && now >= w.start;
+    const label = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(now));
+    const t = createDaily({ key: '', start: now, end: open ? w.end : now + 8 * 3600e3, label }, true);
+    return send(res, 200, { tournament: publicT(t) });
+  }
+  if (m === 'POST' && p === '/api/admin/daily/end') {
+    const b = await readBody(req), t = getT(String(b.id || ''));
+    if (!t.daily || t.status !== 'active') fail(409, 'That challenge is not running.');
+    t.daily.end = Math.min(t.daily.end, nowMs()); closeDaily(t);
+    return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'POST' && p === '/api/admin/scorekeepers') {
     const b = await readBody(req), key = lower(b.name);
@@ -496,6 +615,7 @@ async function route(req, res, url) {
   if (m === 'PUT' && p === '/api/admin/settings') {
     const b = await readBody(req);
     if (typeof b.mpToken === 'string') db.settings.mpToken = b.mpToken.trim();
+    if (typeof b.dailyOn === 'boolean') db.settings.dailyOn = b.dailyOn;
     save(); return send(res, 200, { ok: true });
   }
   if (m === 'POST' && p === '/api/admin/admins') {
@@ -582,7 +702,7 @@ async function route(req, res, url) {
       createdAt: Date.now(), frames: 10, tenthBonus: true, allowRepeats: false,
       players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
     };
-    const prev = db.tournaments.slice().sort((a, b) => b.createdAt - a.createdAt)[0];
+    const prev = db.tournaments.filter(x => !x.daily).sort((a, b) => b.createdAt - a.createdAt)[0];
     if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats });
     if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
