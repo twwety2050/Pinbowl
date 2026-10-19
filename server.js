@@ -215,7 +215,7 @@ if (process.env.RESET_ADMIN && process.env.RESET_ADMIN.includes(':')) {
 save();
 
 function publicT(t) { const { mpRaw, ...rest } = t; return rest; }
-function summary(t) { return { id: t.id, name: t.name, status: t.status, createdAt: t.createdAt, players: t.players.length, mpId: t.mpId, daily: !!t.daily, end: t.daily ? t.daily.end : null }; }
+function summary(t) { return { id: t.id, name: t.name, status: t.status, createdAt: t.createdAt, players: t.players.length, mpId: t.mpId, daily: !!t.daily, end: t.daily ? t.daily.end : null, finals: !!t.finals, done: !!t.done }; }
 
 /* ---------------- NPC Daily Pinbowl Challenge ---------------- */
 // Runs by itself: Friday 5 pm to midnight, Saturday and Sunday 11 am to 7 pm, Central time.
@@ -308,6 +308,119 @@ function openT(id) {
   if (t.daily && t.status === 'active' && nowMs() >= t.daily.end) closeDaily(t); // a challenge locks the moment it ends
   if (t.status === 'archived') fail(409, t.daily ? 'This challenge has closed. Scores are locked.' : 'This tournament is archived. Scores are locked.');
   return t;
+}
+// Qualifying scores lock while a tournament is marked Done (undo Done to change them)
+function scoringT(id) {
+  const t = openT(id);
+  if (t.done) fail(409, 'This tournament is marked done. Undo "Done" on the Finals tab to change scores.');
+  if (t.finals) fail(409, 'Finals scores are entered on the Finals tab.');
+  return t;
+}
+
+/* ---------------- Finals: PAPA-style groups, 3 games each, scored as a 3-frame pinbowl card ---------------- */
+// Finalists: the number the admin set, or the top half rounded down
+function finalsCount(t) { const n = t.players.length; return Math.max(0, Math.min(n, t.finalsCount ? t.finalsCount : Math.floor(n / 2))); }
+// Seed order: by qualifying total, unless an admin set the order by hand
+function seedOrder(t) {
+  const tot = new Map(t.players.map(p => [p.id, totalFor(t, p.id)]));
+  let order = t.players.slice().sort((a, b) => tot.get(b.id) - tot.get(a.id) || a.name.localeCompare(b.name)).map(p => p.id);
+  if (Array.isArray(t.seedOverride)) { const ov = t.seedOverride.filter(id => order.includes(id)); order = [...ov, ...order.filter(id => !ov.includes(id))]; }
+  return { order, tot };
+}
+// Deal seeds into groups like PAPA: 1-8-9-16, 2-7-10-15, 3-6-11-14, 4-5-12-13
+function snake(seeds, groups) {
+  const out = Array.from({ length: groups }, () => []);
+  seeds.forEach((s, i) => { const row = Math.floor(i / groups), col = i % groups; out[row % 2 === 0 ? col : groups - 1 - col].push(s); });
+  return out;
+}
+// Round 1: the top seeds get byes so round 2 is a full 4, 8, 16 or 32
+function planFirstRound(N) {
+  if (N <= 4) return { byes: 0, groups: 1 };
+  let S = 4; while (S * 2 <= N) S *= 2;
+  if (N === S) return { byes: 0, groups: S / 4 };
+  const g = Math.ceil((N - S) / 2);
+  return { byes: S - 2 * g, groups: g };
+}
+const LETTERS = 'ABCDEFGHIJKLMNOP';
+function makeGroups(F, seedNums, groupCount) {
+  return snake(seedNums.slice().sort((a, b) => a - b), groupCount).map((ss, i) => ({
+    id: uid(), label: LETTERS[i] || String(i + 1), seeds: ss, players: ss.map(s => F.finals.seeds[s - 1].pid),
+    machines: [], positions: {}, scores: {}, order: null,
+  }));
+}
+// One player's 3 games as a mini bowling card: strikes and spares carry into the next game, game 3 counts flat
+function groupCard(F, g, pid) {
+  const res = (g.scores[pid] || []), frames = g.machines.map((aid, i) => res[i] && res[i].status !== 'playing' ? rollsOf(F, { arenaId: aid, ...res[i] }) : null);
+  let total = 0;
+  frames.forEach((f, k) => {
+    if (!f) return;
+    const need = k === frames.length - 1 ? 0 : (f.type === 'strike' ? 2 : f.type === 'spare' ? 1 : 0);
+    const next = frames.slice(k + 1).filter(Boolean).flatMap(x => x.rolls).slice(0, need);
+    total += (f.type === 'open' ? f.rolls[0] + f.rolls[1] : 10) + next.reduce((a, b) => a + b, 0);
+  });
+  return { total, complete: g.machines.length === 3 && frames.every(Boolean) };
+}
+function groupResult(F, g, final) {
+  const rows = g.players.map(pid => ({ pid, seed: F.finals.seeds.find(s => s.pid === pid).seed, ...groupCard(F, g, pid) }));
+  const complete = rows.every(r => r.complete);
+  let ranked = rows.slice().sort((a, b) => b.total - a.total || a.seed - b.seed);
+  if (Array.isArray(g.order) && g.order.length === rows.length) ranked = g.order.map(pid => rows.find(r => r.pid === pid)).filter(Boolean);
+  let tie = false;
+  if (complete && !g.order) {
+    const t = ranked.map(r => r.total);
+    tie = final ? t.some((v, i) => i > 0 && v === t[i - 1]) : (t.length > 2 && t[1] === t[2]);
+  }
+  return { rows, ranked, complete, tie };
+}
+function checkPicks(F, ms) {
+  if (ms.length !== 3 || new Set(ms).size !== 3 || ms.some(id => !F.arenas.some(a => a.id === id))) fail(400, 'Pick 3 different machines.');
+  const cats = ms.map(id => F.arenas.find(a => a.id === id).cat || '');
+  if (CATS.every(c => F.arenas.some(a => a.cat === c)) && new Set(cats).size !== 3) fail(400, 'Pick one Classic, one Mid and one Modern.');
+}
+const seedOf = (F, pid) => (F.finals.seeds.find(x => x.pid === pid) || {}).seed || 99;
+// Groups pick their games in order of their top seed (the group with seed 1 first)
+const groupTopSeed = (F, g) => Math.min(...g.players.map(pid => seedOf(F, pid)));
+function groupsBefore(F, round, g) { const s = groupTopSeed(F, g); return round.groups.filter(x => x !== g && groupTopSeed(F, x) < s); }
+// The same machine can't be in the same game slot as another group in this round
+function checkSlots(F, round, g, ms) {
+  for (const x of round.groups) {
+    if (x === g || x.machines.length !== 3) continue;
+    ms.forEach((id, i) => { if (x.machines[i] === id) fail(400, `Group ${x.label} already has ${(F.arenas.find(a => a.id === id) || {}).name || 'that machine'} as game ${i + 1}. Pick it for a different game, or pick another machine.`); });
+  }
+}
+// Position picks go 2nd seed, 3rd, 4th, then the top seed
+function pickOrder(F, g) { const by = g.players.slice().sort((a, b) => seedOf(F, a) - seedOf(F, b)); return [...by.slice(1), by[0]]; }
+function createFinals(t) {
+  const { order, tot } = seedOrder(t), N = finalsCount(t);
+  if (N < 2) fail(409, 'Finals need at least 2 players.');
+  const keep = new Set([...t.arenas.filter(a => a.active && !a.bonusOnly).map(a => a.id), ...(t.bonusArenas || [])]);
+  const F = {
+    id: uid(), name: `${t.name} Finals`, mpId: null, status: 'active', createdAt: Date.now(),
+    frames: 3, tenthBonus: false, allowRepeats: true, players: [], games: [],
+    arenas: t.arenas.filter(a => keep.has(a.id) && a.target).map(a => ({ ...a, active: true })),
+    finals: { parentId: t.id, seeds: [], byes: 0, rounds: [], champion: null, places: null },
+  };
+  order.slice(0, N).forEach((pid, i) => {
+    const p = t.players.find(x => x.id === pid);
+    F.players.push({ id: p.id, name: p.name, mpId: p.mpId ?? null });
+    F.finals.seeds.push({ pid, name: p.name, seed: i + 1, qual: tot.get(pid) });
+  });
+  const plan = planFirstRound(N); F.finals.byes = plan.byes;
+  const r1 = Array.from({ length: N - plan.byes }, (_, i) => plan.byes + i + 1);
+  F.finals.rounds.push({ groups: makeGroups(F, r1, plan.groups), final: N <= 4 });
+  db.tournaments.push(F); t.finalsId = F.id; save();
+  return F;
+}
+function nextRound(F) {
+  const fin = F.finals, cur = fin.rounds[fin.rounds.length - 1];
+  const results = cur.groups.map(g => groupResult(F, g, cur.final));
+  if (results.some(r => !r.complete)) fail(409, 'Every group needs all 3 games entered first.');
+  if (results.some(r => r.tie)) fail(409, 'A group has a tie. Set its finishing order first.');
+  if (cur.final) { fin.places = results[0].ranked.map(r => r.pid); fin.champion = fin.places[0]; save(); return; }
+  const seeds = results.flatMap(r => r.ranked.slice(0, 2).map(x => x.seed));
+  if (fin.rounds.length === 1) for (let s = 1; s <= fin.byes; s++) seeds.push(s);
+  fin.rounds.push({ groups: makeGroups(F, seeds, Math.max(1, Math.floor(seeds.length / 4))), final: seeds.length <= 4 });
+  save();
 }
 
 /* ---------------- sessions ---------------- */
@@ -427,7 +540,7 @@ function rederive(t, a) {
 
 async function autoSync() {
   for (const t of db.tournaments) {
-    if (t.status !== 'active' || !t.mpId) continue;
+    if (t.status !== 'active' || !t.mpId || t.done) continue;
     try { await syncTournament(t); } catch (e) { t.lastSyncError = e.message; }
   }
 }
@@ -502,15 +615,69 @@ async function route(req, res, url) {
   }
   if (m === 'POST' && (mt = p.match(/^\/api\/player\/t\/(\w+)\/join$/))) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
-    const t = openT(mt[1]);
+    const t = scoringT(mt[1]);
     if (!t.daily) fail(409, 'Sign up for this tournament in Matchplay.');
     if (nowMs() >= t.daily.end) fail(409, 'This challenge has closed.');
     if (!t.players.some(x => lower(x.name) === lower(player))) { t.players.push({ id: uid(), name: player, mpId: null, joinedAt: nowMs() }); save(); }
     return send(res, 200, { tournament: publicT(t) });
   }
+  if (m === 'POST' && (mt = p.match(/^\/api\/player\/t\/(\w+)\/finals\/(pick|ball|fix|cancel)$/))) {
+    if (!player) fail(401, 'Pick your name and enter your PIN first.');
+    const F = openT(mt[1]), act = mt[2], b = await readBody(req);
+    if (!F.finals) fail(409, 'This is not a finals tournament.');
+    const fin = F.finals; if (fin.champion) fail(409, 'The finals are finished.');
+    const round = fin.rounds[fin.rounds.length - 1];
+    const me = F.players.find(x => lower(x.name) === lower(player)) || fail(403, "You're not in these finals.");
+    const g = round.groups.find(x => x.players.includes(me.id)) || fail(409, "You're not playing in this round.");
+    const order = pickOrder(F, g), top = order[order.length - 1], N = g.players.length;
+    const nameOf = pid => (F.players.find(x => x.id === pid) || {}).name || 'someone';
+    if (act === 'pick') {
+      if (Array.isArray(b.machines)) {
+        if (me.id !== top) fail(403, 'The top seed in your group picks the games.');
+        if (g.machines.length === 3) fail(409, 'The games are already picked.');
+        const wait = groupsBefore(F, round, g).sort((a, c) => groupTopSeed(F, a) - groupTopSeed(F, c)).find(x => x.machines.length !== 3);
+        if (wait) fail(409, `Group ${wait.label} picks their games before your group.`);
+        const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); g.machines = ms;
+      } else {
+        if (g.machines.length !== 3) fail(409, 'The games get picked first.');
+        const turn = order.find(pid => !g.positions[pid]);
+        if (!turn) fail(409, 'Every position is already picked.');
+        if (turn !== me.id) fail(409, `It's ${nameOf(turn)}'s turn to pick.`);
+        const n = parseInt(b.position, 10);
+        if (!(n >= 1 && n <= N) || Object.values(g.positions).includes(n)) fail(400, 'That position is taken.');
+        g.positions[me.id] = n;
+        // the last player gets the spot that's left
+        const left = order.filter(pid => !g.positions[pid]);
+        if (left.length === 1) g.positions[left[0]] = Array.from({ length: N }, (_, i) => i + 1).find(x => !Object.values(g.positions).includes(x));
+      }
+      save(); return send(res, 200, { tournament: publicT(F) });
+    }
+    if (g.machines.length !== 3 || Object.keys(g.positions).length !== N) fail(409, 'Games and positions need to be picked first.');
+    g.scores[me.id] = g.scores[me.id] || [null, null, null];
+    const mine = g.scores[me.id];
+    if (act === 'ball') {
+      const score = toInt(b.score); if (score == null) fail(400, 'Enter your score.');
+      let i = mine.findIndex(r => r && r.status === 'playing');
+      if (i < 0) { i = mine.findIndex(r => !r); if (i < 0) fail(409, 'All 3 of your games are done.'); mine[i] = { balls: [], by: player }; }
+      const r = mine[i], a = F.arenas.find(x => x.id === g.machines[i]);
+      const last = r.balls[r.balls.length - 1];
+      if (last != null && score < last) fail(400, `Your score can't be lower than after ball ${r.balls.length} (${last.toLocaleString('en-US')}).`);
+      r.balls.push(score); derive(r, a); r.at = Date.now();
+    }
+    if (act === 'fix') {
+      const i = parseInt(b.game, 10), r = mine[i];
+      if (!r || !Array.isArray(r.balls)) fail(409, 'A scorekeeper entered this game. Ask them to fix it.');
+      const a = F.arenas.find(x => x.id === g.machines[i]), trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
+      if (trial.status === 'playing' && mine.some((x, j) => j !== i && x && x.status === 'playing')) fail(409, 'Finish your current game first.');
+      Object.assign(r, trial, { at: Date.now() });
+    }
+    if (act === 'cancel') { const i = mine.findIndex(r => r && r.status === 'playing'); if (i >= 0) mine[i] = null; }
+    if (!mine.some(Boolean)) delete g.scores[me.id];
+    g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
+  }
   if ((mt = p.match(/^\/api\/player\/t\/(\w+)(\/.*)$/))) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
-    const t = openT(mt[1]), sub = mt[2], me = playerInT(t, player);
+    const t = scoringT(mt[1]), sub = mt[2], me = playerInT(t, player);
     const mine = t.games.filter(g => g.playerId === me.id);
     const playing = mine.find(g => g.status === 'playing');
 
@@ -586,7 +753,7 @@ async function route(req, res, url) {
   // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
   const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
-  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/games(\/\w+(\/move)?)?$/.test(p))) fail(401, 'Log in as an admin to do that.');
+  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order))$/.test(p))) fail(401, 'Log in as an admin to do that.');
   const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {
@@ -740,47 +907,113 @@ async function route(req, res, url) {
     if (b.frames != null) t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10));
     if (typeof b.tenthBonus === 'boolean') t.tenthBonus = b.tenthBonus;
     if (typeof b.allowRepeats === 'boolean') t.allowRepeats = b.allowRepeats;
-    if (t.status === 'active') ensureBonus(t);
     if (b.mp !== undefined) t.mpId = toInt(String(b.mp).match(/tournaments\/(\d+)/)?.[1] ?? b.mp) || null;
+    if (typeof b.done === 'boolean') t.done = b.done;
+    if (b.finalsCount !== undefined) t.finalsCount = b.finalsCount ? Math.max(2, Math.min(64, parseInt(b.finalsCount, 10) || 0)) : null;
+    if (b.seedOverride !== undefined) t.seedOverride = Array.isArray(b.seedOverride) ? b.seedOverride.map(String).filter(id => t.players.some(p => p.id === id)) : null;
+    if (t.status === 'active' && !t.done && !t.finals) ensureBonus(t);
     save(); return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && sub === '') {
     const t = getT(tid);
-    if (t.status !== 'archived') fail(409, 'Archive the tournament before deleting it.');
+    if (t.status !== 'archived' && !t.finals) fail(409, 'Archive the tournament before deleting it.');
+    if (t.finals) { const q = db.tournaments.find(x => x.id === t.finals.parentId); if (q && q.finalsId === t.id) q.finalsId = null; }
     db.tournaments = db.tournaments.filter(x => x.id !== tid); save();
     return send(res, 200, { ok: true });
   }
   if (m === 'POST' && sub === '/sync') { const t = openT(tid), r = await syncTournament(t); return send(res, 200, { tournament: publicT(t), ...r }); }
   if (m === 'GET' && sub === '/raw') return send(res, 200, getT(tid).mpRaw || {});
 
+  if (m === 'POST' && sub === '/finals') {
+    const t = openT(tid);
+    if (t.daily || t.finals) fail(409, 'Finals are for weekly tournaments.');
+    if (!t.done) fail(409, 'Mark the tournament as done first.');
+    if (t.finalsId && db.tournaments.some(x => x.id === t.finalsId)) fail(409, 'Finals already exist. Delete them first to make new ones.');
+    const F = createFinals(t);
+    return send(res, 200, { tournament: publicT(F) });
+  }
+  if (m === 'POST' && (mt = sub.match(/^\/finals\/(picks|score|order|next|undo)$/))) {
+    const F = openT(tid), b = await readBody(req), act = mt[1];
+    if (!F.finals) fail(409, 'This is not a finals tournament.');
+    if ((act === 'next' || act === 'undo') && !admin) fail(401, 'Only an admin can change rounds.');
+    const fin = F.finals, round = fin.rounds[fin.rounds.length - 1];
+    if (act === 'next') { nextRound(F); return send(res, 200, { tournament: publicT(F) }); }
+    if (act === 'undo') {
+      if (fin.champion) { fin.champion = null; fin.places = null; save(); return send(res, 200, { tournament: publicT(F) }); }
+      if (fin.rounds.length < 2) fail(409, 'This is the first round. Delete the finals to start over.');
+      if (round.groups.some(g => Object.keys(g.scores).length)) fail(409, 'Scores are already entered in this round. Clear them first.');
+      fin.rounds.pop(); save(); return send(res, 200, { tournament: publicT(F) });
+    }
+    if (fin.champion) fail(409, 'The finals are finished. Undo the result first.');
+    const g = round.groups.find(x => x.id === String(b.gid || '')) || fail(404, 'Group not found. Only the current round can be changed.');
+    if (act === 'picks') {
+      if (Array.isArray(b.machines)) {
+        const ms = b.machines.map(String);
+        checkPicks(F, ms); checkSlots(F, round, g, ms);
+        if (Object.values(g.scores).some(r => r && r.some(Boolean)) && g.machines.join() !== ms.join()) fail(409, 'Scores are already entered for this group.');
+        g.machines = ms;
+      }
+      if (b.positions && typeof b.positions === 'object') {
+        const pos = {};
+        for (const [pid, v] of Object.entries(b.positions)) {
+          if (!g.players.includes(pid)) continue;
+          const n = parseInt(v, 10); if (n >= 1 && n <= g.players.length) pos[pid] = n;
+        }
+        const used = Object.values(pos); if (new Set(used).size !== used.length) fail(400, 'Two players have the same position.');
+        g.positions = pos;
+      }
+      save(); return send(res, 200, { tournament: publicT(F) });
+    }
+    if (act === 'score') {
+      const pid = String(b.pid || ''), i = parseInt(b.game, 10);
+      if (!g.players.includes(pid)) fail(400, 'That player is not in this group.');
+      if (!(i >= 0 && i < 3) || g.machines.length !== 3) fail(400, 'Pick the 3 machines first.');
+      g.scores[pid] = g.scores[pid] || [null, null, null];
+      if (b.clear) g.scores[pid][i] = null;
+      else {
+        const hit = Number(b.hitBall), b1 = toInt(b.b1), final = toInt(b.final);
+        if (![0, 1, 2, 3].includes(hit)) fail(400, 'Pick the ball the target was reached on.');
+        if (hit !== 1 && b1 == null) fail(400, 'Enter the score after ball 1.');
+        if (hit === 0 && final == null) fail(400, 'Enter the final score.');
+        g.scores[pid][i] = { hitBall: hit, b1, final, by: actor, at: Date.now() };
+      }
+      if (!g.scores[pid].some(Boolean)) delete g.scores[pid];
+      g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
+    }
+    if (act === 'order') {
+      if (b.order === null) g.order = null;
+      else { const o = (b.order || []).map(String); if (o.length !== g.players.length || g.players.some(x => !o.includes(x))) fail(400, 'List every player once.'); g.order = o; }
+      save(); return send(res, 200, { tournament: publicT(F) });
+    }
+  }
   if (m === 'POST' && sub === '/bonus') {
-    const t = openT(tid), b = await readBody(req), idx = b.index === 1 ? 1 : 0;
+    const t = scoringT(tid), b = await readBody(req), idx = b.index === 1 ? 1 : 0;
     if (!t.tenthBonus) fail(409, 'Bonus frames are turned off for this tournament.');
     const a = pickBonus(t, idx, b.machineId ? String(b.machineId) : null);
     if (!a) fail(409, 'No stored machines have target scores yet, so there is nothing to draw from.');
     save(); return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'POST' && sub === '/players') {
-    const t = openT(tid), b = await readBody(req), name = String(b.name || '').trim();
+    const t = scoringT(tid), b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a name.');
     if (t.players.some(x => lower(x.name) === lower(name))) fail(409, 'That player is already here.');
     t.players.push({ id: uid(), name, mpId: null }); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/players\/(\w+)$/))) {
-    const t = openT(tid);
+    const t = scoringT(tid);
     t.games = t.games.filter(g => g.playerId !== mt[1]); t.players = t.players.filter(x => x.id !== mt[1]); save();
     return send(res, 200, { tournament: publicT(t) });
   }
 
   if (m === 'POST' && sub === '/arenas') {
-    const t = openT(tid), b = await readBody(req), name = String(b.name || '').trim();
+    const t = scoringT(tid), b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a machine name.');
     const a = newArena(name, null); remember(a, t.createdAt); t.arenas.push(a); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PATCH' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
-    const t = openT(tid), b = await readBody(req);
+    const t = scoringT(tid), b = await readBody(req);
     const a = t.arenas.find(x => x.id === mt[1]) || fail(404, 'Machine not found.');
     if (typeof b.name === 'string' && b.name.trim()) a.name = b.name.trim();
     if (typeof b.abbr === 'string') a.abbr = cleanAbbr(b.abbr) || abbrOf(a.name);
@@ -792,13 +1025,13 @@ async function route(req, res, url) {
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
-    const t = openT(tid);
+    const t = scoringT(tid);
     t.games = t.games.filter(g => g.arenaId !== mt[1]); t.arenas = t.arenas.filter(x => x.id !== mt[1]); save();
     return send(res, 200, { tournament: publicT(t) });
   }
 
   if (m === 'POST' && sub === '/games') {
-    const t = openT(tid), g = adminGame(t, await readBody(req));
+    const t = scoringT(tid), g = adminGame(t, await readBody(req));
     if (t.games.some(x => x.playerId === g.playerId && x.status === 'playing')) fail(409, 'This player has a game in progress. Finish or delete it first.');
     const slot = slotFor(t, g.playerId);
     if (slot.kind === 'bonus') {
@@ -810,17 +1043,17 @@ async function route(req, res, url) {
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-    const t = openT(tid), g = adminGame(t, await readBody(req));
+    const t = scoringT(tid), g = adminGame(t, await readBody(req));
     const old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
     Object.assign(old, g, { editedBy: actor, editedAt: Date.now() }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-    const t = openT(tid); t.games = t.games.filter(x => x.id !== mt[1]); save();
+    const t = scoringT(tid); t.games = t.games.filter(x => x.id !== mt[1]); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'POST' && (mt = sub.match(/^\/games\/(\w+)\/move$/))) {
-    const t = openT(tid), b = await readBody(req), dir = b.dir === -1 ? -1 : 1;
+    const t = scoringT(tid), b = await readBody(req), dir = b.dir === -1 ? -1 : 1;
     const g = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
     const idxs = t.games.map((x, i) => x.playerId === g.playerId ? i : -1).filter(i => i >= 0);
     const i = t.games.indexOf(g), other = idxs[idxs.indexOf(i) + dir];
