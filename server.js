@@ -658,7 +658,14 @@ async function route(req, res, url) {
     if (act === 'ball') {
       const score = toInt(b.score); if (score == null) fail(400, 'Enter your score.');
       let i = mine.findIndex(r => r && r.status === 'playing');
-      if (i < 0) { i = mine.findIndex(r => !r); if (i < 0) fail(409, 'All 3 of your games are done.'); mine[i] = { balls: [], by: player }; }
+      if (i < 0) {
+        i = mine.findIndex(r => !r); if (i < 0) fail(409, 'All 3 of your games are done.');
+        // everyone in the group finishes a game before anyone starts the next one
+        const behind = i > 0 ? g.players.filter(pid => { const x = (g.scores[pid] || [])[i - 1]; return !x || x.status === 'playing'; }) : [];
+        if (behind.length) { if (!mine.some(Boolean)) delete g.scores[me.id]; } 
+        if (behind.length) fail(409, `Wait until everyone has finished game ${i}. Still to finish: ${behind.map(nameOf).join(', ')}.`);
+        mine[i] = { balls: [], by: player };
+      }
       const r = mine[i], a = F.arenas.find(x => x.id === g.machines[i]);
       const last = r.balls[r.balls.length - 1];
       if (last != null && score < last) fail(400, `Your score can't be lower than after ball ${r.balls.length} (${last.toLocaleString('en-US')}).`);
