@@ -17,7 +17,7 @@ const SPARE_LAST_BALL = 3;
 /* ---------------- storage ---------------- */
 fs.mkdirSync(DATA_DIR, { recursive: true });
 function emptyDb() {
-  return { admins: [], sessions: {}, settings: { mpToken: '' }, tournaments: [], machines: [], playerAccounts: {}, playerSessions: {} };
+  return { admins: [], sessions: {}, settings: { mpToken: '' }, tournaments: [], machines: [], scorekeepers: [], playerAccounts: {}, playerSessions: {} };
 }
 function loadDb() {
   try { return { ...emptyDb(), ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; }
@@ -60,6 +60,9 @@ function abbrOf(name) {
   return (words[0] || name).replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase();
 }
 const cleanAbbr = s => String(s || '').replace(/[^A-Za-z0-9&]/g, '').slice(0, 5).toUpperCase();
+// Machine categories. A full card is 4 of each: 3/3/4 in frames 1-10, then 11 and 12 from the two short ones.
+const CATS = ['classic', 'mid', 'modern'];
+const cleanCat = c => CATS.includes(String(c || '').toLowerCase()) ? String(c).toLowerCase() : '';
 // Stored machines: every machine ever used, with its saved target, ball count and short name.
 // A tournament's machine (arena) points at its stored machine with arena.mid.
 function storedFor(a) {
@@ -75,6 +78,7 @@ function remember(a, when = Date.now()) {
   if (a.target) m.target = a.target;
   if (a.balls) m.balls = a.balls;
   if (a.abbr) m.abbr = a.abbr;
+  if (a.cat) m.cat = a.cat;
   m.lastUsed = Math.max(m.lastUsed || 0, when);
   return m;
 }
@@ -82,11 +86,12 @@ const libPut = a => remember(a);
 function newArena(name, mpId) {
   const a = { id: uid(), name, mpId: mpId ?? null, balls: 3, target: 0, active: true, abbr: abbrOf(name), targetSource: '' };
   const l = storedFor(a);
-  if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; if (a.target) a.targetSource = 'saved'; }
+  if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; a.cat = l.cat || ''; if (a.target) a.targetSource = 'saved'; }
   return a;
 }
 // Upgrade data from earlier versions and build the stored machines list from past tournaments.
 if (!Array.isArray(db.machines)) db.machines = [];
+if (!Array.isArray(db.scorekeepers)) db.scorekeepers = [];
 db.tournaments.sort((a, b) => a.createdAt - b.createdAt).forEach(t => t.arenas.forEach(a => {
   if (!a.abbr) a.abbr = abbrOf(a.name);
   if (!a.targetSource) a.targetSource = a.targetFromMp ? 'mp' : (a.target ? 'admin' : '');
@@ -140,14 +145,27 @@ function arenaForStored(t, m) {
   if (!a.target) { a.target = m.target; a.targetSource = 'saved'; }
   return a;
 }
-// Pick the machine for bonus game idx: the one asked for, or a random stored machine with a target.
+// Pick the machine for bonus game idx: the one asked for, or a random stored machine with a target,
+// from the category this tournament is shortest on (so 3/3/4 ends up 4/4/4), never one already in it.
 function pickBonus(t, idx, machineId) {
   t.bonusArenas = t.bonusArenas || [];
-  const otherMids = t.bonusArenas.filter((id, i) => i !== idx && id).map(id => (t.arenas.find(a => a.id === id) || {}).mid);
+  const otherIds = t.bonusArenas.filter((id, i) => i !== idx && id);
+  const regular = t.arenas.filter(a => a.active && !a.bonusOnly && !t.bonusArenas.includes(a.id));
+  const others = otherIds.map(id => t.arenas.find(a => a.id === id)).filter(Boolean);
+  const current = t.arenas.find(a => a.id === t.bonusArenas[idx]);
+  const used = new Set([...regular, ...others, current].filter(Boolean).map(a => a.mid).filter(Boolean));
   let m;
   if (machineId) m = db.machines.find(x => x.id === machineId) || fail(404, 'Machine not found.');
   else {
-    const pool = db.machines.filter(x => x.target > 0 && x.inDraw !== false && !otherMids.includes(x.id));
+    const counts = {}; CATS.forEach(c => counts[c] = 0);
+    [...regular, ...others].forEach(a => { if (counts[a.cat] != null) counts[a.cat]++; });
+    const anyCats = [...regular, ...others].some(a => a.cat);
+    const base = db.machines.filter(x => x.target > 0 && x.inDraw !== false && !used.has(x.id));
+    // try the shortest category first (ties picked at random), then the next, then anything
+    const order = anyCats ? CATS.filter(c => counts[c] < 4).sort((a, b) => (counts[a] - counts[b]) || (crypto.randomInt(3) - 1)) : [];
+    let pool = [];
+    for (const c of order) { pool = base.filter(x => x.cat === c); if (pool.length) break; }
+    if (!pool.length) pool = base;
     if (!pool.length) return null;
     m = pool[crypto.randomInt(pool.length)];
   }
@@ -359,7 +377,7 @@ async function route(req, res, url) {
   if (m === 'GET' && p === '/api/state') {
     return send(res, 200, {
       admin: admin ? { id: admin.id, name: admin.name } : null,
-      player: player ? { name: player } : null,
+      player: player ? { name: player, scorekeeper: db.scorekeepers.includes(lower(player)) } : null,
       needsSetup: db.admins.length === 0,
       tournaments: db.tournaments.map(summary).sort((a, b) => b.createdAt - a.createdAt),
     });
@@ -459,12 +477,21 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
-  // ----- admin only from here -----
+  // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
-  if (!admin) fail(401, 'Log in as an admin to do that.');
+  const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
+  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/games(\/\w+(\/move)?)?$/.test(p))) fail(401, 'Log in as an admin to do that.');
+  const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {
-    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), admins: db.admins.map(a => ({ id: a.id, name: a.name })), pins: Object.keys(db.playerAccounts) });
+    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), admins: db.admins.map(a => ({ id: a.id, name: a.name })), pins: Object.keys(db.playerAccounts), scorekeepers: db.scorekeepers });
+  }
+  if (m === 'POST' && p === '/api/admin/scorekeepers') {
+    const b = await readBody(req), key = lower(b.name);
+    if (!key) fail(400, 'Pick a player.');
+    db.scorekeepers = db.scorekeepers.filter(n => n !== key);
+    if (b.on) db.scorekeepers.push(key);
+    save(); return send(res, 200, { scorekeepers: db.scorekeepers });
   }
   if (m === 'PUT' && p === '/api/admin/settings') {
     const b = await readBody(req);
@@ -516,7 +543,7 @@ async function route(req, res, url) {
     const b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a machine name.');
     if (db.machines.some(x => lower(x.name) === lower(name))) fail(409, 'That machine is already stored.');
-    const x = { id: uid(), name, mpId: null, target: toInt(b.target) || 0, balls: b.balls === 5 ? 5 : 3, abbr: cleanAbbr(b.abbr) || abbrOf(name), inDraw: true, addedAt: Date.now() };
+    const x = { id: uid(), name, mpId: null, target: toInt(b.target) || 0, balls: b.balls === 5 ? 5 : 3, abbr: cleanAbbr(b.abbr) || abbrOf(name), cat: cleanCat(b.cat), inDraw: true, addedAt: Date.now() };
     db.machines.push(x); save();
     return send(res, 200, { machine: x });
   }
@@ -526,6 +553,7 @@ async function route(req, res, url) {
     if (b.balls === 3 || b.balls === 5) x.balls = b.balls;
     if (b.target !== undefined) x.target = toInt(b.target) || 0;
     if (typeof b.inDraw === 'boolean') x.inDraw = b.inDraw;
+    if (b.cat !== undefined) x.cat = cleanCat(b.cat);
     // keep open tournaments that use this machine in step
     for (const t of db.tournaments) {
       if (t.status !== 'active') continue;
@@ -534,6 +562,7 @@ async function route(req, res, url) {
         if (b.target !== undefined) { a.target = x.target; a.targetSource = x.target ? 'admin' : ''; }
         if (b.balls === 3 || b.balls === 5) { a.balls = x.balls; a.ballsSetByAdmin = true; }
         if (typeof b.abbr === 'string') a.abbr = x.abbr;
+        if (b.cat !== undefined) a.cat = x.cat;
         rederive(t, a);
       }
       ensureBonus(t);
@@ -616,6 +645,7 @@ async function route(req, res, url) {
     const a = t.arenas.find(x => x.id === mt[1]) || fail(404, 'Machine not found.');
     if (typeof b.name === 'string' && b.name.trim()) a.name = b.name.trim();
     if (typeof b.abbr === 'string') a.abbr = cleanAbbr(b.abbr) || abbrOf(a.name);
+    if (b.cat !== undefined) { a.cat = cleanCat(b.cat); const st = storedFor(a); if (st) st.cat = a.cat; }
     if (b.balls === 3 || b.balls === 5) { a.balls = b.balls; a.ballsSetByAdmin = true; }
     if (b.target !== undefined) { a.target = toInt(b.target) || 0; a.targetSource = a.target ? 'admin' : ''; }
     if (typeof b.active === 'boolean') a.active = b.active;
@@ -637,13 +667,13 @@ async function route(req, res, url) {
       const ba = t.arenas.find(x => x.id === t.bonusArenas[slot.idx]);
       if (ba && g.arenaId !== ba.id) fail(409, `Frame ${t.frames + 1 + slot.idx} is played on ${ba.name} by everyone.`);
     }
-    t.games.push({ id: uid(), ...g, ts: Date.now(), by: admin.name }); ensureBonus(t); save();
+    t.games.push({ id: uid(), ...g, ts: Date.now(), by: actor }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
     const t = openT(tid), g = adminGame(t, await readBody(req));
     const old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
-    Object.assign(old, g, { editedBy: admin.name, editedAt: Date.now() }); ensureBonus(t); save();
+    Object.assign(old, g, { editedBy: actor, editedAt: Date.now() }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
