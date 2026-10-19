@@ -60,7 +60,13 @@ a{color:inherit}
 .bar select{flex:1 1 0;min-width:0;background:transparent;color:var(--headInk);border:1px solid color-mix(in srgb,var(--headInk) 40%,transparent);border-radius:6px;padding:.62rem .35rem;font-size:.6rem;line-height:1.2;font-weight:600}
 .bar select option{color:#16324F;background:#fff}
 .linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem .15rem;white-space:nowrap}
-nav{display:flex;gap:.2rem;overflow-x:auto;max-width:1100px;margin:.5rem auto 0;scrollbar-width:none}
+.navwrap{position:relative;display:flex;align-items:stretch;max-width:1100px;margin:.5rem auto 0}
+nav{display:flex;gap:.2rem;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none;scroll-behavior:smooth}
+nav::-webkit-scrollbar{display:none}
+.navarrow{flex:0 0 auto;background:var(--head);color:var(--lane);border:0;font:700 1.5rem/1 var(--body);padding:0 .45rem;cursor:pointer;z-index:1}
+.navarrow[hidden]{display:none}
+.navarrow.l{box-shadow:6px 0 8px -4px var(--head)}
+.navarrow.r{box-shadow:-6px 0 8px -4px var(--head)}
 nav button{background:none;border:0;color:inherit;opacity:.72;padding:.45rem .75rem;border-radius:6px 6px 0 0;cursor:pointer;white-space:nowrap;font-weight:600}
 nav button[aria-selected="true"]{opacity:1;background:var(--paper);color:var(--ink)}
 
@@ -303,7 +309,7 @@ body.streammode #toast,body.tvmode #toast{display:none}
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
   </div>
-  <nav id="nav" role="tablist" aria-label="Sections"></nav>
+  <div class="navwrap"><button class="navarrow l" id="navL" aria-label="Show tabs to the left" hidden>‹</button><nav id="nav" role="tablist" aria-label="Sections"></nav><button class="navarrow r" id="navR" aria-label="Show tabs to the right" hidden>›</button></div>
 </header>
 <div class="banner" id="banner"></div>
 <main id="main"><div class="panel">Loading…</div></main>
@@ -389,6 +395,23 @@ function nextSlot(pid){
   if(r.regCount<T.frames) return {kind:'frame', n:r.regCount+1};
   if(r.stillNeeded>0) return {kind:'bonus', idx:r.bonus.length};
   return {kind:'done'};
+}
+const CATS=[['classic','Classic'],['mid','Mid'],['modern','Modern']];
+const catName = c => (CATS.find(x=>x[0]===c)||[])[1] || '';
+const catSelect = (attr,id,val) => `<select id="${attr}${id}" data-${attr}="${id}"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}" ${val===k?'selected':''}>${l}</option>`).join('')}</select>`;
+// This week's regular machines by category (bonus-frame machines not counted)
+function catMix(){
+  const reg=T.arenas.filter(a=>a.active && !a.bonusOnly && !(T.bonusArenas||[]).includes(a.id));
+  const c={classic:0,mid:0,modern:0,none:0}; reg.forEach(a=>{ c[a.cat||'none']++; });
+  return {reg,c};
+}
+function catMixNote(){
+  const {reg,c}=catMix();
+  const counts=`Classic ${c.classic}, Mid ${c.mid}, Modern ${c.modern}${c.none?`, <span class="err">${c.none} without a category</span>`:''}`;
+  const sorted=[c.classic,c.mid,c.modern].sort().join('/');
+  const short=CATS.filter(([k])=>c[k]===3).map(x=>x[1]);
+  const ok = !c.none && reg.length===T.frames && sorted==='3/3/4';
+  return `<p class="note" style="margin-top:.5rem"><b>This week's ${reg.length} machines:</b> ${counts}. ${ok?`Frames ${T.frames+1} and ${T.frames+2} will come from ${short.join(' and ')}, for 4 of each.`:`<span class="err">For 4 of each after the bonus frames, use 3, 3 and 4.</span>`}</p>`;
 }
 // Frames 11 and 12 are one drawn machine each, the same for everyone
 function bonusArena(i){ const id=((T&&T.bonusArenas)||[])[i]; return id?A(id):null; }
@@ -508,7 +531,11 @@ function updateRanges(a, score, ballNo){ const el=$('#rngList'); if(el && a) el.
 /* ================= header, nav, routing ================= */
 const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['rules','Rules']];
-function tabs(){ return ADMIN ? ADMIN_TABS : PLAYER_TABS; }
+// Scorekeepers are players an admin picked: they keep their own card and can also enter anyone's scores.
+const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeeper'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
+function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
+function staff(){ return !!ADMIN || isKeeper(); }
+function tabs(){ return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
 function renderHeader(){
@@ -518,6 +545,9 @@ function renderHeader(){
   $('#acct').textContent = ADMIN ? 'Log out' : 'Admin';
   $('#nav').innerHTML = screen ? '' : tabs().map(([k,l])=>`<button role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('');
   $$('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+  const nv=$('#nav'), on=$('#nav [aria-selected="true"]');
+  if(nv && on && (on.offsetLeft < nv.scrollLeft || on.offsetLeft+on.offsetWidth > nv.scrollLeft+nv.clientWidth)) nv.scrollLeft = on.offsetLeft - 40;
+  navArrows();
   const bl = !['tournaments','admins','stored','players','totals'].includes(tab) ? bonusLine() : '';
   $('#banner').innerHTML = T && readOnly() ? '<div>This tournament is archived. Scores are read-only.</div>' : (bl?`<div class="bonus">${bl}</div>`:'');
 }
@@ -533,6 +563,13 @@ function render(){
   (fn||renderStandings)();
 }
 
+// Arrows show when some tabs are out of view; the mouse wheel also scrolls the tabs sideways.
+function navArrows(){ const n=$('#nav'); if(!n) return; $('#navL').hidden = n.scrollLeft<=2; $('#navR').hidden = n.scrollLeft+n.clientWidth >= n.scrollWidth-2; }
+$('#nav').addEventListener('scroll',navArrows,{passive:true});
+window.addEventListener('resize',navArrows);
+$('#navL').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:-n.clientWidth*0.7}); };
+$('#navR').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:n.clientWidth*0.7}); };
+$('#nav').addEventListener('wheel',e=>{ const n=$('#nav'); if(n.scrollWidth>n.clientWidth && Math.abs(e.deltaY)>Math.abs(e.deltaX)){ n.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
 $('#tsel').onchange=async e=>{ await loadT(e.target.value); resetForm(false); resetPF(); render(); };
 $('#acct').onclick=async()=>{
   if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=null; await boot(); }
@@ -737,7 +774,7 @@ function renderStandings(){
     const isMe = mine && x.p.id===mine.id;
     const st = x.r.playing ? `Playing ${esc(A(x.r.playing.arenaId)?.name||'')} now` : x.r.complete ? 'Complete' : `${x.r.regCount} of ${T.frames} frames${x.r.stillNeeded?', bonus game needed':''}`;
     return `<details class="panel stand ${isMe?'me':''}" data-pid="${x.p.id}" ${isMe?'open':''}><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.p.name)}<small>${st}</small></span><span class="ptotal">${x.r.total}</span></summary>
-      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, ADMIN?'admin':(isMe?'self':'view'))}</div></details>`;
+      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, staff()?'admin':(isMe?'self':'view'))}</div></details>`;
   }).join('') + `<p class="note">Tap a name to see their card. A “…” means a frame is waiting on its strike or spare bonus.${ADMIN?' Move up and Move down change the order a player\'s games count in, which changes which frames their bonuses come from. Use them if games were entered out of order.':''}</p>`;
   bindGameActions($('#main'));
 }
@@ -753,16 +790,17 @@ function renderMachines(){
     const avg = gs.length ? (gs.reduce((s,g)=>{ const r=gameRolls(g); return s+(r.type==='open'?r.rolls[0]+r.rolls[1]:10); },0)/gs.length).toFixed(1) : '–';
     const ctl = edit ? `<div class="row" style="margin-top:.6rem">
         <div style="flex:0 0 5.5rem"><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div>
+        <div style="flex:0 0 7rem"><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
         <div style="flex:0 0 5rem"><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
         <div class="grow"><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div></div>
         <label class="check"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label>
         <button class="btn small danger" data-rma="${a.id}" style="margin-top:.4rem">Remove machine</button>` : '';
-    return `<div class="panel mcard" data-find="${esc((a.name+' '+abbr(a)).toLowerCase())}"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
-      <p class="note">${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${bonusFrameOf(a)?` <span class="tag">bonus frame ${bonusFrameOf(a)}</span>`:(!a.active?' <span class="tag">closed</span>':'')}</p>
+    return `<div class="panel mcard" data-find="${esc((a.name+' '+abbr(a)+' '+catName(a.cat)).toLowerCase())}"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
+      <p class="note">${a.cat?`<span class="tag">${catName(a.cat)}</span> `:''}${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${bonusFrameOf(a)?` <span class="tag">bonus frame ${bonusFrameOf(a)}</span>`:(!a.active?' <span class="tag">closed</span>':'')}</p>
       <div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
       ${a.target?`<details class="ranges" data-mid="${a.id}"><summary>Score needed for each pin count</summary>${brackets(a)}</details>`:brackets(a)}${ctl}</div>`;
   }).join('');
-  const add = edit ? bonusPanel() + `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered on the Stored machines tab. When a machine comes back in a later tournament, they fill in automatically.</p>
+  const add = edit ? bonusPanel() + `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered on the Stored machines tab. When a machine comes back in a later tournament, they fill in automatically.</p>${catMixNote()}
     <div class="row" style="margin-top:.5rem"><div class="grow"><label for="na">Add a machine by hand</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div></div>` : '';
   const toggle = list.some(a=>a.target) ? `<div class="row" style="margin-bottom:.8rem"><button class="btn small" id="rangesAll">Show all score ranges</button></div>` : '';
   const search = list.length>1 ? `<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
@@ -782,6 +820,7 @@ function renderMachines(){
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
+  $$('[data-cat]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.cat}`,'PATCH',{cat:i.value},'Category saved'); });
   $$('[data-target]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'));
   $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},'Saved'));
   $$('[data-rma]').forEach(b=>b.onclick=()=>{ const n=T.games.filter(g=>g.arenaId===b.dataset.rma).length; if(confirm(n?`${n} games were played on this machine. Removing it deletes them. Continue?`:'Remove this machine?')) change(`/arenas/${b.dataset.rma}`,'DELETE',null,'Machine removed'); });
@@ -970,10 +1009,10 @@ function bonusPanel(){
   const opts=(STORED||[]).filter(m=>m.target>0);
   const rows=[0,1].map(i=>{ const a=bonusArena(i), n=T.frames+1+i;
     const why = i===0 ? `It's drawn at random the first time someone gets a strike or spare in frame ${T.frames}.` : `It's drawn the first time someone strikes frames ${T.frames} and ${T.frames+1}.`;
-    return `<div class="bonusrow"><b>Frame ${n}:</b> ${a?`<span class="tag">${esc(abbr(a))}</span> ${esc(a.name)} <span class="note">target ${fmt(a.target)}</span>`:`<span class="note">Not drawn yet. ${why}</span>`}
+    return `<div class="bonusrow"><b>Frame ${n}:</b> ${a?`<span class="tag">${esc(abbr(a))}</span> ${esc(a.name)} <span class="note">${a.cat?catName(a.cat)+', ':''}target ${fmt(a.target)}</span>`:`<span class="note">Not drawn yet. ${why}</span>`}
       <div class="row"><button class="btn small" data-bdraw="${i}">${a?'Draw again':'Draw now'}</button>
-      <select data-bpick="${i}" aria-label="Choose the frame ${n} machine"><option value="">${STORED?'Or choose a machine…':'Loading machines…'}</option>${opts.map(m=>`<option value="${m.id}" ${a&&a.mid===m.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div></div>`; }).join('');
-  return `<div class="panel"><h2>Bonus frames</h2><p class="note">Frames ${T.frames+1} and ${T.frames+2} are one machine each, the same for everyone, drawn from stored machines that have a target and are in the bonus draw.</p>${rows}</div>`;
+      <select data-bpick="${i}" aria-label="Choose the frame ${n} machine"><option value="">${STORED?'Or choose a machine…':'Loading machines…'}</option>${opts.map(m=>`<option value="${m.id}" ${a&&a.mid===m.id?'selected':''}>${esc(m.name)}${m.cat?` (${catName(m.cat)})`:''}</option>`).join('')}</select></div></div>`; }).join('');
+  return `<div class="panel"><h2>Bonus frames</h2><p class="note">Frames ${T.frames+1} and ${T.frames+2} are one machine each, the same for everyone, drawn from stored machines that have a target and are in the bonus draw. Each comes from a category this week is short on, so the full card ends up with 4 of each.</p>${rows}</div>`;
 }
 
 /* ================= admin: stored machines ================= */
@@ -983,19 +1022,20 @@ async function renderStored(){
   if(!STORED){ $('#main').innerHTML='<div class="panel">Loading stored machines…</div>'; await loadStored(); if(tab!=='stored') return; }
   const inT = m => T && T.arenas.some(a=>a.mid===m.id);
   const withT=STORED.filter(m=>m.target>0).length, inDraw=STORED.filter(m=>m.target>0 && m.inDraw!==false).length;
-  const cards=STORED.map(m=>`<div class="panel mcard" data-find="${esc((m.name+' '+(m.abbr||'')).toLowerCase())}">
+  const cards=STORED.map(m=>`<div class="panel mcard" data-find="${esc((m.name+' '+(m.abbr||'')+' '+catName(m.cat)).toLowerCase())}">
       <h3><span class="tag big-tag">${esc(m.abbr||'?')}</span> ${esc(m.name)}</h3>
       <p class="note">${m.games} game${m.games===1?'':'s'} in ${m.tournaments} tournament${m.tournaments===1?'':'s'}${m.lastUsed?`, last used ${new Date(m.lastUsed).toLocaleDateString()}`:''} ${inT(m)?'<span class="tag">in this tournament</span>':''}</p>
       <div class="row" style="margin-top:.4rem">
         <div style="flex:0 0 5.5rem"><label for="sa${m.id}">Short name</label><input type="text" id="sa${m.id}" data-sabbr="${m.id}" value="${esc(m.abbr||'')}" maxlength="5" style="text-transform:uppercase"></div>
+        <div style="flex:0 0 7rem"><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
         <div style="flex:0 0 5rem"><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}"><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
         <div class="grow"><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div></div>
       <label class="check"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be drawn for bonus frames${m.target?'':' (needs a target)'}</label>
       <button class="btn small danger" data-srm="${m.id}" style="margin-top:.4rem">Remove from stored machines</button></div>`).join('');
   $('#main').innerHTML=`<div class="panel"><h2>Stored machines</h2>
     <p class="note">Every machine used in a tournament. Targets, ball counts and short names here fill in automatically when a machine comes back. Changing one also updates any open tournament that has the machine.</p>
-    <p style="margin-top:.5rem"><b>${STORED.length}</b> machines, <b>${withT}</b> with targets, <b>${inDraw}</b> in the bonus draw.</p>
-    <div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn">Add a machine</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 11rem"><label for="snt">Target score</label><input type="text" inputmode="numeric" id="snt"></div><button class="btn" id="snGo">Add machine</button></div></div>
+    <p style="margin-top:.5rem"><b>${STORED.length}</b> machines, <b>${withT}</b> with targets, <b>${inDraw}</b> in the bonus draw. ${CATS.map(([k,l])=>`${l} ${STORED.filter(m=>m.cat===k).length}`).join(', ')}${STORED.some(m=>!m.cat)?`, no category ${STORED.filter(m=>!m.cat).length}`:''}.</p>
+    <div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn">Add a machine</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 11rem"><label for="snt">Target score</label><input type="text" inputmode="numeric" id="snt"></div><div style="flex:0 0 7rem"><label for="sncat">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></div>
     ${STORED.length>1?`<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="ssearch" placeholder="Search stored machines" aria-label="Search stored machines" value="${esc(SSEARCH)}" autocomplete="off"></div>`:''}
     ${STORED.length?`<div class="mgrid">${cards}</div><p class="note" id="snone" hidden>No stored machines match that search.</p>`:'<div class="panel note">No machines stored yet. They are added as tournaments use them.</div>'}`;
   const filt=()=>{ const q=SSEARCH.trim().toLowerCase(); let n=0; $$('.mcard').forEach(c=>{ const hit=!q||(c.dataset.find||'').includes(q); c.hidden=!hit; if(hit) n++; }); if($('#snone')) $('#snone').hidden=n>0; };
@@ -1003,10 +1043,11 @@ async function renderStored(){
   const save=async(id,body,msg)=>{ try{ const j=await api(`/api/admin/machines/${id}`,'PATCH',body); const i=STORED.findIndex(x=>x.id===id); STORED[i]={...STORED[i],...j.machine}; if(T && T.status==='active' && T.arenas.some(a=>a.mid===id)) await loadT(T.id); toast(msg); renderStored(); }catch(e){ toast(e.message); } };
   $$('[data-sabbr]').forEach(i=>i.onchange=()=>save(i.dataset.sabbr,{abbr:i.value},'Short name saved'));
   $$('[data-sballs]').forEach(i=>i.onchange=()=>save(i.dataset.sballs,{balls:Number(i.value)},'Saved'));
+  $$('[data-scat]').forEach(i=>i.onchange=()=>save(i.dataset.scat,{cat:i.value},'Category saved'));
   $$('[data-starget]').forEach(i=>i.onchange=()=>save(i.dataset.starget,{target:num(i.value)||0},'Target saved'));
   $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the bonus draw':'Left out of the bonus draw'));
   $$('[data-srm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this machine from stored machines? Past tournaments keep their scores.')) return; try{ await api(`/api/admin/machines/${b.dataset.srm}`,'DELETE'); STORED=STORED.filter(x=>x.id!==b.dataset.srm); toast('Removed'); renderStored(); }catch(e){ toast(e.message); } });
-  $('#snGo').onclick=async()=>{ const name=$('#sn').value.trim(); if(!name) return; try{ await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0}); await loadStored(); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
+  $('#snGo').onclick=async()=>{ const name=$('#sn').value.trim(); if(!name) return; try{ await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
 }
 
 /* ================= rules ================= */
@@ -1048,6 +1089,7 @@ function renderRules(){
   ${T.tenthBonus?`<p>A strike or spare in frame ${T.frames} earns bonus frames, just like the 10th frame in bowling.</p>
   <p><b>Spare in frame ${T.frames}:</b> play frame ${T.frames+1}. Only your ball 1 score counts.<br><b>Strike in frame ${T.frames}:</b> play frame ${T.frames+1}. If that's a strike too, play frame ${T.frames+2}.</p>
   <p>Frame ${T.frames+1} is played on one machine drawn at random from machines we've played before. It's drawn the first time anyone needs it, and then everyone plays that same machine. Frame ${T.frames+2} gets its own machine the same way.</p>
+  <p>Machines come in three categories: Classic, Mid and Modern. Frames 1 to ${T.frames} use 3 from two categories and 4 from the third. Frames ${T.frames+1} and ${T.frames+2} come from the two categories with 3, so a full card has 4 of each.</p>
   ${bonusLine()?`<p><b>This week:</b> ${bonusLine().replace(/^Bonus frames? for everyone: /,'')}.</p>`:''}`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
   </div>`;
 }
@@ -1075,7 +1117,7 @@ function renderEnter(){
   const repeatOK = T.allowRepeats || (slot && slot.kind==='bonus');
   const a=A(F.arenaId);
   m.innerHTML=`<div class="two"><div class="panel">
-    <h2>${F.editingId?'Edit game':'Enter a game'}</h2>
+    <h2>${F.editingId?'Edit game':(isKeeper()?'Enter a score for anyone':'Enter a game')}</h2>
     <label for="psel">Player</label>
     <select id="psel"><option value="">Choose a player</option>${players.map(p=>`<option value="${p.id}" ${p.id===F.playerId?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
     ${slotTxt}
@@ -1159,7 +1201,7 @@ function renderSide(pid){
 /* ================= admin: players ================= */
 async function renderPlayers(){
   try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings=adminSettings||{pins:[]}; }
-  const pinSet=new Set(adminSettings.pins||[]);
+  const pinSet=new Set(adminSettings.pins||[]), keepSet=new Set(adminSettings.scorekeepers||[]);
   const ago = T.lastSync ? new Date(T.lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : null;
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
   $('#main').innerHTML=`<div class="panel"><h2>Players (${players.length})</h2>
@@ -1169,10 +1211,12 @@ async function renderPlayers(){
       :'<p class="note">This tournament is not linked to Matchplay. Add players by hand, or link it on the Tournaments tab.</p>'}
     ${readOnly()?'':`<div class="row" style="margin-top:.8rem"><div class="grow"><label for="np">Add a player by hand</label><input type="text" id="np" placeholder="Name"></div><button class="btn" id="npGo">Add player</button></div>`}
     <p class="note" style="margin-top:.8rem">Players set a 4-digit PIN the first time they pick their name. If someone forgets it, reset it and they'll make a new one.</p>
+    <p class="note" style="margin-top:.4rem">Scorekeepers can enter and fix anyone's scores from a Scorekeeper tab and still have their own card. They stay scorekeepers in future tournaments until you turn it off.</p>
     <div class="tablewrap" style="margin-top:.5rem"><table><thead><tr><th>Name</th><th class="n">Games</th><th class="n">Total</th><th></th></tr></thead><tbody>
-    ${players.map(p=>`<tr><td>${esc(p.name)} ${p.mpId!=null?'<span class="tag">Matchplay</span>':''} ${pinSet.has(p.name.toLowerCase())?'<span class="tag">PIN set</span>':''}</td><td class="n">${T.games.filter(g=>g.playerId===p.id && g.status!=='playing').length}</td><td class="n">${scorePlayer(p.id).total}</td>
-      <td class="n" style="white-space:nowrap">${pinSet.has(p.name.toLowerCase())?`<button class="btn small" data-pin="${esc(p.name)}">Reset PIN</button> `:''}${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove</button>`}</td></tr>`).join('')}
+    ${players.map(p=>`<tr><td>${esc(p.name)} ${p.mpId!=null?'<span class="tag">Matchplay</span>':''} ${pinSet.has(p.name.toLowerCase())?'<span class="tag">PIN set</span>':''} ${keepSet.has(p.name.toLowerCase())?'<span class="tag">Scorekeeper</span>':''}</td><td class="n">${T.games.filter(g=>g.playerId===p.id && g.status!=='playing').length}</td><td class="n">${scorePlayer(p.id).total}</td>
+      <td class="n" style="white-space:nowrap"><button class="btn small" data-keep="${esc(p.name)}" data-on="${keepSet.has(p.name.toLowerCase())?'0':'1'}">${keepSet.has(p.name.toLowerCase())?'Remove scorekeeper':'Make scorekeeper'}</button> ${pinSet.has(p.name.toLowerCase())?`<button class="btn small" data-pin="${esc(p.name)}">Reset PIN</button> `:''}${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove</button>`}</td></tr>`).join('')}
     </tbody></table></div></div>`;
+  $$('[data-keep]').forEach(b=>b.onclick=async()=>{ const on=b.dataset.on==='1'; try{ await api('/api/admin/scorekeepers','POST',{name:b.dataset.keep, on}); toast(on?`${b.dataset.keep} is now a scorekeeper`:`${b.dataset.keep} is no longer a scorekeeper`); renderPlayers(); }catch(e){ toast(e.message); } });
   $$('[data-pin]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Reset ${b.dataset.pin}'s PIN? They will make a new one next time they pick their name.`)) return; try{ await api('/api/admin/pin-reset','POST',{name:b.dataset.pin}); toast('PIN reset'); renderPlayers(); }catch(e){ toast(e.message); } });
   if(readOnly()) return;
   if($('#syncNow')) $('#syncNow').onclick=async()=>{ const j=await change('/sync','POST'); if(j) toast(`Checked Matchplay: ${j.addedPlayers} new players, ${j.addedArenas} new machines`); };
@@ -1290,7 +1334,8 @@ setInterval(async()=>{
   if(document.hidden || screen || !T || T.status!=='active' || TVMODE || tab==='tv') return;
   try{
     const fresh=await api('/api/t/'+T.id); const changed=JSON.stringify(fresh)!==JSON.stringify(T);
-    T=fresh; if(ADMIN) await refreshList();
+    T=fresh;
+    if(ADMIN || PLAYER){ const was=isKeeper(); await refreshList(); if(was!==isKeeper()){ if(!tabs().some(x=>x[0]===tab)) tab='mine'; render(); return; } }
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
     const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored'].includes(tab) || !$('#shareBox').hidden;
