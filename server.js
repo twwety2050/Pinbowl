@@ -966,8 +966,12 @@ async function route(req, res, url) {
       if (Array.isArray(b.machines)) {
         const ms = b.machines.map(String);
         checkPicks(F, ms); checkSlots(F, round, g, ms);
-        if (Object.values(g.scores).some(r => r && r.some(Boolean)) && g.machines.join() !== ms.join()) fail(409, 'Scores are already entered for this group.');
-        g.machines = ms;
+        // changing a game wipes the scores already entered for that game slot (the app asks first)
+        const changed = [0, 1, 2].filter(i => g.machines[i] !== ms[i]);
+        const hasScores = changed.some(i => Object.values(g.scores).some(r => r && r[i]));
+        if (hasScores && !b.clearScores) fail(409, 'Scores are already entered for a game you changed.');
+        if (hasScores) for (const pid of Object.keys(g.scores)) { changed.forEach(i => { g.scores[pid][i] = null; }); if (!g.scores[pid].some(Boolean)) delete g.scores[pid]; }
+        g.machines = ms; g.order = null;
       }
       if (b.positions && typeof b.positions === 'object') {
         const pos = {};
