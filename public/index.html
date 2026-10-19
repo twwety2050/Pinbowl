@@ -318,6 +318,32 @@ body.streammode.clear{background:transparent}
 .chcap small{font:500 .8rem var(--body);color:var(--muted)}
 .suggest{background:var(--paper);border-radius:8px;padding:.7rem .8rem;margin-top:.3rem}
 .suggest p+p{margin-top:.35rem}
+/* finals */
+.cutline{display:flex;align-items:center;gap:.6rem;margin:-.3rem 0 .7rem;color:var(--mark);font:700 .85rem var(--cond)}
+.cutline::before,.cutline::after{content:'';flex:1;border-top:2px dashed var(--mark)}
+.tvcut,.stcut{display:flex;align-items:center;gap:.5em;color:var(--lane);font:700 .75em var(--cond);margin:.1em 0 .45em}
+.tvcut::before,.tvcut::after,.stcut::before,.stcut::after{content:'';flex:1;border-top:2px dashed var(--lane)}
+.stcut{color:var(--mark)}.stcut::before,.stcut::after{border-color:var(--mark)}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr));gap:1rem}
+.ftable td:nth-child(2){white-space:nowrap}
+@media (max-width:520px){.ftable td:nth-child(2){white-space:normal}.ftable td,.ftable th{padding:.3rem .25rem}.ftable td.g button{min-width:2.2rem}}
+.tv .ftv{zoom:calc(var(--fz,1.55)*var(--s))}
+.stream .ftv{padding:.4em}.stream .ftv .fgrid{grid-template-columns:1fr}.stream .ftv .panel{margin:0}
+.tv .ftv .fgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr))}
+.fgroup h3{margin:0;display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
+.fgroup .games{margin:.4rem 0 .2rem;font-size:.92rem}
+.ftable td,.ftable th{padding:.35rem .4rem}
+.ftable td.g{text-align:center;font:700 1.05rem var(--cond);white-space:nowrap}
+.ftable td.g small{display:block;font:500 .72rem var(--body);color:var(--muted)}
+.ftable td.g button{all:unset;cursor:pointer;display:block;min-width:2.6rem;min-height:2.1rem;border:1px dashed var(--grid);border-radius:6px;padding:.1rem .2rem}
+.ftable td.g button:hover,.ftable td.g button:focus-visible{border-color:var(--lane);outline:none}
+.ftable tr.adv td{background:var(--me)}
+.ftable tr.out td{opacity:.55}
+.ftable td.tot{font:400 1.2rem var(--display);text-align:right}
+.fedit{background:var(--paper);border-radius:8px;padding:.7rem;margin-top:.6rem}
+.fedit .balls{margin-top:.3rem}
+.champ{font:400 1.6rem/1.2 var(--display)}
+.ftv .fgroup{background:var(--card);color:var(--ink)}
 #toast{position:fixed;left:50%;bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(calc(100% + 3rem));visibility:hidden;background:var(--ink);color:var(--paper);padding:.7rem 1.1rem;border-radius:8px;font-weight:600;transition:transform .25s;max-width:92vw;z-index:10}
 #toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
 body.streammode #toast,body.tvmode #toast{display:none}
@@ -456,8 +482,16 @@ function symbols(rolls){
 function standings(){
   const rows=T.players.map(p=>({p, r:scorePlayer(p.id)})).sort((a,b)=>b.r.total-a.r.total || a.p.name.localeCompare(b.p.name));
   let rank=0, last=null; rows.forEach((x,i)=>{ if(x.r.total!==last){ rank=i+1; last=x.r.total; } x.rank=rank; });
+  // an admin's hand-set seed order wins
+  if(Array.isArray(T.seedOverride) && T.seedOverride.length){
+    const byId=new Map(rows.map(x=>[x.p.id,x])), ov=T.seedOverride.filter(id=>byId.has(id));
+    const out=[...ov.map(id=>byId.get(id)), ...rows.filter(x=>!ov.includes(x.p.id))]; out.forEach((x,i)=>{ x.rank=i+1; }); return out;
+  }
   return rows;
 }
+// How many make the finals: the admin's number, or the top half rounded down (weekly tournaments only)
+function cutCount(t=T){ if(!t || t.daily || t.finals) return 0; const n=t.players.length; return Math.max(0, Math.min(n, t.finalsCount ? t.finalsCount : Math.floor(n/2))); }
+function cutAfter(i, total, cls){ const c=cutCount(); return c && i===c-1 && i<total-1 ? `<div class="${cls}" role="separator"><span>Finals cut: top ${c}</span></div>` : ''; }
 function playedArenaIds(pid, exceptId){ return new Set(T.games.filter(g=>g.playerId===pid && g.id!==exceptId && g.status!=='playing').slice(0,T.frames).map(g=>g.arenaId)); }
 
 /* ================= shared pieces ================= */
@@ -554,12 +588,14 @@ function updateRanges(a, score, ballNo){ const el=$('#rngList'); if(el && a) el.
 
 /* ================= header, nav, routing ================= */
 const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
-const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['stats','Stats'],['rules','Rules']];
+const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['finals','Finals'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['stats','Stats'],['rules','Rules']];
 // Scorekeepers are players an admin picked: they keep their own card and can also enter anyone's scores.
 const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeeper'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
-function tabs(){ return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
+const FINALS_TABS=[['finals','Finals'],['rules','Rules']];
+const FINALS_ADMIN_TABS=[['finals','Finals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
+function tabs(){ if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
 function renderHeader(){
@@ -579,6 +615,7 @@ function renderHeader(){
   $('#banner').innerHTML = bn;
 }
 function render(){
+  if(T && !screen && !TVMODE && !STREAMMODE && !tabs().some(x=>x[0]===tab)) tab=tabs()[0][0];
   if(TVMODE || STREAMMODE){ tab='tv'; if(!T){ $('#main').innerHTML=`<div class="${STREAMMODE?'stream':'tv max'}"><div class="tvempty">No tournament is open yet. This screen will update by itself.</div></div>`; return; } return renderTv(); }
   renderHeader();
   if(screen==='setup') return renderSetupScreen();
@@ -586,7 +623,7 @@ function render(){
   if(screen==='pin') return renderPin();
   if(!T){ if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals}[tab];
   (fn||renderStandings)();
 }
 
@@ -843,11 +880,11 @@ function renderFix(p){
 function renderStandings(){
   if(!T.players.length){ $('#main').innerHTML='<div class="panel">No players yet.</div>'; return; }
   const rows=standings(), mine=me();
-  $('#main').innerHTML = rows.map(x=>{
-    const isMe = mine && x.p.id===mine.id;
+  $('#main').innerHTML = rows.map((x,i)=>{
+    const isMe = mine && x.p.id===mine.id, cut=cutAfter(i, rows.length, 'cutline');
     const st = x.r.playing ? `Playing ${esc(A(x.r.playing.arenaId)?.name||'')} now` : x.r.complete ? 'Complete' : `${x.r.regCount} of ${T.frames} frames${x.r.stillNeeded?', bonus game needed':''}`;
     return `<details class="panel stand ${isMe?'me':''}" data-pid="${x.p.id}" ${isMe?'open':''}><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.p.name)}<small>${st}</small></span><span class="ptotal">${x.r.total}</span></summary>
-      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, staff()?'admin':(isMe?'self':'view'))}</div></details>`;
+      <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, staff()?'admin':(isMe?'self':'view'))}</div></details>${cut}`;
   }).join('') + `<p class="note">Tap a name to see their card. A “…” means a frame is waiting on its strike or spare bonus.${ADMIN?' Move up and Move down change the order a player\'s games count in, which changes which frames their bonuses come from. Use them if games were entered out of order.':''}</p>`;
   bindGameActions($('#main'));
 }
@@ -905,14 +942,15 @@ const QS = new URLSearchParams(location.search);
 const TVMODE = QS.has('tv');
 // Stream window: an 800 x 600 page for an OBS browser source. Settings come from the link only.
 const STREAMMODE = QS.has('stream');
-const ST = { speed: QS.has('speed') ? Number(QS.get('speed'))||0 : 30, size: Number(QS.get('size'))||1, clear: QS.get('bg')==='clear', back: QS.has('back') ? Math.max(0,Math.min(6,Number(QS.get('back'))||0)) : 2 };
+const ST = { grp: QS.get('grp')||'A', speed: QS.has('speed') ? Number(QS.get('speed'))||0 : 30, size: Number(QS.get('size'))||1, clear: QS.get('bg')==='clear', back: QS.has('back') ? Math.max(0,Math.min(6,Number(QS.get('back'))||0)) : 2 };
 const TV_FIXED_T = QS.get('t');
 const TV = { auto: store.get('pb-tv-auto')!=='0', speed: Number(store.get('pb-tv-speed'))||40, size: Number(store.get('pb-tv-size'))||1, raf:0, pauseUntil:0, last:0, dir:1, wake:null };
 
 function tvRows(){
+  if(T.finals) return finalsBoardHTML();
   const N=T.frames, rows=standings();
   if(!rows.length) return '<div class="tvempty">No players yet.</div>';
-  return rows.map(x=>{
+  return rows.map((x,xi)=>{
     const r=x.r;
     let cells='';
     for(let k=0;k<N;k++){
@@ -924,13 +962,16 @@ function tvRows(){
       cells+=`<div class="tvf"><div class="ab ${live||(last&&r.playing&&r.stillNeeded)?'live':''}">${esc(ab)||'&nbsp;'}</div><div class="rl">${sy.map(c=>`<i class="${c==='X'||c==='/'?'mk':''}">${c}</i>`).join('')}</div><div class="cm ${f&&!f.showCum?'pend':''}">${f?(f.showCum?f.cum:'…'):(live?'▶':'')}</div></div>`;
     }
     const st = r.playing ? `<small class="live">Playing ${esc(A(r.playing.arenaId)?.name||'')}</small>` : `<small>${r.complete?'Complete':r.stillNeeded?'Bonus game needed':`${r.regCount} of ${N} frames`}</small>`;
-    return `<div class="tvgrid tvrow ${x.rank<=3&&r.total>0?'top3':''}"><div class="tvrank">${x.rank}</div><div class="tvname"><b>${esc(x.p.name)}</b>${st}</div>${cells}<div class="tvtot">${r.total}</div></div>`;
+    return `<div class="tvgrid tvrow ${x.rank<=3&&r.total>0?'top3':''}"><div class="tvrank">${x.rank}</div><div class="tvname"><b>${esc(x.p.name)}</b>${st}</div>${cells}<div class="tvtot">${r.total}</div></div>${cutAfter(xi, rows.length, 'tvcut')}`;
   }).join('');
 }
 function tvHead(){
+  if(T.finals) return finalsHeadInfo();
   const done=T.players.filter(p=>scorePlayer(p.id).complete).length;
   return `${T.players.length} players, ${done} finished · updated ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
 }
+// Which tournament the TV/stream screens follow: a live daily, else running finals, else the open weekly
+function bcPickId(){ const act=LIST.filter(t=>t.status==='active'); return (LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.id===liveDailyId())||act.filter(t=>!t.daily&&!t.done).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0]||act[0]||LIST[0]||{}).id; }
 function bcSwitch(){
   const v=store.get('pb-bc-view')||'tv';
   return `<div class="seg" role="group" aria-label="Broadcast view"><button data-bc="tv" aria-pressed="${v==='tv'}">TV board</button><button data-bc="stream" aria-pressed="${v==='stream'}">Stream window</button></div>`;
@@ -940,7 +981,7 @@ function renderTv(){
   if(STREAMMODE) return renderStream();
   if(!TVMODE && store.get('pb-bc-view')==='stream') return renderStreamAdmin();
   const N=T.frames, link=location.origin+'/?tv=1';
-  const cols=`<div class="tvgrid tvcols"><div>#</div><div>Player</div>${Array.from({length:N},(_,k)=>`<div>${k+1}</div>`).join('')}<div>Total</div></div>`;
+  const cols=T.finals ? '' : `<div class="tvgrid tvcols"><div>#</div><div>Player</div>${Array.from({length:N},(_,k)=>`<div>${k+1}</div>`).join('')}<div>Total</div></div>`;
   $('#main').innerHTML=`${TVMODE?'':`${bcSwitch()}<div class="panel tvctl">
       <button class="btn primary" id="tvFull">Full screen</button>
       <label><input type="checkbox" id="tvAuto" ${TV.auto?'checked':''}> Auto-scroll</label>
@@ -984,16 +1025,17 @@ function streamCell(r,k,isCur){
   return `<div class="stf ${isCur?'cur':''}"><div class="ab">${k+1}${ab?` ${esc(ab)}`:''}</div><div class="rl">${sy.map(c=>`<i class="${c==='X'||c==='/'?'mk':''} ${live&&c?'lv':''}">${c}</i>`).join('')}</div><div class="cm ${f&&!f.showCum?'pend':''}">${cum}</div></div>`;
 }
 function streamRows(){
+  if(T.finals) return finalsBoardHTML();
   const N=T.frames, rows=standings();
   if(!rows.length) return '<div class="tvempty">No players yet.</div>';
-  return rows.map(x=>{
+  return rows.map((x,xi)=>{
     const show=Math.min(N, ST.back+1), r=x.r, c=r.frames.length, cur=Math.min(c,N-1), start=Math.max(0,Math.min(cur-ST.back,N-show));
     let cells=''; for(let k=start;k<start+show;k++) cells+=streamCell(r,k, k===cur && !r.complete);
     const st = r.playing ? `<small class="live">Playing ${esc(A(r.playing.arenaId)?.name||'')}</small>` : `<small>${r.complete?'Final':r.stillNeeded?'Bonus frame next':`${c} of ${N} frames`}</small>`;
-    return `<div class="strow ${x.rank<=3&&r.total>0?'top3':''}"><div class="tvrank">${x.rank}</div><div class="stname"><b>${esc(x.p.name)}</b>${st}</div>${cells}<div class="sttot">${r.total}</div></div>`;
+    return `<div class="strow ${x.rank<=3&&r.total>0?'top3':''}"><div class="tvrank">${x.rank}</div><div class="stname"><b>${esc(x.p.name)}</b>${st}</div>${cells}<div class="sttot">${r.total}</div></div>${cutAfter(xi, rows.length, 'stcut')}`;
   }).join('');
 }
-function streamHeadInfo(){ const a=bonusArena(0), b=bonusArena(1); return a ? `Frame ${T.frames+1}: ${esc(abbr(a))}${b?` · ${T.frames+2}: ${esc(abbr(b))}`:''}` : `${T.players.length} players`; }
+function streamHeadInfo(){ if(T.finals) return finalsHeadInfo(); const a=bonusArena(0), b=bonusArena(1); return a ? `Frame ${T.frames+1}: ${esc(abbr(a))}${b?` · ${T.frames+2}: ${esc(abbr(b))}`:''}` : `${T.players.length} players`; }
 function renderStream(){
   document.body.classList.toggle('clear', ST.clear);
   $('#main').innerHTML=`<div class="stream ${ST.clear?'clear':''}" style="--s:${ST.size};--fc:${Math.min(T.frames, ST.back+1)}">
@@ -1001,8 +1043,8 @@ function renderStream(){
     <div class="stbody" id="stbody">${streamRows()}</div></div>`;
   autoScroll(()=>$('#stbody'), ()=>ST.speed*ST.size);
 }
-const SO = { back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: store.get('pb-st-theme')||'northstar', clear: store.get('pb-st-clear')==='1' };
-function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); return location.origin+'/?'+q.toString(); }
+const SO = { grp: store.get('pb-st-grp')||'A', back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: store.get('pb-st-theme')||'northstar', clear: store.get('pb-st-clear')==='1' };
+function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); if(T && T.finals) q.set('grp', SO.grp||'A'); return location.origin+'/?'+q.toString(); }
 function renderStreamAdmin(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   $('#main').innerHTML=`${bcSwitch()}<div class="panel">
@@ -1014,6 +1056,7 @@ function renderStreamAdmin(){
       <label>Text <select id="soSize">${opt([[.85,'Small'],[1,'Medium'],[1.2,'Large']],SO.size)}</select></label>
       <label>Colors <select id="soTheme">${opt([['northstar','Northstar'],['classic','Classic'],['dark','Dark']],SO.theme)}</select></label>
       <label><input type="checkbox" id="soClear" ${SO.clear?'checked':''}> See-through background</label>
+      ${T && T.finals ? `<label>Finals group <select id="soGrp">${T.finals.rounds[T.finals.rounds.length-1].groups.map(g=>`<option value="${g.label}" ${SO.grp===g.label?'selected':''}>Group ${g.label}</option>`).join('')}</select></label>` : ''}
     </div>
     <div class="tvctl">
       <label>OBS width <input type="number" id="soW" min="240" max="1920" step="10" value="${SO.w}" style="width:6rem"></label>
@@ -1036,6 +1079,7 @@ function renderStreamAdmin(){
   $('#soSize').onchange=e=>{ SO.size=Number(e.target.value); upd(); };
   $('#soTheme').onchange=e=>{ SO.theme=e.target.value; upd(); };
   $('#soClear').onchange=e=>{ SO.clear=e.target.checked; upd(); };
+  if($('#soGrp')) $('#soGrp').onchange=e=>{ SO.grp=e.target.value; store.set('pb-st-grp',SO.grp); upd(); };
   $('#soCopy').onclick=async()=>{ const u=streamUrl(); try{ await navigator.clipboard.writeText(u); toast('Address copied. Paste it into OBS.'); }catch(e){ $('#soUrl').select(); toast('Press Ctrl+C to copy the address'); } };
   $('#soUrl').onfocus=e=>e.target.select();
 }
@@ -1071,7 +1115,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && (TVMOD
 setInterval(async()=>{
   if(document.hidden || !(TVMODE || STREAMMODE || tab==='tv') || screen) return;
   try{
-    if((TVMODE || STREAMMODE) && !TV_FIXED_T){ await refreshList(); const want=liveDailyId()||(LIST.find(t=>t.status==='active')||LIST[0]||{}).id; if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
+    if((TVMODE || STREAMMODE) && !TV_FIXED_T){ await refreshList(); const want=bcPickId(); if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
     if(!T) return;
     T=await api('/api/t/'+T.id); updateTv();
   }catch(e){}
@@ -1247,6 +1291,253 @@ async function renderStored(){
   $('#snGo').onclick=async()=>{ const name=$('#sn').value.trim(); if(!name) return; try{ await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
 }
 
+/* ================= finals ================= */
+// Same group layout as the server: PAPA style 1-8-9-16, with byes for the top seeds when needed
+function fSnake(seeds, groups){ const out=Array.from({length:groups},()=>[]); seeds.forEach((s,i)=>{ const row=Math.floor(i/groups), col=i%groups; out[row%2===0?col:groups-1-col].push(s); }); return out; }
+function fPlan(N){ if(N<=4) return {byes:0,groups:1}; let S=4; while(S*2<=N) S*=2; if(N===S) return {byes:0,groups:S/4}; const g=Math.ceil((N-S)/2); return {byes:S-2*g,groups:g}; }
+// Totals shared out as 21 Matchplay points (4-2-1-0 over 3 games), whole numbers that add up to 21
+function mpPoints(totals){
+  const sum=totals.reduce((a,b)=>a+b,0), raw=totals.map(v=>sum? v*21/sum : 21/totals.length), pts=raw.map(Math.floor);
+  let left=21-pts.reduce((a,b)=>a+b,0);
+  raw.map((v,i)=>[v-Math.floor(v),i]).sort((a,b)=>b[0]-a[0]).forEach(([,i])=>{ if(left>0){ pts[i]++; left--; } });
+  return pts;
+}
+const fSeed = pid => (T.finals.seeds.find(s=>s.pid===pid)||{}).seed;
+const fName = pid => (T.finals.seeds.find(s=>s.pid===pid)||{}).name || '?';
+// One player's 3 games as a 3-frame pinbowl card (bonuses carry forward, game 3 counts flat)
+function fCard(g, pid){
+  const res=g.scores[pid]||[], frames=g.machines.map((aid,i)=> res[i] && res[i].status!=='playing' ? {...gameRolls({arenaId:aid, ...res[i]})} : null);
+  let total=0;
+  frames.forEach((f,k)=>{ if(!f) return; const need=k===frames.length-1?0:(f.type==='strike'?2:f.type==='spare'?1:0);
+    const next=frames.slice(k+1).filter(Boolean).flatMap(x=>x.rolls).slice(0,need); f.pts=(f.type==='open'?f.rolls[0]+f.rolls[1]:10)+next.reduce((a,b)=>a+b,0); f.wait=next.length<need; total+=f.pts; });
+  return {pid, seed:fSeed(pid), frames, total, complete:g.machines.length===3 && frames.length===3 && frames.every(Boolean)};
+}
+function fResult(g, final){
+  const rows=g.players.map(pid=>fCard(g,pid)), complete=rows.every(r=>r.complete);
+  let ranked=rows.slice().sort((a,b)=>b.total-a.total || a.seed-b.seed);
+  if(Array.isArray(g.order) && g.order.length===rows.length) ranked=g.order.map(pid=>rows.find(r=>r.pid===pid)).filter(Boolean);
+  let tie=false;
+  if(complete && !g.order){ const t=ranked.map(r=>r.total); tie = final ? t.some((v,i)=>i>0&&v===t[i-1]) : (t.length>2 && t[1]===t[2]); }
+  return {rows, ranked, complete, tie};
+}
+function roundName(i, n, r){ return r.final ? 'Final' : `Round ${i+1}`; }
+let FED=null; // score editor: {gid,pid,i,hit,b1,final}
+function fGroupHTML(g, round, ri, live, edit){
+  const res=fResult(g, round.final), N=g.players.length;
+  const picked=g.machines.length===3, posSet=Object.keys(g.positions||{}).length===N;
+  const order = res.complete ? res.ranked : g.players.slice().sort((a,b)=> (g.positions[a]||99)-(g.positions[b]||99) || fSeed(a)-fSeed(b)).map(pid=>res.rows.find(r=>r.pid===pid));
+  const pts = res.complete ? mpPoints(res.ranked.map(r=>r.total)) : null;
+  const top = g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b))[0];
+  const status = !picked ? 'Waiting for game picks' : !posSet ? 'Waiting for positions' : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
+  const gname = i => { const a=A(g.machines[i]); return a ? `<span class="tag">${esc(abbr(a))}</span>` : `G${i+1}`; };
+  let h=`<div class="panel fgroup"><h3>Group ${esc(g.label)} <span class="tag">${status}</span></h3>
+    <p class="games">${picked ? g.machines.map((id,i)=>{ const a=A(id); return `${i+1}. <b>${esc(a?a.name:'?')}</b>${a&&a.cat?` <span class="note">${catName(a.cat)}</span>`:''}`; }).join(' &nbsp; ') : (gWaitFor(round,g) ? `<span class="note">Picks games after Group ${esc(gWaitFor(round,g).label)}. ${esc(fName(top))} (seed ${fSeed(top)}) will pick.</span>` : `<span class="note">${esc(fName(top))} (seed ${fSeed(top)}) picks one Classic, one Mid and one Modern game, and their order.</span>`)}</p>
+    <div class="tablewrap"><table class="ftable"><thead><tr><th>Pos</th><th>Player</th>${[0,1,2].map(i=>`<th style="text-align:center">${gname(i)}</th>`).join('')}<th class="n">Total</th>${pts?'<th class="n" title="Matchplay points">MP</th>':''}</tr></thead><tbody>`;
+  order.forEach((r,idx)=>{
+    const cls = res.complete && !res.tie ? (round.final ? (idx===0?'adv':'') : (idx<2?'adv':'out')) : '';
+    h+=`<tr class="${cls}"><td>${g.positions[r.pid]||'–'}</td><td><b>${esc(fName(r.pid))}</b> <span class="note">#${r.seed}</span></td>`;
+    [0,1,2].forEach(i=>{ const f=r.frames[i];
+      const live=((g.scores[r.pid]||[])[i]||{}).status==='playing';
+      const inner = f ? `${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')}<small>${f.pts}${f.wait?'…':''}</small>` : (live?'<span style="color:var(--lane)">▶</span><small>playing</small>':'');
+      h += `<td class="g">${edit && live && picked ? `<button data-fe="${g.id}|${r.pid}|${i}" aria-label="Enter ${esc(fName(r.pid))}'s game ${i+1}">${inner||'+'}</button>` : (inner||'·')}</td>`; });
+    h+=`<td class="tot">${r.total}</td>${pts?`<td class="n">${pts[res.ranked.indexOf(r)]}</td>`:''}</tr>`;
+  });
+  h+=`</tbody></table></div>`;
+  if(pts) h+=`<p class="note" style="margin-top:.4rem">Matchplay points (totals shared out of 21): ${res.ranked.map((r,i)=>`${esc(fName(r.pid))} ${pts[i]}`).join(', ')}.</p>`;
+  if(edit && live){
+    if(!picked || FED==='picks:'+g.id){
+      const byCat=c=>T.arenas.filter(a=>(a.cat||'')===c);
+      const sel=i=>slotSelect(round,g,i,`data-fpick="${g.id}" aria-label="Game ${i+1}"`,g.machines[i],`Game ${i+1}…`);
+      h+=`<div class="fedit"><b>Game picks</b> <span class="note">by ${esc(fName(top))}</span><div class="row" style="margin-top:.4rem">${[0,1,2].map(sel).join('')}</div>
+        <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpicksave="${g.id}">Save games</button>${picked?`<button class="btn small" data-fpickcancel>Cancel</button>`:''}</div></div>`;
+    } else if(!posSet || FED==='pos:'+g.id){
+      const seeds=g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b)), pickOrder=[...seeds.slice(1), seeds[0]];
+      h+=`<div class="fedit"><b>Playing positions</b> <span class="note">Picks go seed by seed, top seed last.</span>
+        ${pickOrder.map((pid,k)=>`<div class="row" style="margin-top:.35rem;align-items:center"><span style="flex:1">${k+1}. ${esc(fName(pid))} <span class="note">#${fSeed(pid)}</span></span><select data-fpos="${pid}" data-fposg="${g.id}" aria-label="Position for ${esc(fName(pid))}" style="width:auto"><option value="">Position…</option>${Array.from({length:N},(_,j)=>`<option value="${j+1}" ${g.positions[pid]===j+1?'selected':''}>Player ${j+1}</option>`).join('')}</select></div>`).join('')}
+        <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpossave="${g.id}">Save positions</button>${posSet?`<button class="btn small" data-fpickcancel>Cancel</button>`:''}</div></div>`;
+    } else if(FED && FED.gid===g.id){
+      const a=A(g.machines[FED.i]);
+      h+=`<div class="fedit"><b>${esc(fName(FED.pid))}, game ${FED.i+1}: ${esc(a.name)}</b> <span class="note">target ${fmt(a.target)}</span>
+        <label>Target reached on</label><div class="balls">${[1,2,3,0].map(b=>`<button class="choice" data-fhit="${b}" aria-pressed="${FED.hit===b}">${b?`Ball ${b}`:(a.balls===5?'Ball 4–5 or never':'Never')}</button>`).join('')}</div>
+        <div class="row"><div class="grow"><label for="fb1">Score after ball 1${FED.hit===1?' (optional)':''}</label><input type="text" inputmode="numeric" id="fb1" value="${esc(FED.b1)}"></div>
+        <div class="grow"><label for="ffin">Final score${FED.hit!==0?' (optional)':''}</label><input type="text" inputmode="numeric" id="ffin" value="${esc(FED.final)}"></div></div>
+        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fsave">Save</button><button class="btn small" id="fcancel">Cancel</button>${(g.scores[FED.pid]||[])[FED.i]?'<button class="btn small danger" id="fclear">Clear this game</button>':''}</div></div>`;
+    }
+    if(picked && posSet && FED!=='picks:'+g.id && FED!=='pos:'+g.id && !(FED&&FED.gid===g.id)) h+=`<div class="row" style="margin-top:.5rem"><button class="btn small" data-fchgpicks="${g.id}">Change games</button><button class="btn small" data-fchgpos="${g.id}">Change positions</button></div>`;
+    if(res.tie || (g.order && res.complete)){
+      const ordList = FORD[g.id] ? FORD[g.id].map(pid=>res.rows.find(r=>r.pid===pid)) : res.ranked;
+      h+=`<div class="fedit"><b>${res.tie?'Tie: set the finishing order':'Finishing order set by hand'}</b> <span class="note">After a tiebreaker, put players in the order they finished.${FORD[g.id]?' <b>Not saved yet.</b>':''}</span>
+        ${ordList.map((r,k)=>`<div class="row" style="margin-top:.3rem;align-items:center"><span style="flex:1">${k+1}. ${esc(fName(r.pid))} <span class="note">${r.total}</span></span><button class="btn small" data-ford="${g.id}|${k}|-1" ${k===0?'disabled':''}>Up</button><button class="btn small" data-ford="${g.id}|${k}|1" ${k===ordList.length-1?'disabled':''}>Down</button></div>`).join('')}
+        <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fordsave="${g.id}">Save order</button>${g.order?`<button class="btn small" data-fordclear="${g.id}">Use totals</button>`:''}</div></div>`;
+    }
+  }
+  return h+'</div>';
+}
+let FORD={};
+function finalsHeadInfo(){
+  const fin=T.finals; if(fin.champion) return `Champion: ${fName(fin.champion)}`;
+  const r=fin.rounds[fin.rounds.length-1]; return roundName(fin.rounds.length-1, fin.rounds.length, r);
+}
+// Read-only board for the TV and the stream: current round, plus the champion when there is one
+function finalsBoardHTML(){
+  const fin=T.finals, ri=fin.rounds.length-1, r=fin.rounds[ri];
+  let groups=r.groups;
+  if(STREAMMODE){ const want=(ST.grp||'A').toUpperCase(); groups=r.groups.filter(g=>g.label===want); if(!groups.length) groups=r.groups.slice(0,1); }
+  const fz = groups.length>4 ? 1 : groups.length>2 ? 1.2 : 1.55;
+  return `<div class="ftv" style="--fz:${fz}">${fin.champion?`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p></div>`:''}<div class="fgrid">${groups.map(g=>fGroupHTML(g,r,ri,false,false)).join('')}</div></div>`;
+}
+// The logged-in player's group in the current round, and whose turn it is to pick
+// Groups pick games in order of their top seed; a machine can't repeat in the same game slot
+const gTop=g=>Math.min(...g.players.map(fSeed));
+function gWaitFor(round,g){ return round.groups.filter(x=>x!==g && gTop(x)<gTop(g) && x.machines.length!==3).sort((a,b)=>gTop(a)-gTop(b))[0]||null; }
+function slotTaken(round,g,i){ const m={}; round.groups.forEach(x=>{ if(x!==g && x.machines.length===3) m[x.machines[i]]=x.label; }); return m; }
+function slotSelect(round,g,i,attrs,cur,first){
+  const taken=slotTaken(round,g,i), byCat=c=>T.arenas.filter(a=>(a.cat||'')===c);
+  return `<select ${attrs}><option value="">${first}</option>${[...CATS,['','No category']].map(([k,l])=>{ const list=byCat(k); return list.length?`<optgroup label="${l}">${list.map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''} ${taken[a.id]?'disabled':''}>${esc(a.name)}${a.target?` (${fmt(a.target)})`:''}${taken[a.id]?` – Group ${taken[a.id]} has it as game ${i+1}`:''}</option>`).join('')}</optgroup>`:''; }).join('')}</select>`;
+}
+function myFinals(){
+  if(!T || !T.finals || !PLAYER || T.finals.champion) return null;
+  const me=T.players.find(p=>p.name.toLowerCase()===PLAYER.name.toLowerCase()); if(!me) return null;
+  const fin=T.finals, round=fin.rounds[fin.rounds.length-1], g=round.groups.find(x=>x.players.includes(me.id)); if(!g) return null;
+  const by=g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b)), order=[...by.slice(1), by[0]];
+  const turn = g.machines.length<3 ? by[0] : order.find(pid=>!g.positions[pid]) || null;
+  return {me:me.id, g, round, top:by[0], order, turn, picking: g.machines.length<3 ? 'games' : turn ? 'pos' : null};
+}
+let PFS='', PFX=null; // score being typed, and a game being fixed
+function myFinalsHTML(mf){
+  const {me,g,top,order,turn,picking}=mf, N=g.players.length;
+  let h=`<div class="panel" id="myfin" style="border:2px solid var(--lane)"><h2>Your group: ${esc(g.label)}</h2>`;
+  if(picking==='games'){
+    const wf=gWaitFor(mf.round,g);
+    if(wf) h+=`<p>Groups pick their games in seed order. Waiting for <b>Group ${esc(wf.label)}</b> to pick first${me===top?", then it's your turn to pick your group's games":''}.</p>`;
+    else if(me===top){
+      const sel=i=>`<div class="grow"><label for="mfg${i}">Game ${i+1}</label>${slotSelect(mf.round,g,i,`id="mfg${i}" data-mfg`,'', 'Pick a machine…')}</div>`;
+      const others=mf.round.groups.filter(x=>x!==g && x.machines.length===3);
+      h+=`<p><b>You're the top seed, so you pick the games.</b> Pick one Classic, one Mid and one Modern, in the order your group will play them.</p>${others.length?`<p class="note">A machine another group already has in the same game slot can't be picked for that slot (it's greyed out), but you can use it for a different game.</p>`:''}<div class="row">${[0,1,2].map(sel).join('')}</div>
+        <div class="row" style="margin-top:.7rem"><button class="btn primary" id="mfgSave">Save my picks</button></div>`;
+    } else h+=`<p>Waiting for <b>${esc(fName(top))}</b> (top seed) to pick the 3 games.</p><p class="note">After that, players pick their positions: ${order.map(pid=>esc(fName(pid))).join(', then ')}.</p>`;
+  } else if(picking==='pos'){
+    const taken=Object.values(g.positions);
+    if(turn===me){
+      h+=`<p><b>Your turn: pick your playing position.</b></p><div class="choices" style="margin-top:.5rem">${Array.from({length:N},(_,i)=>i+1).map(n=>`<button class="choice" data-mfp="${n}" ${taken.includes(n)?'disabled':''}><b>Player ${n}</b><small>${taken.includes(n)?esc(fName(Object.keys(g.positions).find(k=>g.positions[k]===n))):'open'}</small></button>`).join('')}</div>`;
+    } else h+=`<p>Waiting for <b>${esc(fName(turn))}</b> to pick a position.</p><p class="note">Pick order: ${order.map(pid=>`${pid===me?'<b>you</b>':esc(fName(pid))}${g.positions[pid]?` (player ${g.positions[pid]})`:''}`).join(', ')}.</p>`;
+  } else {
+    const mine=g.scores[me]||[null,null,null], card=fCard(g,me);
+    const cur=mine.findIndex(r=>r && r.status==='playing'), next=cur>=0?cur:mine.findIndex(r=>!r);
+    h+=`<p>You're <b>player ${g.positions[me]}</b>. Your total: <b>${card.total}</b></p>
+      <ul class="balllist">${g.machines.map((aid,i)=>{ const a=A(aid), r=mine[i], f=card.frames[i];
+        return `<li><span>Game ${i+1}</span><b>${esc(abbr(a))}</b><small>${f?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:(r&&r.status==='playing'?'playing now':'not played')}</small>${f && r && Array.isArray(r.balls) && cur<0 ? ` <button class="btn small" data-mffix="${i}">Fix</button>`:''}</li>`; }).join('')}</ul>`;
+    if(PFX!=null){
+      const r=mine[PFX], a=A(g.machines[PFX]);
+      h+=`<div class="fedit"><b>Fix game ${PFX+1}: ${esc(a.name)}</b>${r.balls.map((s,i)=>`<label for="mfx${i}">Score after ball ${i+1}</label><input type="text" inputmode="numeric" id="mfx${i}" data-mfx value="${fmt(s)}">`).join('')}
+        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="mfxSave">Save</button><button class="btn small" id="mfxBack">Cancel</button></div></div>`;
+    } else if(next>=0){
+      const a=A(g.machines[next]), r=mine[next], balls=r&&r.balls?r.balls:[], n=balls.length+1;
+      h+=`<h3>Game ${next+1}: ${esc(a.name)}</h3><p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
+        ${balls.length?`<ul class="balllist">${balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>`:''}
+        <label for="mfs">Score after ball ${n}</label><input type="text" inputmode="numeric" id="mfs" value="${esc(PFS)}" placeholder="Your score on the machine now" autocomplete="off">
+        <div class="preview" id="mfhint"></div>
+        <div class="row"><button class="btn primary" id="mfsSave">Save ball ${n}</button>${balls.length?'<button class="btn danger" id="mfCancel">Cancel this game</button>':''}</div>
+        ${rangesBox(a)}`;
+    } else h+=`<p class="good">All 3 of your games are in.</p>`;
+  }
+  return h+'</div>';
+}
+function bindMyFinals(mf){
+  const ppost=async(path,body,msg)=>{ try{ const j=await api(`/api/player/t/${T.id}/finals/${path}`,'POST',body); T=j.tournament; if(msg) toast(msg); renderFinals(); return j; }catch(e){ toast(e.message); return null; } };
+  if($('#mfgSave')) $('#mfgSave').onclick=()=>{ const ms=$$('[data-mfg]').map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } ppost('pick',{machines:ms},'Games picked'); };
+  $$('[data-mfp]').forEach(b=>b.onclick=()=>{ if(confirm(`Pick player ${b.dataset.mfp}?`)) ppost('pick',{position:Number(b.dataset.mfp)},`You're player ${b.dataset.mfp}`); });
+  $$('[data-mffix]').forEach(b=>b.onclick=()=>{ PFX=Number(b.dataset.mffix); renderFinals(); });
+  if($('#mfxBack')) $('#mfxBack').onclick=()=>{ PFX=null; renderFinals(); };
+  if($('#mfxSave')) $('#mfxSave').onclick=async()=>{ const balls=$$('[data-mfx]').map(i=>num(i.value)); const j=await ppost('fix',{game:PFX,balls},'Fixed'); if(j){ PFX=null; renderFinals(); } };
+  const inp=$('#mfs');
+  if(inp){
+    const g=mf.g, mine=g.scores[mf.me]||[], cur=mine.findIndex(r=>r&&r.status==='playing'), i=cur>=0?cur:mine.findIndex(r=>!r), idx=i<0?0:i;
+    const a=A(g.machines[idx]), balls=(mine[idx]&&mine[idx].balls)||[], ballNo=balls.length+1, min=balls.length?balls[balls.length-1]:0;
+    bindRanges();
+    const upd=()=>{ PFS=inp.value; const s=num(inp.value); $('#mfhint').innerHTML = s==null?'' : s<min?`<span class="err">That's lower than your ball ${balls.length} score.</span>` : ballHint(a, ballNo, s); updateRanges(a, s!=null&&s>=min?s:null, ballNo); };
+    inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); PFS=inp.value; } }; inp.onkeydown=e=>{ if(e.key==='Enter') $('#mfsSave').click(); }; upd();
+    $('#mfsSave').onclick=async()=>{ const s=num(inp.value); if(s==null){ toast('Enter your score.'); return; } $('#mfsSave').disabled=true; const j=await ppost('ball',{score:s}); if(j){ PFS=''; const r=(T.finals.rounds.at(-1).groups.find(x=>x.id===g.id).scores[mf.me]||[])[idx]; toast(r && r.status!=='playing' ? (r.hitBall===1?'Strike!':r.hitBall>=2?'Spare!':'Game saved') : `Ball ${ballNo} saved`); renderFinals(); } else $('#mfsSave').disabled=false; };
+    if($('#mfCancel')) $('#mfCancel').onclick=()=>{ if(confirm('Cancel this game? Its scores will be removed.')) ppost('cancel',{},'Game cancelled'); };
+  }
+}
+let LASTTURN=null;
+function renderFinals(){
+  if(!T.finals) return renderFinalsSetup();
+  const fin=T.finals, edit=staff() && T.status==='active', lastI=fin.rounds.length-1, cur=fin.rounds[lastI];
+  const curRes=cur.groups.map(g=>fResult(g,cur.final)), ready=curRes.every(r=>r.complete && !r.tie);
+  let h='';
+  if(fin.champion) h+=`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p><p style="margin-top:.4rem">${fin.places.map((pid,i)=>`${i+1}. ${esc(fName(pid))}`).join(' &nbsp; ')}</p></div>`;
+  else h+=`<div class="panel"><h2>${esc(roundName(lastI, fin.rounds.length, cur))}</h2><p class="note">Each group plays 3 games. The top seed picks one Classic, one Mid and one Modern game and their order; groups pick in seed order and can't repeat another group's machine in the same game slot. Playing positions are picked seed by seed, with the top seed last. The 3 games are scored as a 3-frame pinbowl card (strikes and spares carry into the next game; game 3 counts flat). ${cur.final?'Highest total wins the finals.':'The top 2 totals in each group move on.'}${lastI===0&&fin.byes?` Seeds 1-${fin.byes} have a bye into round 2.`:''}</p>
+    ${ADMIN&&edit?`<div class="row" style="margin-top:.7rem">${ready?`<button class="btn primary" id="fnext">${cur.final?'Finish finals':'Start next round'}</button>`:`<span class="note">${curRes.some(r=>r.tie)?'Settle the tie before moving on.':'When every group is done, start the next round here.'}</span>`}${lastI>0?`<button class="btn" id="fundo">Undo this round</button>`:''}</div>`:''}</div>`;
+  if(fin.champion && ADMIN && edit) h+=`<div class="row" style="margin-bottom:1rem"><button class="btn" id="fundo">Undo the result</button></div>`;
+  const mf=myFinals();
+  if(mf && T.status==='active') h=myFinalsHTML(mf)+h;
+  else if(!PLAYER && !ADMIN && !fin.champion && T.status==='active') h=`<div class="panel"><p>Playing in the finals? <button class="btn small primary" id="fImIn">Pick my name</button></p></div>`+h;
+  for(let i=lastI;i>=0;i--){
+    const r=fin.rounds[i];
+    if(i<lastI || fin.champion) h+=`<h2 style="font:700 1.3rem var(--cond);margin:1rem 0 .5rem">${esc(roundName(i, fin.rounds.length, r))}</h2>`;
+    h+=`<div class="fgrid">${r.groups.map(g=>fGroupHTML(g,r,i, i===lastI && !fin.champion, edit)).join('')}</div>`;
+  }
+  $('#main').innerHTML=h;
+  if(mf) bindMyFinals(mf);
+  if($('#fImIn')) $('#fImIn').onclick=()=>{ store.del('pb-watch'); renderPicker(); };
+  const fpost=(path,body,msg)=>change('/finals/'+path,'POST',body,msg);
+  $$('[data-fe]').forEach(b=>b.onclick=()=>{ const [gid,pid,i]=b.dataset.fe.split('|'); const g=cur.groups.find(x=>x.id===gid), r=(g.scores[pid]||[])[+i];
+    FED={gid,pid,i:+i, hit:r?r.hitBall:null, b1:r&&r.b1!=null?fmt(r.b1):'', final:r&&r.final!=null?fmt(r.final):''}; renderFinals(); const e=$('#fb1'); if(e) e.scrollIntoView({block:'center'}); });
+  $$('[data-fhit]').forEach(b=>b.onclick=()=>{ FED.b1=$('#fb1').value; FED.final=$('#ffin').value; FED.hit=Number(b.dataset.fhit); renderFinals(); });
+  if($('#fsave')) $('#fsave').onclick=async()=>{ if(FED.hit==null){ toast('Pick the ball the target was reached on.'); return; } const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,hitBall:FED.hit,b1:num($('#fb1').value),final:num($('#ffin').value)},'Saved'); if(j){ FED=null; renderFinals(); } };
+  if($('#fclear')) $('#fclear').onclick=async()=>{ if(!confirm('Clear this game?')) return; const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,clear:true},'Cleared'); if(j){ FED=null; renderFinals(); } };
+  if($('#fcancel')) $('#fcancel').onclick=()=>{ FED=null; renderFinals(); };
+  ['fb1','ffin'].forEach(id=>{ const e=$('#'+id); if(e) e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); }; });
+  $$('[data-fpicksave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpicksave, ms=$$(`[data-fpick="${gid}"]`).map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } const j=await fpost('picks',{gid,machines:ms},'Games saved'); if(j){ FED=null; renderFinals(); } });
+  $$('[data-fpossave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpossave, pos={}; $$(`[data-fposg="${gid}"]`).forEach(s=>{ if(s.value) pos[s.dataset.fpos]=Number(s.value); }); const j=await fpost('picks',{gid,positions:pos},'Positions saved'); if(j){ FED=null; renderFinals(); } });
+  $$('[data-fpos]').forEach(s=>s.onchange=()=>{ const taken=$$(`[data-fposg="${s.dataset.fposg}"]`).filter(x=>x!==s).map(x=>x.value); if(s.value && taken.includes(s.value)){ toast('That position is taken.'); s.value=''; } });
+  $$('[data-fpickcancel]').forEach(b=>b.onclick=()=>{ FED=null; renderFinals(); });
+  $$('[data-fchgpicks]').forEach(b=>b.onclick=()=>{ FED='picks:'+b.dataset.fchgpicks; renderFinals(); });
+  $$('[data-fchgpos]').forEach(b=>b.onclick=()=>{ FED='pos:'+b.dataset.fchgpos; renderFinals(); });
+  $$('[data-ford]').forEach(b=>b.onclick=()=>{ const [gid,k,d]=b.dataset.ford.split('|'); const g=cur.groups.find(x=>x.id===gid); const o=FORD[gid]||fResult(g,cur.final).ranked.map(r=>r.pid); const i=+k, j=i+Number(d); [o[i],o[j]]=[o[j],o[i]]; FORD[gid]=o; renderFinals(); });
+  $$('[data-fordsave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fordsave, g=cur.groups.find(x=>x.id===gid); const o=(FORD[gid]||fResult(g,cur.final).ranked.map(r=>r.pid)); const j=await fpost('order',{gid,order:o},'Order saved'); if(j) delete FORD[gid]; });
+  $$('[data-fordclear]').forEach(b=>b.onclick=async()=>{ delete FORD[b.dataset.fordclear]; await fpost('order',{gid:b.dataset.fordclear,order:null},'Using totals'); });
+  if($('#fnext')) $('#fnext').onclick=async()=>{ if(!confirm(cur.final?'Finish the finals and crown the champion?':'Start the next round with the players moving on?')) return; await fpost('next',{},cur.final?'Finals finished':'Next round started'); };
+  if($('#fundo')) $('#fundo').onclick=async()=>{ if(!confirm(fin.champion?'Undo the final result?':'Remove this round? Only works before any scores are entered in it.')) return; await fpost('undo',{},'Undone'); };
+}
+// Admin: finish qualifying, set seeds and the cut, and make the finals
+async function renderFinalsSetup(){
+  const m=$('#main');
+  if(!ADMIN){ m.innerHTML='<div class="panel">Finals will appear here when they start.</div>'; return; }
+  if(T.daily){ m.innerHTML='<div class="panel"><h2>Finals</h2><p class="note">Daily challenges end with a winner and have no finals.</p></div>'; return; }
+  const rows=standings(), N=cutCount(), auto=Math.floor(T.players.length/2), fin=LIST.find(t=>t.id===T.finalsId);
+  const plan=fPlan(N), r1=Array.from({length:Math.max(0,N-plan.byes)},(_,i)=>plan.byes+i+1), groups=N>=2?fSnake(r1,plan.groups):[];
+  const nm=s=>rows[s-1]?esc(rows[s-1].p.name):'?';
+  m.innerHTML=`<div class="panel"><h2>Finals</h2>
+    <p class="note">When qualifying is over, mark the tournament as done (this locks scores), check the seeds, then make the finals. Made a mistake? Delete the finals, undo Done, fix the scores, and do it again.</p>
+    <div class="row" style="margin-top:.8rem;align-items:center">
+      <label style="margin:0">Players in finals <select id="fCount" style="width:auto">${[`<option value="" ${!T.finalsCount?'selected':''}>Top half (${auto})</option>`, ...Array.from({length:Math.max(0,T.players.length-1)},(_,i)=>i+2).map(n=>`<option value="${n}" ${T.finalsCount===n?'selected':''}>${n}</option>`)].join('')}</select></label>
+    </div>
+    <div class="row" style="margin-top:.8rem">
+      ${T.done?`<span class="good">Marked done. Scores are locked.</span><button class="btn" id="fUndone">Undo done</button>`:`<button class="btn primary" id="fDone">Mark as done</button>`}
+      ${fin?`<button class="btn" id="fOpen">Open the finals</button><button class="btn danger" id="fDel">Delete the finals</button>`:`<button class="btn primary" id="fGen" ${T.done&&N>=2?'':'disabled'}>Make the finals</button>`}
+    </div>
+    ${!T.done&&!fin?'<p class="note" style="margin-top:.4rem">Mark as done first, then make the finals.</p>':''}</div>
+  ${N>=2?`<div class="panel"><h2>Round 1 groups</h2>
+    ${plan.byes?`<p>Byes into round 2: ${Array.from({length:plan.byes},(_,i)=>`${i+1}. ${nm(i+1)}`).join(', ')}</p>`:''}
+    ${groups.map((gs,i)=>`<p style="margin-top:.3rem"><b>Group ${'ABCDEFGHIJKLMNOP'[i]}:</b> ${gs.map(s=>`${s}. ${nm(s)}`).join(', ')}</p>`).join('')}</div>`:''}
+  <div class="panel"><h2>Seeds</h2><p class="note">Seeds follow qualifying totals. Use Up and Down to change them (for example, after a tiebreaker).${T.seedOverride?' <b>Seeds were changed by hand.</b>':''}</p>
+    ${T.seedOverride?'<div class="row" style="margin-top:.5rem"><button class="btn small" id="fReset">Go back to standings order</button></div>':''}
+    <div class="tablewrap" style="margin-top:.5rem"><table><thead><tr><th>Seed</th><th>Player</th><th class="n">Total</th><th></th></tr></thead><tbody>
+    ${rows.map((x,i)=>`<tr ${i<N?'':'style="opacity:.6"'}><td>${i+1}</td><td>${esc(x.p.name)}</td><td class="n">${x.r.total}</td><td class="n" style="white-space:nowrap">${fin?'':`<button class="btn small" data-fs="${i}|-1" ${i===0?'disabled':''}>Up</button> <button class="btn small" data-fs="${i}|1" ${i===rows.length-1?'disabled':''}>Down</button>`}</td></tr>${i===N-1&&i<rows.length-1?`<tr><td colspan="4"><div class="cutline" style="margin:0"><span>Finals cut: top ${N}</span></div></td></tr>`:''}`).join('')}
+    </tbody></table></div></div>`;
+  $('#fCount').onchange=e=>change('','PATCH',{finalsCount:e.target.value?Number(e.target.value):null},'Finals size saved');
+  if($('#fDone')) $('#fDone').onclick=async()=>{ if(!confirm('Mark qualifying as done? Scores lock until you undo it.')) return; await change('','PATCH',{done:true},'Marked done'); await refreshList(); };
+  if($('#fUndone')) $('#fUndone').onclick=async()=>{ if(fin && !confirm('Finals already exist. They will not update by themselves. Delete them and make them again after fixing scores. Undo done anyway?')) return; await change('','PATCH',{done:false},'Scores unlocked'); await refreshList(); };
+  if($('#fGen')) $('#fGen').onclick=async()=>{ if(!confirm(`Make the finals with the top ${N}?`)) return; try{ const j=await api(`/api/admin/t/${T.id}/finals`,'POST'); T=j.tournament; store.set('pb-tid',T.id); store.set('pb-tid-at',Date.now()); await refreshList(); toast('Finals made'); go('finals'); }catch(e){ toast(e.message); } };
+  if($('#fOpen')) $('#fOpen').onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(fin.id); go('finals'); };
+  if($('#fDel')) $('#fDel').onclick=async()=>{ if(prompt('Type DELETE to delete the finals and everything entered in them.')!=='DELETE') return; try{ await api(`/api/admin/t/${fin.id}`,'DELETE'); await refreshList(); await loadT(T.id); toast('Finals deleted'); render(); }catch(e){ toast(e.message); } };
+  if($('#fReset')) $('#fReset').onclick=()=>change('','PATCH',{seedOverride:null},'Seeds back to standings order');
+  $$('[data-fs]').forEach(b=>b.onclick=()=>{ const [i,d]=b.dataset.fs.split('|').map(Number); const o=rows.map(x=>x.p.id); [o[i],o[i+d]]=[o[i+d],o[i]]; change('','PATCH',{seedOverride:o},'Seeds saved'); });
+}
+
 /* ================= rules ================= */
 function exampleSheet(games){
   const saved=T;
@@ -1257,7 +1548,11 @@ function renderRules(){
   const a=T.arenas.find(x=>x.target)||{name:'King Kong',target:150000000,balls:3};
   const t=a.target, at=p=>fmt(Math.round(t*p/100));
   $('#main').innerHTML=`<div class="panel">
-  <h2>How pinbowl works</h2>
+  ${T.finals?`<h2>Finals</h2>
+  <p>Groups of up to 4 play 3 games. The top seed in each group picks one Classic, one Mid and one Modern machine, and the order they're played. Groups pick one after another, starting with the group that has the highest seed, and a group can't put a machine in the same game slot another group already has it in (it can use it for a different game). Then each player picks a playing position, starting with the 2nd seed and ending with the top seed.</p>
+  <p>The 3 games are scored as a 3-frame pinbowl card. Strikes and spares carry into the next game, and game 3 counts flat. The top 2 totals in each group move on, regrouped by seed like PAPA finals. Ties are settled with a tiebreaker game. The highest total in the final group wins.</p>
+  <h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
+  ${T.finals?'':'<h2>How pinbowl works</h2>'}
   ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins.</p>`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
@@ -1444,10 +1739,10 @@ async function renderTournaments(){
     ${readOnly()?`<p>This tournament is archived. Players can still view it, but nobody can change scores.</p>
       <div class="row" style="margin-top:.8rem"><button class="btn" id="reopen">Reopen tournament</button><button class="btn danger" id="tdel">Delete tournament</button></div>`:`
     <label for="tname">Name</label><input type="text" id="tname" value="${esc(cur.name)}">
-    <label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
+    ${cur.finals?`<p class="note" style="margin-top:.6rem">This is a finals event. Run it on the Finals tab.</p>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
     <label for="tfr">Frames per player</label><input type="number" id="tfr" min="1" max="20" value="${cur.frames}" style="max-width:7rem">
     <label class="check"><input type="checkbox" id="ttb" ${cur.tenthBonus?'checked':''}> A strike or spare in the last frame earns bonus games</label>
-    <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>
+    <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>`}
     <div class="row" style="margin-top:.8rem"><button class="btn" id="tsave">Save settings</button><button class="btn danger" id="tarch">Archive tournament</button></div>
     <p class="note" style="margin-top:.5rem">Archive when the event ends. It stays viewable, scores lock, and Matchplay checks stop.</p>`}
     ${cur.mpId?`<details style="margin-top:1rem"><summary class="note">Matchplay data check</summary><p class="note">Shows what Matchplay sent last time, which helps if target scores aren't coming through.</p><pre id="raw">Loading…</pre></details>`:''}
@@ -1478,7 +1773,7 @@ async function renderTournaments(){
     $('#reopen').onclick=async()=>{ if(confirm('Reopen this tournament so scores can be changed?')){ await change('','PATCH',{status:'active'},'Reopened'); await refreshList(); render(); } };
     $('#tdel').onclick=async()=>{ if(prompt('Type DELETE to permanently delete this tournament and all its scores.')==='DELETE'){ try{ await api(`/api/admin/t/${cur.id}`,'DELETE'); store.del('pb-tid'); await boot(); toast('Deleted'); }catch(e){ toast(e.message); } } };
   } else {
-    $('#tsave').onclick=async()=>{ await change('','PATCH',{name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked},'Settings saved'); await refreshList(); render(); };
+    $('#tsave').onclick=async()=>{ await change('','PATCH', cur.finals ? {name:$('#tname').value} : {name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked},'Settings saved'); await refreshList(); render(); };
     $('#tarch').onclick=async()=>{ if(confirm('Archive this tournament? Scores will be locked.')){ await change('','PATCH',{status:'archived'},'Archived'); await refreshList(); render(); } };
   }
   if($('#raw')) api(`/api/admin/t/${cur.id}/raw`).then(j=>{ const el=$('#raw'); if(el) el.textContent=Object.keys(j).length?JSON.stringify(j,null,2):'Nothing fetched yet.'; }).catch(()=>{});
@@ -1530,7 +1825,7 @@ async function refreshList(){ const s=await api('/api/state'); LIST=s.tournament
 async function loadT(id){ try{ T=await api('/api/t/'+id); store.set('pb-tid',id); }catch(e){ T=null; } }
 async function boot(){
   try{ await refreshList(); }catch(e){ $('#main').innerHTML='<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
-  if(TVMODE || STREAMMODE){ document.body.classList.add(STREAMMODE?'streammode':'tvmode'); const id=(LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.id===liveDailyId())||LIST.find(t=>t.status==='active')||LIST[0]||{}).id; T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
+  if(TVMODE || STREAMMODE){ document.body.classList.add(STREAMMODE?'streammode':'tvmode'); const id=bcPickId(); T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
   if(NEEDS_SETUP){ screen='setup'; render(); return; }
   const pickId = pickDefaultId();
   T=null; if(pickId) await loadT(pickId);
@@ -1539,6 +1834,18 @@ async function boot(){
   render();
 }
 setInterval(async()=>{
+  if(document.hidden || screen || !T || !T.finals || T.status!=='active' || TVMODE || STREAMMODE || tab!=='finals') return;
+  try{
+    const fresh=await api('/api/t/'+T.id); if(JSON.stringify(fresh)===JSON.stringify(T)) return;
+    T=fresh;
+    const mf=myFinals(), myTurn=!!(mf && ((mf.picking==='games' && mf.top===mf.me && !gWaitFor(mf.round,mf.g)) || (mf.picking==='pos' && mf.turn===mf.me)));
+    if(myTurn && LASTTURN!==true){ toast("It's your turn to pick!"); try{ navigator.vibrate && navigator.vibrate(200); }catch(e){} }
+    LASTTURN=myTurn;
+    const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
+    if(!typing && FED==null && PFX==null && !PFS){ const y=window.scrollY; renderFinals(); window.scrollTo(0,y); }
+  }catch(e){}
+}, 8000);
+setInterval(async()=>{
   if(document.hidden || screen || !T || T.status!=='active' || TVMODE || tab==='tv') return;
   try{
     const fresh=await api('/api/t/'+T.id); const changed=JSON.stringify(fresh)!==JSON.stringify(T);
@@ -1546,7 +1853,7 @@ setInterval(async()=>{
     if(ADMIN || PLAYER){ const was=isKeeper(); await refreshList(); if(was!==isKeeper()){ if(!tabs().some(x=>x[0]===tab)) tab='mine'; render(); return; } }
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
-    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored','stats'].includes(tab) || !$('#shareBox').hidden;
+    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored','stats','finals'].includes(tab) || !$('#shareBox').hidden;
     if(changed && !busy){
       const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); $$('details[data-mid]').forEach(d=>{ d.open=openIds.includes(d.dataset.mid); }); window.scrollTo(0,y);
     }
