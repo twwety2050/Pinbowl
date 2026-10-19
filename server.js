@@ -760,7 +760,7 @@ async function route(req, res, url) {
   // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
   const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
-  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order))$/.test(p))) fail(401, 'Log in as an admin to do that.');
+  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order|ball|fix|cancel))$/.test(p))) fail(401, 'Log in as an admin to do that.');
   const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {
@@ -939,7 +939,7 @@ async function route(req, res, url) {
     const F = createFinals(t);
     return send(res, 200, { tournament: publicT(F) });
   }
-  if (m === 'POST' && (mt = sub.match(/^\/finals\/(picks|score|order|next|undo)$/))) {
+  if (m === 'POST' && (mt = sub.match(/^\/finals\/(picks|score|order|next|undo|ball|fix|cancel)$/))) {
     const F = openT(tid), b = await readBody(req), act = mt[1];
     if (!F.finals) fail(409, 'This is not a finals tournament.');
     if ((act === 'next' || act === 'undo') && !admin) fail(401, 'Only an admin can change rounds.');
@@ -985,6 +985,30 @@ async function route(req, res, url) {
         g.scores[pid][i] = { hitBall: hit, b1, final, by: actor, at: Date.now() };
       }
       if (!g.scores[pid].some(Boolean)) delete g.scores[pid];
+      g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
+    }
+    // staff enter any player's score after each ball, the same way players do
+    if (act === 'ball' || act === 'fix' || act === 'cancel') {
+      const pid = String(b.pid || '');
+      if (!g.players.includes(pid)) fail(400, 'That player is not in this group.');
+      if (g.machines.length !== 3 || Object.keys(g.positions).length !== g.players.length) fail(409, 'Pick the games and positions first.');
+      const list = g.scores[pid] = g.scores[pid] || [null, null, null], nm = (F.players.find(x => x.id === pid) || {}).name || 'That player';
+      if (act === 'ball') {
+        const score = toInt(b.score); if (score == null) fail(400, 'Enter the score.');
+        let i = list.findIndex(r => r && r.status === 'playing');
+        if (i < 0) { i = list.findIndex(r => !r); if (i < 0) { if (!list.some(Boolean)) delete g.scores[pid]; fail(409, `${nm} has finished all 3 games.`); } list[i] = { balls: [], by: actor }; }
+        const r = list[i], a = F.arenas.find(x => x.id === g.machines[i]), last = r.balls[r.balls.length - 1];
+        if (last != null && score < last) fail(400, `The score can't be lower than after ball ${r.balls.length} (${last.toLocaleString('en-US')}).`);
+        r.balls.push(score); derive(r, a); r.at = Date.now(); r.by = actor;
+      }
+      if (act === 'fix') {
+        const i = parseInt(b.game, 10); if (!(i >= 0 && i < 3)) fail(400, 'Pick a game.');
+        const a = F.arenas.find(x => x.id === g.machines[i]), trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
+        if (trial.status === 'playing' && list.some((x, j) => j !== i && x && x.status === 'playing')) fail(409, `${nm} has another game in progress. Finish or cancel it first.`);
+        list[i] = Object.assign(list[i] || {}, trial, { by: actor, at: Date.now() });
+      }
+      if (act === 'cancel') { const i = parseInt(b.game, 10); const k = i >= 0 ? i : list.findIndex(r => r && r.status === 'playing'); if (k >= 0) list[k] = null; }
+      if (!list.some(Boolean)) delete g.scores[pid];
       g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
     }
     if (act === 'order') {
