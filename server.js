@@ -568,6 +568,15 @@ function adminGame(t, b) {
   if (g.hitBall === 0 && g.final == null) fail(400, 'Enter the final score.');
   return { ...g, balls: null, status: 'done' };
 }
+// Staff entering a whole game as the score after each ball
+function adminGameBalls(t, b) {
+  const g = { playerId: String(b.playerId || ''), arenaId: String(b.arenaId || '') };
+  if (!t.players.some(p => p.id === g.playerId)) fail(400, 'Unknown player.');
+  const a = t.arenas.find(x => x.id === g.arenaId) || fail(400, 'Unknown machine.');
+  const r = { balls: cleanBalls(b.balls, a) }; derive(r, a);
+  if (r.status !== 'done') fail(400, `Enter every ball, or stop at the ball that reached the target (${(a.target || 0).toLocaleString('en-US')}).`);
+  return { ...g, hitBall: r.hitBall, b1: r.b1, final: r.final, balls: r.balls, status: 'done' };
+}
 function playerInT(t, name) {
   return t.players.find(p => lower(p.name) === lower(name)) || fail(403, "Your name isn't in this tournament yet. Sign up in Matchplay, then try again in a minute.");
 }
@@ -1062,7 +1071,7 @@ async function route(req, res, url) {
   }
 
   if (m === 'POST' && sub === '/games') {
-    const t = scoringT(tid), g = adminGame(t, await readBody(req));
+    const t = scoringT(tid), g = (bb => Array.isArray(bb.balls) ? adminGameBalls(t, bb) : adminGame(t, bb))(await readBody(req));
     if (t.games.some(x => x.playerId === g.playerId && x.status === 'playing')) fail(409, 'This player has a game in progress. Finish or delete it first.');
     const slot = slotFor(t, g.playerId);
     if (slot.kind === 'bonus') {
@@ -1074,7 +1083,7 @@ async function route(req, res, url) {
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-    const t = scoringT(tid), g = adminGame(t, await readBody(req));
+    const t = scoringT(tid), g = (bb => Array.isArray(bb.balls) ? adminGameBalls(t, bb) : adminGame(t, bb))(await readBody(req));
     const old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
     Object.assign(old, g, { editedBy: actor, editedAt: Date.now() }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
