@@ -24,7 +24,7 @@ if(['northstar','classic','dark'].indexOf(t)<0)t='northstar';document.documentEl
 :root,:root[data-theme="northstar"]{
   --paper:#EAF1F7; --card:#FFFFFF; --ink:#17120F; --muted:#56636E; --grid:#C3D2DD;
   --mark:#C2461A; --lane:#DE7A22; --laneInk:#17120F; --ok:#2C7A4B; --warn:#B03A12; --me:#FFE7CF;
-  --head:#17120F; --headInk:#FFFFFF; --tagbg:#DCEBF6; --sky:#A9CFE8;
+  --head:#17120F; --headInk:#FFFFFF; --tagbg:#DCEBF6; --sky:#A9CFE8; --bar:#DE7A22;
   --stripeA:#DE7A22; --stripeB:#B8461B; --stripeW:4px;
   --display:"Graduate","Bowlby One","Arial Black",Impact,sans-serif;
 }
@@ -32,7 +32,7 @@ if(['northstar','classic','dark'].indexOf(t)<0)t='northstar';document.documentEl
 :root[data-theme="classic"]{
   --paper:#E6F0EA; --card:#F8FCF9; --ink:#16324F; --muted:#557083; --grid:#A7C1B3;
   --mark:#C62E2E; --lane:#C98A2B; --laneInk:#2B1B05; --ok:#2F7A4D; --warn:#A5401F; --me:#FFF1D6;
-  --head:#16324F; --headInk:#E6F0EA; --tagbg:#DCE9E1; --sky:#A7C1B3;
+  --head:#16324F; --headInk:#E6F0EA; --tagbg:#DCE9E1; --sky:#A7C1B3; --bar:#B57A22;
   --stripeA:transparent; --stripeB:transparent; --stripeW:0px;
   --display:"Bowlby One","Arial Black",Impact,sans-serif;
 }
@@ -40,7 +40,7 @@ if(['northstar','classic','dark'].indexOf(t)<0)t='northstar';document.documentEl
 :root[data-theme="dark"]{
   --paper:#0E0B09; --card:#1B1613; --ink:#F3ECE5; --muted:#A99B8F; --grid:#3B312A;
   --mark:#FF7B42; --lane:#F0912C; --laneInk:#17120F; --ok:#6BD197; --warn:#FF8F66; --me:#3B2A17;
-  --head:#050403; --headInk:#FFFFFF; --tagbg:#22303B; --sky:#A9CFE8;
+  --head:#050403; --headInk:#FFFFFF; --tagbg:#22303B; --sky:#A9CFE8; --bar:#D9731C;
   --stripeA:#F0912C; --stripeB:#B8461B; --stripeW:4px;
   --display:"Graduate","Bowlby One","Arial Black",Impact,sans-serif;
   color-scheme:dark;
@@ -294,6 +294,30 @@ body.streammode.clear{background:transparent}
 .stf.cur{background:var(--me);box-shadow:inset 0 -3px 0 var(--lane)}
 .stf.cur .ab{color:var(--ink)}
 .sttot{display:flex;align-items:center;justify-content:center;font:400 1.35em/1 var(--display);border-left:2px solid var(--grid)}
+/* stats */
+.stat{padding:0;overflow:hidden}
+.stat>summary{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .7rem;padding:.75rem 1rem;cursor:pointer}
+.stat>summary::-webkit-details-marker{display:none}
+.stat>summary::before{content:'▸';color:var(--muted);transition:transform .15s}
+.stat[open]>summary::before{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.stat>summary::before{transition:none}}
+.stat .sname{font:700 1.1rem/1.2 var(--cond);flex:1 1 12rem;min-width:0}
+.stat .sline{color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.stat .inner{padding:0 1rem 1rem}
+.stat h3{margin:1rem 0 .3rem}
+.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.4rem 1rem}
+.stat td{white-space:nowrap}
+.chart{width:100%;height:auto;display:block;max-width:560px}
+.chart text{font:600 10px var(--body);fill:var(--muted)}
+.chart text.v{fill:var(--ink)}
+.chart .bar{fill:var(--bar)}
+.chart .gl{stroke:var(--grid);stroke-width:1}
+.chart g.b:hover .bar{opacity:.75}
+.chart .hit{fill:transparent}
+.chcap{font:700 .95rem var(--cond);margin:.2rem 0 0}
+.chcap small{font:500 .8rem var(--body);color:var(--muted)}
+.suggest{background:var(--paper);border-radius:8px;padding:.7rem .8rem;margin-top:.3rem}
+.suggest p+p{margin-top:.35rem}
 #toast{position:fixed;left:50%;bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(calc(100% + 3rem));visibility:hidden;background:var(--ink);color:var(--paper);padding:.7rem 1.1rem;border-radius:8px;font-weight:600;transition:transform .25s;max-width:92vw;z-index:10}
 #toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
 body.streammode #toast,body.tvmode #toast{display:none}
@@ -530,13 +554,13 @@ function updateRanges(a, score, ballNo){ const el=$('#rngList'); if(el && a) el.
 
 /* ================= header, nav, routing ================= */
 const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
-const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['rules','Rules']];
+const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['stats','Stats'],['rules','Rules']];
 // Scorekeepers are players an admin picked: they keep their own card and can also enter anyone's scores.
 const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeeper'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
 function tabs(){ return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
-function go(t){ tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
+function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
 function renderHeader(){
   const sel=$('#tsel');
@@ -562,7 +586,7 @@ function render(){
   if(screen==='pin') return renderPin();
   if(!T){ if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats}[tab];
   (fn||renderStandings)();
 }
 
@@ -1064,6 +1088,130 @@ function bonusPanel(){
   return `<div class="panel"><h2>Bonus frames</h2><p class="note">Frames ${T.frames+1} and ${T.frames+2} are one machine each, the same for everyone, drawn from stored machines that have a target and are in the bonus draw. Each comes from a category this week is short on, so the full card ends up with 4 of each.</p>${rows}</div>`;
 }
 
+/* ================= admin: stats ================= */
+// Every finished game from open and archived tournaments, weekly and daily, grouped by machine.
+let STATS=null;
+const SF={ weekly:true, daily:true, goal:Number(store.get('pb-goal'))||10, sort:store.get('pb-ssort')||'played', q:'' };
+const pinsAt=(s,t)=> s==null ? null : (s>=t ? 'T' : Math.max(0,Math.min(9,Math.floor(s*10/t))));
+// What each ball of a game reached (0-9 pins, or 'T' for the target), and how the game ended
+function readGame(r){
+  let per=[];
+  if(r.balls) per=r.balls.map(s=>pinsAt(s,r.target));
+  else if(r.hit===1) per=['T'];
+  else {
+    per[0]=pinsAt(r.b1,r.target);
+    if(r.hit>=2){ for(let i=1;i<r.hit-1;i++) per[i]=null; per[r.hit-1]='T'; }
+    else { for(let i=1;i<r.nb-1;i++) per[i]=null; per[r.nb-1]=pinsAt(r.final,r.target); }
+  }
+  if(r.hit===1) return {per,type:'strike',total:10};
+  if(r.hit>=2 && r.hit<=SPARE_LAST_BALL) return {per,type:'spare',total:10};
+  const f=per[0]==null||per[0]==='T'?0:per[0], fin=pinsAt(r.final,r.target);
+  return {per,type:'open',total:Math.max(f, fin==='T'?9:(fin||0))};
+}
+function machineStats(list){
+  const st={n:list.length, strikes:0, spares:0, pins:0, end:Array(12).fill(0), balls:[], b1:[], b1Unknown:0, nb:3, byT:new Map()};
+  list.forEach(r=>{
+    const g=readGame(r); st.nb=Math.max(st.nb,r.nb);
+    if(g.type==='strike'){ st.strikes++; st.end[11]++; } else if(g.type==='spare'){ st.spares++; st.end[10]++; } else st.end[g.total]++;
+    st.pins+=g.total;
+    g.per.forEach((v,i)=>{ if(v==null) return; st.balls[i]=st.balls[i]||Array(11).fill(0); st.balls[i][v==='T'?10:v]++; });
+    if(r.b1!=null || (r.balls&&r.balls.length)) st.b1.push(r.balls?r.balls[0]:r.b1); else if(r.hit===1) st.b1Unknown++;
+    const k=r.tid, row=st.byT.get(k)||{tname:r.tname,daily:r.daily,when:r.when,target:r.target,n:0,strikes:0,spares:0,pins:0};
+    row.n++; if(g.type==='strike') row.strikes++; if(g.type==='spare') row.spares++; row.pins+=g.total; st.byT.set(k,row);
+  });
+  return st;
+}
+const pct=(a,b)=> b ? Math.round(a*100/b)+'%' : '–';
+const niceRound=s=>{ if(s<100) return Math.round(s); const p=10**(Math.floor(Math.log10(s))-1); return Math.round(s/p)*p; };
+const shortNum=n=> n>=1e9 ? (n/1e9).toFixed(n>=1e10?0:1).replace(/\.0$/,'')+'B' : n>=1e6 ? (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M' : n>=1e3 ? Math.round(n/1e3)+'K' : String(n);
+// Column chart: one series, value on each non-empty column, hover shows the detail
+function colChart(items, aria){
+  const n=items.length, padL=24, padR=4, padT=14, padB=18, W=Math.max(200, padL+padR+n*26), H=130, pw=W-padL-padR, ph=H-padT-padB;
+  const max=Math.max(1,...items.map(i=>i.value)), slot=pw/n, bw=Math.min(24, slot*0.72);
+  const y=v=>padT+ph-(v/max)*ph;
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">`;
+  const ticks=max>=4?[0,Math.round(max/2),max]:[0,max];
+  ticks.forEach(t=>{ s+=`<line class="gl" x1="${padL}" x2="${W-padR}" y1="${y(t)}" y2="${y(t)}"/><text x="${padL-4}" y="${y(t)+3}" text-anchor="end">${t}</text>`; });
+  items.forEach((it,i)=>{
+    const x=padL+slot*i+(slot-bw)/2, bh=(it.value/max)*ph, top=padT+ph-bh, r=Math.min(4,bh);
+    s+=`<g class="b"><title>${esc(it.tip)}</title><rect class="hit" x="${padL+slot*i}" y="${padT}" width="${slot}" height="${ph+padB}"/>`;
+    if(bh>0) s+=`<path class="bar" d="M${x},${top+bh}V${top+r}Q${x},${top} ${x+r},${top}H${x+bw-r}Q${x+bw},${top} ${x+bw},${top+r}V${top+bh}Z"/><text class="v" x="${x+bw/2}" y="${top-3}" text-anchor="middle">${it.value}</text>`;
+    s+=`<text x="${x+bw/2}" y="${H-5}" text-anchor="middle">${esc(it.label)}</text></g>`;
+  });
+  return s+'</svg>';
+}
+function suggestTarget(st, goal, current){
+  const known=st.b1.slice().sort((a,b)=>b-a), unk=st.b1Unknown, n=known.length+unk;
+  if(n<8) return `<p class="note">A target suggestion needs at least 8 games with a ball 1 score (this machine has ${n}).</p>`;
+  const k=Math.max(1,Math.ceil(goal/100*n));
+  if(k<=unk) return `<p>More than ${goal}% of games here are already strikes, and some of those strike scores weren't recorded, so the exact number can't be worked out. Try raising the target.</p>`;
+  const s=niceRound(known[k-unk-1]), diff=current?Math.round((s-current)*100/current):0;
+  return `<p>For about <b>${goal}%</b> strikes, set the target near <b>${fmt(s)}</b>${current?` (${diff>0?'+':''}${diff}% vs. now)`:''}.</p>`+
+    (current && Math.abs(diff)>=3 ? `<button class="btn small" data-usetarget="${s}">Use ${fmt(s)}</button>` : '');
+}
+function quant(sorted,q){ if(!sorted.length) return null; const i=Math.min(sorted.length-1,Math.floor(q*(sorted.length-1)+0.5)); return sorted[i]; }
+async function renderStats(){
+  if(!STATS){ $('#main').innerHTML='<div class="panel">Loading stats…</div>'; try{ STATS=await api('/api/admin/stats'); }catch(e){ $('#main').innerHTML=`<div class="panel err">${esc(e.message)}</div>`; return; } if(tab!=='stats') return; }
+  const games=STATS.games.filter(r=> r.daily ? SF.daily : SF.weekly);
+  const groups=new Map(); games.forEach(r=>{ const g=groups.get(r.key)||[]; g.push(r); groups.set(r.key,g); });
+  const stored=new Map(STATS.machines.map(m=>[m.id,m]));
+  let rows=[...groups.entries()].map(([key,list])=>{ const last=list.reduce((a,b)=>b.when>a.when?b:a); const sm=stored.get(key); const st=machineStats(list);
+    return {key, name:sm?sm.name:last.name, abbr:sm?sm.abbr:'', cat:sm?sm.cat:last.cat, target:sm&&sm.target?sm.target:last.target, stored:!!sm, st}; });
+  const q=SF.q.trim().toLowerCase();
+  if(q) rows=rows.filter(r=>(r.name+' '+r.abbr+' '+catName(r.cat)).toLowerCase().includes(q));
+  const sr=r=>r.st.strikes/r.st.n;
+  rows.sort(SF.sort==='name'?(a,b)=>a.name.localeCompare(b.name):SF.sort==='hi'?(a,b)=>sr(b)-sr(a)||b.st.n-a.st.n:SF.sort==='lo'?(a,b)=>sr(a)-sr(b)||b.st.n-a.st.n:(a,b)=>b.st.n-a.st.n);
+  const tcount=new Set(games.map(r=>r.tid)).size;
+  const open=new Set($$('details.stat[open]').map(d=>d.dataset.key));
+  const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
+  const card=r=>{
+    const st=r.st, endLabels=['0','1','2','3','4','5','6','7','8','9','Spare','Strike'];
+    const endItems=st.end.map((v,i)=>({label:i===10?'/':i===11?'X':String(i), value:v, tip:`${endLabels[i]}${i<10?` pins`:''}: ${v} game${v===1?'':'s'} (${pct(v,st.n)})`}));
+    const ballCharts=[]; for(let i=0;i<Math.min(st.nb,st.balls.length);i++){ const d=st.balls[i]; if(!d) continue; const tot=d.reduce((a,b)=>a+b,0);
+      ballCharts.push(`<div><p class="chcap">Ball ${i+1} <small>${tot} game${tot===1?'':'s'}</small></p>${colChart(d.map((v,j)=>({label:j===10?'T':String(j), value:v, tip:`Ball ${i+1}, ${j===10?'reached the target':j+' pins'}: ${v} (${pct(v,tot)})`})), `Pins after ball ${i+1}`)}</div>`); }
+    const b1s=st.b1.slice().sort((a,b)=>a-b), med=quant(b1s,.5), q75=quant(b1s,.75), q90=quant(b1s,.9);
+    const trs=[...st.byT.values()].sort((a,b)=>b.when-a.when).slice(0,12);
+    return `<details class="panel stat" data-key="${esc(r.key)}" ${open.has(r.key)?'open':''}><summary>
+      <span class="sname">${r.abbr?`<span class="tag">${esc(r.abbr)}</span> `:''}${esc(r.name)} ${r.cat?`<span class="tag">${catName(r.cat)}</span>`:''}</span>
+      <span class="sline">${st.n} game${st.n===1?'':'s'} · strike ${pct(st.strikes,st.n)} · spare ${pct(st.spares,st.n)} · avg ${(st.pins/st.n).toFixed(1)}</span></summary>
+      <div class="inner">
+        <div class="mstats" style="grid-template-columns:repeat(4,1fr)"><div><small>Games</small><b>${st.n}</b></div><div><small>Strikes</small><b>${pct(st.strikes,st.n)}</b></div><div><small>Spares</small><b>${pct(st.spares,st.n)}</b></div><div><small>Avg pins</small><b>${(st.pins/st.n).toFixed(1)}</b></div></div>
+        <h3>How games ended</h3>
+        <p class="note">Pins for open games, then spares (/) and strikes (X). Hover a column for the share.</p>
+        ${colChart(endItems,'How games ended')}
+        ${ballCharts.length?`<h3>Pins after each ball</h3><p class="note">Only games still going at that ball. T means the target was reached on that ball. Scores entered by an admin in one step skip the middle balls.</p><div class="charts">${ballCharts.join('')}</div>`:''}
+        <h3>Target check</h3>
+        <div class="suggest">
+          <p>Target now: <b>${fmt(r.target)}</b>.${med!=null?` Ball 1 scores: half are under <b>${shortNum(med)}</b> (${Math.round(med*100/r.target)}% of target), a quarter reach <b>${shortNum(q75)}</b>, the top 10% reach <b>${shortNum(q90)}</b>.`:''}</p>
+          ${suggestTarget(st, SF.goal, r.stored?r.target:0)}
+        </div>
+        <h3>By tournament</h3>
+        <div class="tablewrap"><table><thead><tr><th>Date</th><th>Event</th><th class="n">Target</th><th class="n">Games</th><th class="n">Strike</th><th class="n">Spare</th><th class="n">Avg</th></tr></thead><tbody>
+        ${trs.map(t=>`<tr><td>${new Date(t.when).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</td><td>${t.daily?'Daily':'Weekly'}</td><td class="n">${shortNum(t.target)}</td><td class="n">${t.n}</td><td class="n">${pct(t.strikes,t.n)}</td><td class="n">${pct(t.spares,t.n)}</td><td class="n">${(t.pins/t.n).toFixed(1)}</td></tr>`).join('')}
+        </tbody></table></div>
+      </div></details>`;
+  };
+  $('#main').innerHTML=`<div class="panel"><h2>Stats</h2>
+    <p class="note">Every finished game from open and archived tournaments and daily challenges, grouped by machine. Deleted tournaments aren't included. Use it to see which targets are too easy or too hard.</p>
+    <div class="tvctl" style="margin-top:.8rem">
+      <label><input type="checkbox" id="sfW" ${SF.weekly?'checked':''}> Weekly tournaments</label>
+      <label><input type="checkbox" id="sfD" ${SF.daily?'checked':''}> Daily challenges</label>
+      <label>Strike goal <select id="sfGoal">${opt([[5,'5%'],[10,'10%'],[15,'15%'],[20,'20%'],[25,'25%']],SF.goal)}</select></label>
+      <label>Sort <select id="sfSort">${opt([['played','Most played'],['name','Name'],['hi','Most strikes'],['lo','Fewest strikes']],SF.sort)}</select></label>
+    </div>
+    <p style="margin-top:.4rem"><b>${games.length}</b> games on <b>${groups.size}</b> machines from <b>${tcount}</b> event${tcount===1?'':'s'}.</p></div>
+    <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="sfQ" placeholder="Search machines" aria-label="Search machines" value="${esc(SF.q)}" autocomplete="off"></div>
+    ${rows.length?rows.map(card).join(''):'<div class="panel note">No games to show yet. Stats fill in as people play.</div>'}`;
+  $('#sfW').onchange=e=>{ SF.weekly=e.target.checked; renderStats(); };
+  $('#sfD').onchange=e=>{ SF.daily=e.target.checked; renderStats(); };
+  $('#sfGoal').onchange=e=>{ SF.goal=Number(e.target.value); store.set('pb-goal',SF.goal); renderStats(); };
+  $('#sfSort').onchange=e=>{ SF.sort=e.target.value; store.set('pb-ssort',SF.sort); renderStats(); };
+  $('#sfQ').oninput=e=>{ SF.q=e.target.value; const pos=e.target.selectionStart; renderStats(); const i=$('#sfQ'); i.focus(); i.setSelectionRange(pos,pos); };
+  $$('[data-usetarget]').forEach(b=>b.onclick=async()=>{ const key=b.closest('details').dataset.key, v=Number(b.dataset.usetarget), m=stored.get(key);
+    if(!m || !confirm(`Set ${m.name}'s target to ${fmt(v)}? It updates Stored machines and any open tournament with this machine. Past scores there are re-scored with the new target.`)) return;
+    try{ await api(`/api/admin/machines/${key}`,'PATCH',{target:v}); STATS=null; STORED=null; if(T && T.status==='active') await loadT(T.id); toast('Target updated'); renderStats(); }catch(e){ toast(e.message); } });
+}
+
 /* ================= admin: stored machines ================= */
 let STORED=null, SSEARCH='';
 async function loadStored(){ try{ STORED=(await api('/api/admin/machines')).machines; }catch(e){ STORED=STORED||[]; toast(e.message); } }
@@ -1398,7 +1546,7 @@ setInterval(async()=>{
     if(ADMIN || PLAYER){ const was=isKeeper(); await refreshList(); if(was!==isKeeper()){ if(!tabs().some(x=>x[0]===tab)) tab='mine'; render(); return; } }
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
-    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored'].includes(tab) || !$('#shareBox').hidden;
+    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored','stats'].includes(tab) || !$('#shareBox').hidden;
     if(changed && !busy){
       const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); $$('details[data-mid]').forEach(d=>{ d.open=openIds.includes(d.dataset.mid); }); window.scrollTo(0,y);
     }
