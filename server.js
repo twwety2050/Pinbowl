@@ -645,6 +645,25 @@ async function route(req, res, url) {
     save(); return send(res, 200, { ok: true });
   }
 
+  // ----- stats: every finished game in open and archived tournaments (deleted ones are gone) -----
+  if (m === 'GET' && p === '/api/admin/stats') {
+    const games = [];
+    for (const t of db.tournaments) {
+      if (t.status !== 'active' && t.status !== 'archived') continue;
+      for (const g of t.games) {
+        if (g.status === 'playing') continue;
+        const a = t.arenas.find(x => x.id === g.arenaId);
+        if (!a || !a.target) continue;
+        games.push({
+          key: a.mid || 'name:' + lower(a.name), name: a.name, cat: a.cat || '', target: a.target, nb: a.balls || 3,
+          balls: Array.isArray(g.balls) ? g.balls : null, b1: g.b1, final: g.final, hit: g.hitBall,
+          tid: t.id, tname: t.name, daily: !!t.daily, when: t.createdAt,
+        });
+      }
+    }
+    return send(res, 200, { games, machines: db.machines.map(x => ({ id: x.id, name: x.name, abbr: x.abbr, cat: x.cat || '', target: x.target, balls: x.balls })) });
+  }
+
   // ----- stored machines -----
   if (m === 'GET' && p === '/api/admin/machines') {
     const list = db.machines.map(x => {
