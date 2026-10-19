@@ -324,12 +324,29 @@ body.streammode.clear{background:transparent}
 .tvcut,.stcut{display:flex;align-items:center;gap:.5em;color:var(--lane);font:700 .75em var(--cond);margin:.1em 0 .45em}
 .tvcut::before,.tvcut::after,.stcut::before,.stcut::after{content:'';flex:1;border-top:2px dashed var(--lane)}
 .stcut{color:var(--mark)}.stcut::before,.stcut::after{border-color:var(--mark)}
+.fgf{margin-bottom:1rem}
+.fgfh{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2em .6em;background:var(--head);color:var(--headInk);padding:.35em .6em;border-radius:.35em .35em 0 0;border-top:3px solid var(--lane)}
+.fgfh b{font:400 1.2em/1.15 var(--display)}
+.fgfh .tag{font-size:.75em}
+.fgfh .gl{font:600 .85em var(--cond);opacity:.9;flex-basis:100%}
+.fgfb{background:var(--paper);padding:.3em .3em .02em;border:1px solid var(--grid);border-top:0;border-radius:0 0 .35em .35em}
+.fgfb .fnote{font-size:.8em;color:var(--muted);padding:.1em .3em .35em}
+.fgf .strow{--fc:3;color:var(--ink);grid-template-columns:2.1em minmax(5em,1fr) repeat(3,3.6em) 3em}
+@media (max-width:520px){.fgf{font-size:.92em}.fgf .strow{grid-template-columns:1.8em minmax(4em,1fr) repeat(3,3em) 2.7em}}
+.fgfh .tag{background:var(--lane);color:var(--laneInk);border:0}
+.fgf .strow.adv .tvrank{background:var(--lane);color:var(--laneInk)}
+.fgf .strow.out{opacity:.6}
+.fgf .stname small.go{color:var(--good,#2e7d32);font-weight:700}
+.tv .ftv .fgf{font-size:1em}
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr));gap:1rem}
 .ftable td:nth-child(2){white-space:nowrap}
 @media (max-width:520px){.ftable td:nth-child(2){white-space:normal}.ftable td,.ftable th{padding:.3rem .25rem}.ftable td.g button{min-width:2.2rem}}
 .tv .ftv{zoom:calc(var(--fz,1.55)*var(--s))}
 .stream .ftv{padding:.4em}.stream .ftv .fgrid{grid-template-columns:1fr}.stream .ftv .panel{margin:0}
-.tv .ftv .fgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr))}
+.tv .ftv .fgrid{grid-template-columns:repeat(var(--fcols,2),minmax(0,1fr))}
+.tv .ftv .fgf .strow{grid-template-columns:2.1em minmax(5em,1fr) repeat(3,4.4em) 3.2em}
+.fbulk table{width:100%}.fbulk td{padding:.25rem .2rem;vertical-align:middle}.fbulk select,.fbulk input{min-width:0;width:100%}
+@media (max-width:520px){.fbulk tr{display:grid;grid-template-columns:1fr 1fr;gap:.25rem;border-bottom:1px solid var(--grid);padding:.3rem 0}.fbulk td:first-child{grid-column:1/-1}.fbulk thead{display:none}.fbulk td[data-l]::before{content:attr(data-l);display:block;font-size:.72rem;color:var(--muted)}}
 .fgroup h3{margin:0;display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
 .fgroup .games{margin:.4rem 0 .2rem;font-size:.92rem}
 .ftable td,.ftable th{padding:.35rem .4rem}
@@ -593,8 +610,8 @@ const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines',
 const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeeper'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
-const FINALS_TABS=[['finals','Finals'],['rules','Rules']];
-const FINALS_ADMIN_TABS=[['finals','Finals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
+const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules']];
+const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
 function tabs(){ if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
@@ -878,6 +895,7 @@ function renderFix(p){
 
 /* ================= standings ================= */
 function renderStandings(){
+  if(T.finals) return renderFinalsStandings();
   if(!T.players.length){ $('#main').innerHTML='<div class="panel">No players yet.</div>'; return; }
   const rows=standings(), mine=me();
   $('#main').innerHTML = rows.map((x,i)=>{
@@ -1337,9 +1355,9 @@ function fGroupHTML(g, round, ri, live, edit){
     const cls = res.complete && !res.tie ? (round.final ? (idx===0?'adv':'') : (idx<2?'adv':'out')) : '';
     h+=`<tr class="${cls}"><td>${g.positions[r.pid]||'–'}</td><td><b>${esc(fName(r.pid))}</b> <span class="note">#${r.seed}</span></td>`;
     [0,1,2].forEach(i=>{ const f=r.frames[i];
-      const live=((g.scores[r.pid]||[])[i]||{}).status==='playing';
-      const inner = f ? `${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')}<small>${f.pts}${f.wait?'…':''}</small>` : (live?'<span style="color:var(--lane)">▶</span><small>playing</small>':'');
-      h += `<td class="g">${edit && live && picked ? `<button data-fe="${g.id}|${r.pid}|${i}" aria-label="Enter ${esc(fName(r.pid))}'s game ${i+1}">${inner||'+'}</button>` : (inner||'·')}</td>`; });
+      const playing=((g.scores[r.pid]||[])[i]||{}).status==='playing';
+      const inner = f ? `${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')}<small>${f.pts}${f.wait?'…':''}</small>` : (playing?'<span style="color:var(--lane)">▶</span><small>playing</small>':'');
+      h += `<td class="g">${edit && live && picked && posSet ? `<button data-fe="${g.id}|${r.pid}|${i}" aria-label="Enter ${esc(fName(r.pid))}'s game ${i+1}">${inner||'+'}</button>` : (inner||'·')}</td>`; });
     h+=`<td class="tot">${r.total}</td>${pts?`<td class="n">${pts[res.ranked.indexOf(r)]}</td>`:''}</tr>`;
   });
   h+=`</tbody></table></div>`;
@@ -1355,6 +1373,18 @@ function fGroupHTML(g, round, ri, live, edit){
       h+=`<div class="fedit"><b>Playing positions</b> <span class="note">Picks go seed by seed, top seed last.</span>
         ${pickOrder.map((pid,k)=>`<div class="row" style="margin-top:.35rem;align-items:center"><span style="flex:1">${k+1}. ${esc(fName(pid))} <span class="note">#${fSeed(pid)}</span></span><select data-fpos="${pid}" data-fposg="${g.id}" aria-label="Position for ${esc(fName(pid))}" style="width:auto"><option value="">Position…</option>${Array.from({length:N},(_,j)=>`<option value="${j+1}" ${g.positions[pid]===j+1?'selected':''}>Player ${j+1}</option>`).join('')}</select></div>`).join('')}
         <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpossave="${g.id}">Save positions</button>${posSet?`<button class="btn small" data-fpickcancel>Cancel</button>`:''}</div></div>`;
+    } else if(FED && FED.bulk===g.id){
+      const a=A(g.machines[FED.i]), ordP=g.players.slice().sort((x,y)=>(g.positions[x]||99)-(g.positions[y]||99));
+      h+=`<div class="fedit fbulk"><b>Enter results</b> <span class="note">Pick the game, then fill in each player. Leave a player blank to skip them.</span>
+        <div class="balls" style="margin-top:.4rem">${[0,1,2].map(i=>`<button class="choice" data-fbg="${i}" aria-pressed="${FED.i===i}">Game ${i+1}: ${esc(abbr(A(g.machines[i])))}</button>`).join('')}</div>
+        <p class="note" style="margin:.3rem 0">${esc(a.name)} · target ${fmt(a.target)} · ${a.balls} balls</p>
+        <table><thead><tr><th>Player</th><th>Target reached on</th><th>Score after ball 1</th><th>Final score</th></tr></thead><tbody>
+        ${ordP.map(pid=>{ const v=FED.rows[pid]||{}; return `<tr><td><b>${g.positions[pid]}. ${esc(fName(pid))}</b></td>
+          <td data-l="Target reached on"><select data-fbh="${pid}"><option value="">–</option>${[[1,'Ball 1 (strike)'],[2,'Ball 2 (spare)'],[3,'Ball 3 (spare)'],[0,a.balls===5?'Ball 4–5 or never':'Never']].map(([b,l])=>`<option value="${b}" ${v.hit===b?'selected':''}>${l}</option>`).join('')}</select></td>
+          <td data-l="Score after ball 1"><input type="text" inputmode="numeric" data-fbb1="${pid}" value="${esc(v.b1||'')}" ${v.hit===1?'placeholder="optional"':''}></td>
+          <td data-l="Final score"><input type="text" inputmode="numeric" data-fbfin="${pid}" value="${esc(v.final||'')}" ${v.hit!==0?'placeholder="optional"':''}></td></tr>`; }).join('')}
+        </tbody></table>
+        <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fbsave">Save game ${FED.i+1} results</button><button class="btn small" data-fpickcancel>Cancel</button></div></div>`;
     } else if(FED && FED.gid===g.id){
       const a=A(g.machines[FED.i]);
       h+=`<div class="fedit"><b>${esc(fName(FED.pid))}, game ${FED.i+1}: ${esc(a.name)}</b> <span class="note">target ${fmt(a.target)}</span>
@@ -1363,7 +1393,7 @@ function fGroupHTML(g, round, ri, live, edit){
         <div class="grow"><label for="ffin">Final score${FED.hit!==0?' (optional)':''}</label><input type="text" inputmode="numeric" id="ffin" value="${esc(FED.final)}"></div></div>
         <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="fsave">Save</button><button class="btn small" id="fcancel">Cancel</button>${(g.scores[FED.pid]||[])[FED.i]?'<button class="btn small danger" id="fclear">Clear this game</button>':''}</div></div>`;
     }
-    if(picked && posSet && FED!=='picks:'+g.id && FED!=='pos:'+g.id && !(FED&&FED.gid===g.id)) h+=`<div class="row" style="margin-top:.5rem"><button class="btn small" data-fchgpicks="${g.id}">Change games</button><button class="btn small" data-fchgpos="${g.id}">Change positions</button></div>`;
+    if(picked && posSet && FED!=='picks:'+g.id && FED!=='pos:'+g.id && !(FED&&(FED.gid===g.id||FED.bulk===g.id))) h+=`<p class="note" style="margin-top:.5rem">Tap a game box to enter or fix one score, or enter a whole game at once.</p><div class="row" style="margin-top:.3rem"><button class="btn small primary" data-fbulk="${g.id}">Enter results</button><button class="btn small" data-fchgpicks="${g.id}">Change games</button><button class="btn small" data-fchgpos="${g.id}">Change positions</button></div>`;
     if(res.tie || (g.order && res.complete)){
       const ordList = FORD[g.id] ? FORD[g.id].map(pid=>res.rows.find(r=>r.pid===pid)) : res.ranked;
       h+=`<div class="fedit"><b>${res.tie?'Tie: set the finishing order':'Finishing order set by hand'}</b> <span class="note">After a tiebreaker, put players in the order they finished.${FORD[g.id]?' <b>Not saved yet.</b>':''}</span>
@@ -1374,6 +1404,44 @@ function fGroupHTML(g, round, ri, live, edit){
   return h+'</div>';
 }
 let FORD={};
+// A finals group drawn like bowling frames (Standings tab, TV and stream)
+function fFrameCell(g, r, i, a){
+  const f=r.frames[i], rec=(g.scores[r.pid]||[])[i], playing=rec && rec.status==='playing';
+  let sy=[], lv=false;
+  if(f) sy = f.type==='strike' ? ['','X'] : symbols(f.rolls);
+  else if(playing && a && (rec.balls||[]).length){ const b=rec.balls, p1=pins(b[0],a.target); sy=[p1?String(p1):'–']; if(b.length>1){ const p2=pins(b[b.length-1],a.target)-p1; sy.push(p2>0?String(p2):'–'); } lv=true; }
+  while(sy.length<2) f ? sy.unshift('') : sy.push('');
+  const upTo=r.frames.slice(0,i+1), cum = f ? (upTo.some(x=>!x||x.wait) ? '…' : upTo.reduce((s,x)=>s+x.pts,0)) : (playing?'▶':'');
+  return `<div class="stf ${playing?'cur':''}"><div class="ab">${i+1}${a?` ${esc(abbr(a))}`:''}</div><div class="rl">${sy.map(c=>`<i class="${c==='X'||c==='/'?'mk':''} ${lv&&c?'lv':''}">${c}</i>`).join('')}</div><div class="cm ${f&&cum==='…'?'pend':''}">${cum}</div></div>`;
+}
+function fFramesHTML(g, round){
+  const res=fResult(g, round.final), N=g.players.length, picked=g.machines.length===3, posSet=Object.keys(g.positions||{}).length===N;
+  const top=g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b))[0], wf=gWaitFor(round,g);
+  const status = !picked ? 'Picking games' : !posSet ? 'Picking positions' : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
+  const pts = res.complete && !res.tie ? mpPoints(res.ranked.map(r=>r.total)) : null;
+  // live order: by total, then seed; once done, the final order
+  const rows = res.complete ? res.ranked : res.rows.slice().sort((a,b)=>b.total-a.total || a.seed-b.seed);
+  const anyScore = rows.some(r=>r.total>0 || r.frames.some(Boolean));
+  const moveOn = round.final ? 1 : 2;
+  let h=`<div class="fgf"><div class="fgfh"><b>Group ${esc(g.label)}</b><span class="tag">${status}</span>${picked?`<span class="gl">${g.machines.map((id,i)=>{ const a=A(id); return `${i+1}. ${esc(a?a.name:'?')}`; }).join(' · ')}</span>`:''}</div><div class="fgfb">`;
+  if(!picked) h+=`<div class="fnote">${wf?`Picks games after Group ${esc(wf.label)}. `:''}${esc(fName(top))} (seed ${fSeed(top)}) picks the games.</div>`;
+  rows.forEach((r,idx)=>{
+    const rec=(g.scores[r.pid]||[]).find(x=>x&&x.status==='playing'), pi=(g.scores[r.pid]||[]).indexOf(rec);
+    const cls = res.complete && !res.tie ? (idx<moveOn?'adv':'out') : (anyScore && idx<moveOn ? 'adv' : '');
+    const sub = rec ? `<small class="live">Playing game ${pi+1}: ${esc(abbr(A(g.machines[pi])))}</small>`
+      : res.complete && !res.tie ? `<small class="${idx<moveOn?'go':''}">${round.final?(idx===0?'Champion':`${idx+1}${['st','nd','rd'][idx]||'th'} place`):(idx<moveOn?'Moves on':'Out')}${pts?` · ${pts[idx]} MP`:''}</small>`
+      : `<small>Seed ${r.seed}${g.positions[r.pid]?` · Player ${g.positions[r.pid]}`:''}</small>`;
+    h+=`<div class="strow ${cls}"><div class="tvrank">${anyScore||res.complete?idx+1:(g.positions[r.pid]||'–')}</div><div class="stname"><b>${esc(fName(r.pid))}</b>${sub}</div>${[0,1,2].map(i=>fFrameCell(g,r,i,A(g.machines[i]))).join('')}<div class="sttot">${r.total}</div></div>`;
+  });
+  return h+'</div></div>';
+}
+function renderFinalsStandings(){
+  const fin=T.finals, lastI=fin.rounds.length-1;
+  let h=fin.champion?`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p><p style="margin-top:.4rem">${fin.places.map((pid,i)=>`${i+1}. ${esc(fName(pid))}`).join(' &nbsp; ')}</p></div>`:'';
+  for(let i=lastI;i>=0;i--){ const r=fin.rounds[i];
+    h+=`<h2 style="font:700 1.3rem var(--cond);margin:.4rem 0 .5rem">${esc(roundName(i, fin.rounds.length, r))}</h2><div class="fgrid">${r.groups.map(g=>fFramesHTML(g,r)).join('')}</div>`; }
+  $('#main').innerHTML=h;
+}
 function finalsHeadInfo(){
   const fin=T.finals; if(fin.champion) return `Champion: ${fName(fin.champion)}`;
   const r=fin.rounds[fin.rounds.length-1]; return roundName(fin.rounds.length-1, fin.rounds.length, r);
@@ -1383,8 +1451,8 @@ function finalsBoardHTML(){
   const fin=T.finals, ri=fin.rounds.length-1, r=fin.rounds[ri];
   let groups=r.groups;
   if(STREAMMODE){ const want=(ST.grp||'A').toUpperCase(); groups=r.groups.filter(g=>g.label===want); if(!groups.length) groups=r.groups.slice(0,1); }
-  const fz = groups.length>4 ? 1 : groups.length>2 ? 1.2 : 1.55;
-  return `<div class="ftv" style="--fz:${fz}">${fin.champion?`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p></div>`:''}<div class="fgrid">${groups.map(g=>fGroupHTML(g,r,ri,false,false)).join('')}</div></div>`;
+  const n=groups.length, fz = n>4 ? .9 : n>2 ? 1.05 : n>1 ? 1.3 : 1.5, cols = n<=2 ? n : n<=4 ? 2 : 3;
+  return `<div class="ftv" style="--fz:${fz};--fcols:${cols}">${fin.champion?`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p></div>`:''}<div class="fgrid">${groups.map(g=>fFramesHTML(g,r)).join('')}</div></div>`;
 }
 // The logged-in player's group in the current round, and whose turn it is to pick
 // Groups pick games in order of their top seed; a machine can't repeat in the same game slot
@@ -1431,6 +1499,9 @@ function myFinalsHTML(mf){
       const r=mine[PFX], a=A(g.machines[PFX]);
       h+=`<div class="fedit"><b>Fix game ${PFX+1}: ${esc(a.name)}</b>${r.balls.map((s,i)=>`<label for="mfx${i}">Score after ball ${i+1}</label><input type="text" inputmode="numeric" id="mfx${i}" data-mfx value="${fmt(s)}">`).join('')}
         <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="mfxSave">Save</button><button class="btn small" id="mfxBack">Cancel</button></div></div>`;
+    } else if(next>0 && cur<0 && g.players.some(pid=>{ const x=(g.scores[pid]||[])[next-1]; return !x || x.status==='playing'; })){
+      const behind=g.players.filter(pid=>{ const x=(g.scores[pid]||[])[next-1]; return !x || x.status==='playing'; });
+      h+=`<h3>Next: game ${next+1}, ${esc(A(g.machines[next]).name)}</h3><p>Everyone finishes game ${next} before game ${next+1} starts. Still to finish: <b>${behind.map(pid=>pid===me?'you':esc(fName(pid))).join(', ')}</b>.</p><p class="note">This page updates by itself.</p>`;
     } else if(next>=0){
       const a=A(g.machines[next]), r=mine[next], balls=r&&r.balls?r.balls:[], n=balls.length+1;
       h+=`<h3>Game ${next+1}: ${esc(a.name)}</h3><p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
@@ -1477,7 +1548,8 @@ function renderFinals(){
   for(let i=lastI;i>=0;i--){
     const r=fin.rounds[i];
     if(i<lastI || fin.champion) h+=`<h2 style="font:700 1.3rem var(--cond);margin:1rem 0 .5rem">${esc(roundName(i, fin.rounds.length, r))}</h2>`;
-    h+=`<div class="fgrid">${r.groups.map(g=>fGroupHTML(g,r,i, i===lastI && !fin.champion, edit)).join('')}</div>`;
+    if(!edit && i===lastI && mf){ h+=fFramesHTML(mf.g, r)+`<p class="note">See every group on the Standings tab.</p>`; break; }
+    h+=`<div class="fgrid">${r.groups.map(g=>edit?fGroupHTML(g,r,i, i===lastI && !fin.champion, edit):fFramesHTML(g,r)).join('')}</div>`;
   }
   $('#main').innerHTML=h;
   if(mf) bindMyFinals(mf);
@@ -1485,6 +1557,20 @@ function renderFinals(){
   const fpost=(path,body,msg)=>change('/finals/'+path,'POST',body,msg);
   $$('[data-fe]').forEach(b=>b.onclick=()=>{ const [gid,pid,i]=b.dataset.fe.split('|'); const g=cur.groups.find(x=>x.id===gid), r=(g.scores[pid]||[])[+i];
     FED={gid,pid,i:+i, hit:r?r.hitBall:null, b1:r&&r.b1!=null?fmt(r.b1):'', final:r&&r.final!=null?fmt(r.final):''}; renderFinals(); const e=$('#fb1'); if(e) e.scrollIntoView({block:'center'}); });
+  const bulkRows=(g,i)=>{ const o={}; g.players.forEach(pid=>{ const r=(g.scores[pid]||[])[i]; if(r && r.status!=='playing') o[pid]={hit:r.hitBall, b1:r.b1!=null?fmt(r.b1):'', final:r.final!=null?fmt(r.final):''}; }); return o; };
+  const bulkKeep=()=>{ $$('[data-fbh]').forEach(s=>{ const pid=s.dataset.fbh; FED.rows[pid]={hit:s.value===''?undefined:Number(s.value), b1:$(`[data-fbb1="${pid}"]`).value, final:$(`[data-fbfin="${pid}"]`).value}; }); };
+  $$('[data-fbulk]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===b.dataset.fbulk); let i=[0,1,2].find(k=>g.players.some(pid=>{ const r=(g.scores[pid]||[])[k]; return !r || r.status==='playing'; })); if(i==null) i=2; FED={bulk:g.id, i, rows:bulkRows(g,i)}; renderFinals(); const e=$('.fbulk'); if(e) e.scrollIntoView({block:'center'}); });
+  $$('[data-fbg]').forEach(b=>b.onclick=()=>{ const g=cur.groups.find(x=>x.id===FED.bulk), i=Number(b.dataset.fbg); FED={bulk:g.id, i, rows:bulkRows(g,i)}; renderFinals(); });
+  $$('[data-fbh]').forEach(s=>s.onchange=()=>{ bulkKeep(); renderFinals(); });
+  $$('[data-fbb1],[data-fbfin]').forEach(e=>e.onblur=()=>{ const n=num(e.value); if(n!=null) e.value=fmt(n); });
+  if($('#fbsave')) $('#fbsave').onclick=async()=>{
+    bulkKeep(); const g=cur.groups.find(x=>x.id===FED.bulk), list=Object.entries(FED.rows).filter(([pid,v])=>v.hit!=null);
+    if(!list.length){ toast('Fill in at least one player.'); return; }
+    for(const [pid,v] of list){ if(v.hit!==1 && num(v.b1)==null){ toast(`Enter ${fName(pid)}'s score after ball 1.`); return; } if(v.hit===0 && num(v.final)==null){ toast(`Enter ${fName(pid)}'s final score.`); return; } }
+    $('#fbsave').disabled=true;
+    for(const [pid,v] of list){ try{ const j=await api(`/api/admin/t/${T.id}/finals/score`,'POST',{gid:g.id,pid,game:FED.i,hitBall:v.hit,b1:num(v.b1),final:num(v.final)}); T=j.tournament; }catch(e){ toast(`${fName(pid)}: ${e.message}`); renderFinals(); return; } }
+    toast(`Game ${FED.i+1} saved`); FED=null; renderFinals();
+  };
   $$('[data-fhit]').forEach(b=>b.onclick=()=>{ FED.b1=$('#fb1').value; FED.final=$('#ffin').value; FED.hit=Number(b.dataset.fhit); renderFinals(); });
   if($('#fsave')) $('#fsave').onclick=async()=>{ if(FED.hit==null){ toast('Pick the ball the target was reached on.'); return; } const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,hitBall:FED.hit,b1:num($('#fb1').value),final:num($('#ffin').value)},'Saved'); if(j){ FED=null; renderFinals(); } };
   if($('#fclear')) $('#fclear').onclick=async()=>{ if(!confirm('Clear this game?')) return; const j=await fpost('score',{gid:FED.gid,pid:FED.pid,game:FED.i,clear:true},'Cleared'); if(j){ FED=null; renderFinals(); } };
@@ -1834,7 +1920,7 @@ async function boot(){
   render();
 }
 setInterval(async()=>{
-  if(document.hidden || screen || !T || !T.finals || T.status!=='active' || TVMODE || STREAMMODE || tab!=='finals') return;
+  if(document.hidden || screen || !T || !T.finals || T.status!=='active' || TVMODE || STREAMMODE || !['finals','standings'].includes(tab)) return;
   try{
     const fresh=await api('/api/t/'+T.id); if(JSON.stringify(fresh)===JSON.stringify(T)) return;
     T=fresh;
@@ -1842,7 +1928,7 @@ setInterval(async()=>{
     if(myTurn && LASTTURN!==true){ toast("It's your turn to pick!"); try{ navigator.vibrate && navigator.vibrate(200); }catch(e){} }
     LASTTURN=myTurn;
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
-    if(!typing && FED==null && PFX==null && !PFS){ const y=window.scrollY; renderFinals(); window.scrollTo(0,y); }
+    if(!typing && FED==null && PFX==null && !PFS){ const y=window.scrollY; tab==='standings'?renderFinalsStandings():renderFinals(); window.scrollTo(0,y); }
   }catch(e){}
 }, 8000);
 setInterval(async()=>{
