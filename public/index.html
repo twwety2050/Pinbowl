@@ -613,7 +613,7 @@ const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeep
 function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
 const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules']];
-const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
+const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
 function tabs(){ if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
@@ -1141,14 +1141,15 @@ function renderStream(){
     <div class="stbody" id="stbody">${streamRows()}</div></div>`;
   autoScroll(()=>$('#stbody'), ()=>ST.speed*ST.size);
 }
-const SO = { grp: store.get('pb-st-grp')||'A', back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: store.get('pb-st-theme')||'northstar', clear: store.get('pb-st-clear')==='1' };
-function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); if(T && T.finals) q.set('grp', SO.grp||'A'); return location.origin+'/?'+q.toString(); }
+const SO = { follow: store.get('pb-st-follow')||'this', grp: store.get('pb-st-grp')||'A', back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: store.get('pb-st-theme')||'northstar', clear: store.get('pb-st-clear')==='1' };
+function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); if(T && T.finals) q.set('grp', SO.grp||'A'); if(SO.follow==='this' && T) q.set('t', T.id); return location.origin+'/?'+q.toString(); }
 function renderStreamAdmin(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   $('#main').innerHTML=`${bcSwitch()}<div class="panel">
     <h2>Stream window for OBS</h2>
     <p class="note">Shows each player's frame in progress, a few frames behind it, and their total on the far right. It fits whatever size you give the browser source in OBS. These settings are built into the address, so only the scores show on stream.</p>
     <div class="tvctl" style="margin-top:.8rem">
+      <label>Show <select id="soFollow">${opt([['this',`This tournament: ${esc(T.name)}`],['auto','Whatever is running now (switches by itself)']],SO.follow)}</select></label>
       <label>Frames behind current <select id="soBack">${opt([[1,'1'],[2,'2'],[3,'3'],[4,'4']],SO.back)}</select></label>
       <label>Auto-scroll <select id="soSpeed">${opt([[0,'Off'],[15,'Slow'],[30,'Medium'],[55,'Fast']],SO.speed)}</select></label>
       <label>Text <select id="soSize">${opt([[.85,'Small'],[1,'Medium'],[1.2,'Large']],SO.size)}</select></label>
@@ -1177,6 +1178,7 @@ function renderStreamAdmin(){
   $('#soSize').onchange=e=>{ SO.size=Number(e.target.value); upd(); };
   $('#soTheme').onchange=e=>{ SO.theme=e.target.value; upd(); };
   $('#soClear').onchange=e=>{ SO.clear=e.target.checked; upd(); };
+  $('#soFollow').onchange=e=>{ SO.follow=e.target.value; store.set('pb-st-follow',SO.follow); upd(); };
   if($('#soGrp')) $('#soGrp').onchange=e=>{ SO.grp=e.target.value; store.set('pb-st-grp',SO.grp); upd(); };
   $('#soCopy').onclick=async()=>{ const u=streamUrl(); try{ await navigator.clipboard.writeText(u); toast('Address copied. Paste it into OBS.'); }catch(e){ $('#soUrl').select(); toast('Press Ctrl+C to copy the address'); } };
   $('#soUrl').onfocus=e=>e.target.select();
@@ -1399,6 +1401,60 @@ function mpPoints(totals){
   let left=21-pts.reduce((a,b)=>a+b,0);
   raw.map((v,i)=>[v-Math.floor(v),i]).sort((a,b)=>b[0]-a[0]).forEach(([,i])=>{ if(left>0){ pts[i]++; left--; } });
   return pts;
+}
+// Matchplay wants each finals game scored 4-2-1-0. Pinbowl carries strike and spare bonuses
+// between games, so we choose a 4-2-1-0 split for each game that (1) keeps the pinbowl finishing
+// order, (2) gets each player's 3-game total as close as possible to their share of 21, and
+// (3) otherwise follows who actually did best on each game.
+const MP_GAME=[4,2,1,0];
+function perms(a){ if(a.length<=1) return [a.slice()]; const out=[]; a.forEach((x,i)=>perms([...a.slice(0,i),...a.slice(i+1)]).forEach(p=>out.push([x,...p]))); return out; }
+function gameOrder(g, i){
+  const key=pid=>{ const r=(g.scores[pid]||[])[i]; if(!r||r.status==='playing') return [-1,0]; const f=gameRolls({arenaId:g.machines[i],...r});
+    const q = f.type==='strike' ? 100 : f.type==='spare' ? 50-(r.hitBall||2) : f.rolls[0]+f.rolls[1];
+    return [q, r.final!=null?r.final:(r.b1||0)]; };
+  return g.players.slice().sort((a,b)=>{ const x=key(a), y=key(b); return y[0]-x[0] || y[1]-x[1] || fSeed(a)-fSeed(b); });
+}
+function mpGameSplit(g, final){
+  const res=fResult(g, final); if(!res.complete || res.tie) return null;
+  const n=g.players.length, vals=MP_GAME.slice(0,n), total=3*vals.reduce((a,b)=>a+b,0);
+  const ranked=res.ranked.map(r=>r.pid), sum=res.ranked.reduce((s,r)=>s+r.total,0);
+  const target=Object.fromEntries(res.ranked.map(r=>[r.pid, sum ? r.total*total/sum : total/n]));
+  const actual=[0,1,2].map(i=>gameOrder(g,i)), P=perms(ranked.map((_,k)=>k));
+  let best=null;
+  for(const a of P) for(const b of P) for(const c of P){
+    const pick=[a,b,c], tot={}; ranked.forEach(pid=>tot[pid]=0);
+    // pick[i][k] = place (0 = 1st) given to the k-th player of the game's actual order
+    pick.forEach((pp,i)=>actual[i].forEach((pid,k)=>{ tot[pid]+=vals[pp[k]]; }));
+    let ok=true;
+    for(let k=1;k<ranked.length;k++){ const hi=ranked[k-1], lo=ranked[k], same=res.ranked[k-1].total===res.ranked[k].total && !g.order; if(same ? tot[hi]<tot[lo] : tot[hi]<=tot[lo]){ ok=false; break; } }
+    if(!ok) continue;
+    const dev=ranked.reduce((s,pid)=>s+(tot[pid]-target[pid])**2,0);
+    const moved=pick.reduce((s,pp)=>s+pp.reduce((t,v,k)=>t+Math.abs(v-k),0),0);
+    if(!best || dev<best.dev-1e-9 || (Math.abs(dev-best.dev)<1e-9 && moved<best.moved)) best={dev,moved,pick,tot};
+  }
+  if(!best) return null;
+  const games=[0,1,2].map(i=>{ const m={}; actual[i].forEach((pid,k)=>m[pid]={pts:vals[best.pick[i][k]], actualPlace:k, adjusted:best.pick[i][k]!==k}); return m; });
+  return {ranked, games, tot:best.tot, target, total};
+}
+function renderFinalsTotals(){
+  const fin=T.finals, place=k=>['1st','2nd','3rd','4th'][k];
+  let h=`<div class="panel"><h2>Totals for Matchplay</h2>
+    <p class="note">Enter these in Matchplay for each finals game: 4 points for 1st, 2 for 2nd, 1 for 3rd and 0 for 4th. Strike and spare bonuses carry between games in pinbowl, so the points are worked out once all 3 games in a group are done. Each player's 3-game total is as close as possible to their share of 21, and the pinbowl finishing order is always kept. Sometimes that means a game's points don't match who actually won that game; those are marked with *.</p></div>`;
+  for(let ri=fin.rounds.length-1; ri>=0; ri--){ const r=fin.rounds[ri];
+    h+=`<h2 style="font:700 1.3rem var(--cond);margin:1rem 0 .5rem">${esc(roundName(ri, fin.rounds.length, r))}</h2><div class="fgrid">`;
+    for(const g of r.groups){
+      const sp=mpGameSplit(g, r.final), res=fResult(g, r.final);
+      h+=`<div class="panel"><h3 style="margin:0">Group ${esc(g.label)}</h3>`;
+      if(!sp){ h+=`<p class="note" style="margin-top:.4rem">${res.tie?'Settle the tie on the Finals tab first.':'Ready once all 3 games in this group are done.'}</p></div>`; continue; }
+      h+=`<div class="tablewrap" style="margin-top:.4rem"><table><thead><tr><th>Player</th>${g.machines.map((id,i)=>`<th class="n">G${i+1} <span class="tag">${esc(abbr(A(id)))}</span></th>`).join('')}<th class="n">Total</th><th class="n" title="Pinbowl total">Pinbowl</th></tr></thead><tbody>
+        ${sp.ranked.map(pid=>`<tr><td><b>${esc(fName(pid))}</b></td>${sp.games.map(m=>{ const c=m[pid]; return `<td class="n" title="Actual finish on this game: ${place(c.actualPlace)}"><b style="font-size:1.1rem">${c.pts}</b>${c.adjusted?'*':''}</td>`; }).join('')}<td class="n"><b>${sp.tot[pid]}</b></td><td class="n note">${res.rows.find(x=>x.pid===pid).total}</td></tr>`).join('')}
+        </tbody></table></div>
+        <p class="note" style="margin-top:.4rem">Each game gives out ${MP_GAME.slice(0,g.players.length).join('-')}, ${sp.total} in all. Share of ${sp.total} by pinbowl total: ${sp.ranked.map(pid=>`${esc(fName(pid))} ${sp.target[pid].toFixed(1)}`).join(', ')}.</p>
+        ${sp.games.some(m=>Object.values(m).some(c=>c.adjusted))?`<p class="note">* Actual finish on that game was different: ${sp.games.map((m,i)=>Object.entries(m).filter(([,c])=>c.adjusted).map(([pid,c])=>`G${i+1} ${esc(fName(pid))} was ${place(c.actualPlace)}`).join(', ')).filter(Boolean).join('; ')}.</p>`:''}</div>`;
+    }
+    h+='</div>';
+  }
+  $('#main').innerHTML=h;
 }
 const fSeed = pid => (T.finals.seeds.find(s=>s.pid===pid)||{}).seed;
 const fName = pid => (T.finals.seeds.find(s=>s.pid===pid)||{}).name || '?';
@@ -1997,6 +2053,7 @@ async function renderTournaments(){
 
 /* ================= admin: totals ================= */
 function renderTotals(){
+  if(T.finals) return renderFinalsTotals();
   const N=T.frames, rows=standings();
   const pts=r=>Array.from({length:N},(_,k)=>r.frames[k]?r.frames[k].pts:'');
   $('#main').innerHTML=`<div class="panel"><h2>Totals for Matchplay</h2>
