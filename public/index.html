@@ -293,6 +293,24 @@ body.streammode.clear{background:transparent}
 .stf .cm.pend{color:var(--muted);font-weight:500}
 .stf.cur{background:var(--me);box-shadow:inset 0 -3px 0 var(--lane)}
 .stf.cur .ab{color:var(--ink)}
+/* machine window */
+.mwin{font-size:calc(min(3.6vh,5.2vw)*var(--s))}
+.mwin .sthead b{font-size:1.25em}.mwin .sthead span{font-size:.9em}
+.mwbody{flex:1;display:flex;flex-direction:column;gap:.35em;padding:.4em;min-height:0}
+.mwtop{display:flex;gap:.35em}
+.mwtarget{background:var(--head);color:var(--headInk);border-radius:.3em;padding:.2em .6em;display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:5.5em}
+.mwtarget small{font:600 .7em var(--cond);text-transform:uppercase;letter-spacing:.05em;opacity:.85}
+.mwtarget b{font:400 1.6em/1.05 var(--display);color:var(--lane)}
+.mwhits{flex:1;display:flex;flex-direction:column;gap:.25em;min-width:0}
+@media (max-aspect-ratio:1/1){.mwtop{flex-direction:column}.mwtarget{flex-direction:row;gap:.5em;padding:.15em .6em}.mwtarget b{font-size:1.4em}.mwrow.hit{padding:.25em .6em}}
+.mwpins{flex:1;display:grid;grid-auto-rows:1fr;gap:.2em;min-height:0}
+@media (min-aspect-ratio:7/5){.mwpins{grid-template-columns:1fr 1fr;grid-auto-flow:column;grid-template-rows:repeat(5,1fr)}}
+.mwrow{display:flex;align-items:center;justify-content:space-between;gap:.6em;background:var(--card);color:var(--ink);border:1px solid var(--grid);border-radius:.3em;padding:0 .6em;min-height:0}
+.mwrow b{font:700 1em var(--cond);white-space:nowrap}
+.mwrow span{font:700 1.15em var(--cond);white-space:nowrap}
+.mwrow.hit{flex:1;background:var(--me)}.mwrow.hit b{color:var(--mark)}
+.mwempty{margin:auto;font:600 1.1em var(--cond);color:var(--muted);background:var(--card);padding:.5em 1em;border-radius:.3em}
+.stream.clear .mwempty{opacity:.0}
 .sttot{display:flex;align-items:center;justify-content:center;font:400 1.35em/1 var(--display);border-left:2px solid var(--grid)}
 /* stats */
 .stat{padding:0;overflow:hidden}
@@ -1040,6 +1058,7 @@ const QS = new URLSearchParams(location.search);
 const TVMODE = QS.has('tv');
 // Stream window: an 800 x 600 page for an OBS browser source. Settings come from the link only.
 const STREAMMODE = QS.has('stream');
+const MACHINEMODE = QS.has('stream') && QS.get('view')==='machine';
 const ST = { grp: QS.get('grp')||'A', speed: QS.has('speed') ? Number(QS.get('speed'))||0 : 30, size: Number(QS.get('size'))||1, clear: QS.get('bg')==='clear', back: QS.has('back') ? Math.max(0,Math.min(6,Number(QS.get('back'))||0)) : 2 };
 const TV_FIXED_T = QS.get('t');
 const TV = { auto: store.get('pb-tv-auto')!=='0', speed: Number(store.get('pb-tv-speed'))||40, size: Number(store.get('pb-tv-size'))||1, raf:0, pauseUntil:0, last:0, dir:1, wake:null };
@@ -1072,12 +1091,13 @@ function tvHead(){
 function bcPickId(){ const act=LIST.filter(t=>t.status==='active'); return (LIST.find(t=>t.id===TV_FIXED_T)||LIST.find(t=>t.id===liveDailyId())||act.filter(t=>!t.daily&&!t.done).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0]||act[0]||LIST[0]||{}).id; }
 function bcSwitch(){
   const v=store.get('pb-bc-view')||'tv';
-  return `<div class="seg" role="group" aria-label="Broadcast view"><button data-bc="tv" aria-pressed="${v==='tv'}">TV board</button><button data-bc="stream" aria-pressed="${v==='stream'}">Stream window</button></div>`;
+  return `<div class="seg" role="group" aria-label="Broadcast view"><button data-bc="tv" aria-pressed="${v==='tv'}">TV board</button><button data-bc="stream" aria-pressed="${v==='stream'}">Stream window</button><button data-bc="machine" aria-pressed="${v==='machine'}">Machine window</button></div>`;
 }
 function bindBcSwitch(){ $$('[data-bc]').forEach(b=>b.onclick=()=>{ store.set('pb-bc-view',b.dataset.bc); renderTv(); }); }
 function renderTv(){
   if(STREAMMODE) return renderStream();
   if(!TVMODE && store.get('pb-bc-view')==='stream') return renderStreamAdmin();
+  if(!TVMODE && store.get('pb-bc-view')==='machine') return renderMachineAdmin();
   const N=T.frames, link=location.origin+'/?tv=1';
   const cols=T.finals ? '' : `<div class="tvgrid tvcols"><div>#</div><div>Player</div>${Array.from({length:N},(_,k)=>`<div>${k+1}</div>`).join('')}<div>Total</div></div>`;
   $('#main').innerHTML=`${TVMODE?'':`${bcSwitch()}<div class="panel tvctl">
@@ -1183,11 +1203,84 @@ function renderStreamAdmin(){
   $('#soCopy').onclick=async()=>{ const u=streamUrl(); try{ await navigator.clipboard.writeText(u); toast('Address copied. Paste it into OBS.'); }catch(e){ $('#soUrl').select(); toast('Press Ctrl+C to copy the address'); } };
   $('#soUrl').onfocus=e=>e.target.select();
 }
+/* ---------- machine window: the machine being played now, with the score needed for each pin ---------- */
+// short numbers: 3 significant digits, so 24,999,990 -> 25M and 449,990 -> 450k
+function fmtShort(n){
+  if(n==null || isNaN(n)) return '';
+  if(n<999.5) return String(Math.round(n));
+  const u=[[1e3,'k'],[1e6,'M'],[1e9,'B']]; let i=u.length-1;
+  while(i>0 && n<u[i][0]*0.9995) i--;
+  let v=Number((n/u[i][0]).toPrecision(3));
+  if(v>=1000 && i<u.length-1){ i++; v=Number((n/u[i][0]).toPrecision(3)); }
+  return v+u[i][1];
+}
+function machineWindowHTML(a){
+  if(!a) return `<div class="mwempty">No machine picked yet</div>`;
+  const t=a.target; if(!t) return `<div class="mwempty">${esc(a.name)}: target not set</div>`;
+  const row=(lbl,val,cls='')=>`<div class="mwrow ${cls}"><b>${lbl}</b><span>${val}</span></div>`;
+  const pinsRows=[]; for(let n=9;n>=1;n--) pinsRows.push(row(`${n} pin${n===1?'':'s'}`, fmtShort(Math.ceil(n*t/10))));
+  pinsRows.push(row('0 pins', `under ${fmtShort(Math.ceil(t/10))}`));
+  return `<div class="mwtop"><div class="mwtarget"><small>Target</small><b>${fmtShort(t)}</b></div>
+      <div class="mwhits">${row('Strike', `${fmtShort(t)} on ball 1`, 'hit')}${row('Spare', `${fmtShort(t)} on ball 2 or 3`, 'hit')}</div></div>
+    <div class="mwpins">${pinsRows.join('')}</div>`;
+}
+let MW={key:''};
+async function machineWindow(){
+  document.body.classList.add('streammode'); if(ST.clear) document.body.classList.add('clear');
+  const draw=async()=>{
+    let d; try{ d=await api('/api/stream-machine'); }catch(e){ return; }
+    const a=d.arena, key=JSON.stringify(a||{});
+    if(key===MW.key) return; MW.key=key;
+    $('#main').innerHTML=`<div class="stream mwin ${ST.clear?'clear':''}" style="--s:${ST.size}">
+      <div class="sthead"><b>${a?esc(a.name):'Pinbowl'}</b><span>${a?`${esc(abbr(a))} · ${a.balls} balls`:''}</span></div>
+      <div class="mwbody">${machineWindowHTML(a)}</div></div>`;
+  };
+  await draw(); setInterval(()=>{ if(!document.hidden) draw(); }, 3000);
+}
+const MO = { w: Number(store.get('pb-mw-w'))||480, h: Number(store.get('pb-mw-h'))||800, size: Number(store.get('pb-mw-size'))||1, theme: store.get('pb-mw-theme')||'northstar', clear: store.get('pb-mw-clear')==='1' };
+function machineUrl(){ const q=new URLSearchParams({stream:'1', view:'machine', size:String(MO.size), theme:MO.theme}); if(MO.clear) q.set('bg','clear'); return location.origin+'/?'+q.toString(); }
+async function renderMachineAdmin(){
+  const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
+  let cur={}; try{ cur=await api('/api/stream-machine'); }catch(e){}
+  const curId = cur.tid===T.id && cur.arena ? cur.arena.id : '';
+  const list=T.arenas.filter(a=>a.active!==false && a.target);
+  $('#main').innerHTML=`${bcSwitch()}<div class="panel">
+    <h2>Machine window for OBS</h2>
+    <p class="note">A separate window showing the machine being played and the score needed for each pin and ball. Use one address in OBS: when you pick a different machine here, the window changes by itself within a few seconds.</p>
+    <div class="tvctl" style="margin-top:.8rem">
+      <label>Machine <select id="moArena"><option value="">None (blank)</option>${list.map(a=>`<option value="${a.id}" ${a.id===curId?'selected':''}>${esc(a.name)} (${fmtShort(a.target)})</option>`).join('')}</select></label>
+      <label>Text <select id="moSize">${opt([[.85,'Small'],[1,'Medium'],[1.2,'Large']],MO.size)}</select></label>
+      <label>Colors <select id="moTheme">${opt([['northstar','Northstar'],['classic','Classic'],['dark','Dark']],MO.theme)}</select></label>
+      <label><input type="checkbox" id="moClear" ${MO.clear?'checked':''}> See-through background</label>
+    </div>
+    ${cur.arena && cur.tid!==T.id?`<p class="note">Showing now: ${esc(cur.arena.name)} from ${esc(cur.tournament||'another tournament')}.</p>`:''}
+    <div class="tvctl">
+      <label>OBS width <input type="number" id="moW" min="200" max="1920" step="10" value="${MO.w}" style="width:6rem"></label>
+      <label>OBS height <input type="number" id="moH" min="200" max="1080" step="10" value="${MO.h}" style="width:6rem"></label>
+      <span class="note">Match the Width and Height in the OBS source's Properties. The preview uses this size.</span>
+    </div>
+    <div class="urlbox"><input type="text" id="moUrl" readonly value="${esc(machineUrl())}" aria-label="Machine window address"><button class="btn primary" id="moCopy">Copy this address</button></div>
+    <p class="note" style="margin-top:.6rem">Add a second Browser source in OBS for this window and paste this address into its URL. You only need to do this once. Changing the machine here updates it, but changing Text, Colors or See-through changes the address, so copy it again after those.</p>
+    <h3>Preview</h3>
+    <div class="stpreview" id="moBox"><iframe id="moFrame" src="${esc(machineUrl())}" title="Machine window preview" tabindex="-1"></iframe></div></div>`;
+  bindBcSwitch();
+  const fit=()=>{ const box=$('#moBox'), fr=$('#moFrame'); if(!box||!fr) return; box.style.maxWidth=MO.w+'px'; fr.style.width=MO.w+'px'; fr.style.height=MO.h+'px'; const s=Math.min(1, box.clientWidth/MO.w); fr.style.transform=`scale(${s})`; box.style.height=(MO.h*s)+'px'; };
+  fit(); window.onresize=fit;
+  const upd=()=>{ store.set('pb-mw-size',MO.size); store.set('pb-mw-theme',MO.theme); store.set('pb-mw-clear',MO.clear?'1':'0'); $('#moUrl').value=machineUrl(); $('#moFrame').src=machineUrl(); };
+  $('#moArena').onchange=async e=>{ try{ await api('/api/admin/stream-machine','POST',{tid:T.id, arenaId:e.target.value||null}); toast(e.target.value?`Showing ${A(e.target.value).name}`:'Machine window cleared'); $('#moFrame').src=machineUrl(); }catch(err){ toast(err.message); } };
+  $('#moSize').onchange=e=>{ MO.size=Number(e.target.value); upd(); };
+  $('#moTheme').onchange=e=>{ MO.theme=e.target.value; upd(); };
+  $('#moClear').onchange=e=>{ MO.clear=e.target.checked; upd(); };
+  const sizeSet=()=>{ MO.w=Math.max(200,Math.min(1920,Number($('#moW').value)||480)); MO.h=Math.max(200,Math.min(1080,Number($('#moH').value)||800)); store.set('pb-mw-w',MO.w); store.set('pb-mw-h',MO.h); fit(); };
+  $('#moW').onchange=sizeSet; $('#moH').onchange=sizeSet;
+  $('#moCopy').onclick=async()=>{ const u=machineUrl(); try{ await navigator.clipboard.writeText(u); toast('Address copied. Paste it into OBS.'); }catch(e){ $('#moUrl').select(); toast('Press Ctrl+C to copy the address'); } };
+  $('#moUrl').onfocus=e=>e.target.select();
+}
 document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement){ const w=$('#tvwrap'); if(w && !TVMODE) w.classList.remove('max'); } });
 function updateTv(){
   const sb=$('#stbody');
   if(sb){ sb.innerHTML=streamRows(); $('#stinfo').innerHTML=streamHeadInfo(); $('#stname').textContent=T.name; return; }
-  if(!TVMODE && store.get('pb-bc-view')==='stream') return; // the preview refreshes itself
+  if(!TVMODE && ['stream','machine'].includes(store.get('pb-bc-view'))) return; // the preview refreshes itself
   const body=$('#tvbody'); if(!body) return render();
   const y=body.scrollTop; body.innerHTML=tvRows(); body.scrollTop=y;
   $('#tvinfo').textContent=tvHead();
@@ -1213,7 +1306,7 @@ async function keepAwake(){ try{ if('wakeLock' in navigator && !TV.wake) { TV.wa
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden && (TVMODE || tab==='tv')) keepAwake(); });
 // The board refreshes every 15 seconds without losing its scroll position.
 setInterval(async()=>{
-  if(document.hidden || !(TVMODE || STREAMMODE || tab==='tv') || screen) return;
+  if(document.hidden || !(TVMODE || STREAMMODE || tab==='tv') || screen || MACHINEMODE) return;
   try{
     if((TVMODE || STREAMMODE) && !TV_FIXED_T){ await refreshList(); const want=bcPickId(); if(want && (!T || T.id!==want)){ await loadT(want); return render(); } }
     if(!T) return;
@@ -2132,7 +2225,7 @@ setInterval(async()=>{
     }
   }catch(e){}
 }, 20000);
-if(QS.has('sheet')) renderSheet(); else boot();
+if(QS.has('sheet')) renderSheet(); else if(STREAMMODE && QS.get('view')==='machine') machineWindow(); else boot();
 </script>
 </body>
 </html>
