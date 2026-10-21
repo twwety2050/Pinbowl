@@ -766,6 +766,12 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
+  // ----- machine window for the stream: one address, shows whatever machine an admin picked -----
+  if (m === 'GET' && p === '/api/stream-machine') {
+    const sm = db.settings.streamMachine || {}, t = db.tournaments.find(x => x.id === sm.tid), a = t && t.arenas.find(x => x.id === sm.arenaId);
+    return send(res, 200, { tid: t ? t.id : null, tournament: t ? t.name : null, arena: a || null, at: sm.at || 0 });
+  }
+
   // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
   const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
@@ -787,6 +793,15 @@ async function route(req, res, url) {
     if (!t.daily || t.status !== 'active') fail(409, 'That challenge is not running.');
     t.daily.end = Math.min(t.daily.end, nowMs()); closeDaily(t);
     return send(res, 200, { tournament: publicT(t) });
+  }
+  if (m === 'POST' && p === '/api/admin/stream-machine') {
+    const b = await readBody(req);
+    if (!b.arenaId) db.settings.streamMachine = null;
+    else {
+      const t = getT(String(b.tid || '')), a = t.arenas.find(x => x.id === String(b.arenaId)) || fail(404, 'That machine is not in this tournament.');
+      db.settings.streamMachine = { tid: t.id, arenaId: a.id, at: Date.now() };
+    }
+    save(); return send(res, 200, { ok: true, streamMachine: db.settings.streamMachine });
   }
   if (m === 'POST' && p === '/api/admin/scorekeepers') {
     const b = await readBody(req), key = lower(b.name);
