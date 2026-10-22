@@ -389,7 +389,29 @@ function checkSlots(F, round, g, ms) {
   }
 }
 // Position picks go 2nd seed, 3rd, 4th, then the top seed
-function pickOrder(F, g) { const by = g.players.slice().sort((a, b) => seedOf(F, a) - seedOf(F, b)); return [...by.slice(1), by[0]]; }
+// Seeds best first. The game picker starts as the top seed; each "defer" passes it to the next seed.
+// If every player defers, the games are drawn at random.
+const bySeed = (F, g) => g.players.slice().sort((a, b) => seedOf(F, a) - seedOf(F, b));
+function gamePicker(F, g) { const by = bySeed(F, g), d = g.defer || 0; return d < by.length ? by[d] : null; }
+// Who picked the games (older groups have no pickedBy: that was the top seed)
+const pickedBy = (F, g) => g.pickedBy !== undefined ? g.pickedBy : (g.defer ? gamePicker(F, g) : bySeed(F, g)[0]);
+// Positions are picked top seed down, and whoever picked the games picks last
+function pickOrder(F, g) { const by = bySeed(F, g), gp = g.machines.length === 3 ? pickedBy(F, g) : gamePicker(F, g); return gp ? [...by.filter(p => p !== gp), gp] : by; }
+// Random games: one per category in a random order, avoiding machines other groups have in the same slot
+function randomPicks(F, round, g) {
+  const cats = ['classic', 'mid', 'modern'], ok = F.arenas.filter(a => a.target), useCats = cats.every(c => ok.some(a => a.cat === c));
+  const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const taken = i => new Set(round.groups.filter(x => x !== g && x.machines.length === 3).map(x => x.machines[i]));
+  for (let tries = 0; tries < 300; tries++) {
+    const order = useCats ? shuffle(cats) : [null, null, null], ms = [];
+    for (let i = 0; i < 3; i++) {
+      const pool = ok.filter(a => (!order[i] || a.cat === order[i]) && !ms.includes(a.id) && !taken(i).has(a.id));
+      if (!pool.length) break; ms.push(pool[Math.floor(Math.random() * pool.length)].id);
+    }
+    if (ms.length === 3) return ms;
+  }
+  fail(409, 'Could not draw 3 machines at random. Pick the games by hand.');
+}
 function createFinals(t) {
   const { order, tot } = seedOrder(t), N = finalsCount(t);
   if (N < 2) fail(409, 'Finals need at least 2 players.');
@@ -638,15 +660,21 @@ async function route(req, res, url) {
     const round = fin.rounds[fin.rounds.length - 1];
     const me = F.players.find(x => lower(x.name) === lower(player)) || fail(403, "You're not in these finals.");
     const g = round.groups.find(x => x.players.includes(me.id)) || fail(409, "You're not playing in this round.");
-    const order = pickOrder(F, g), top = order[order.length - 1], N = g.players.length;
+    const order = pickOrder(F, g), picker = gamePicker(F, g), N = g.players.length;
     const nameOf = pid => (F.players.find(x => x.id === pid) || {}).name || 'someone';
     if (act === 'pick') {
-      if (Array.isArray(b.machines)) {
-        if (me.id !== top) fail(403, 'The top seed in your group picks the games.');
+      if (Array.isArray(b.machines) || b.defer) {
         if (g.machines.length === 3) fail(409, 'The games are already picked.');
+        if (me.id !== picker) fail(403, picker ? `${nameOf(picker)} picks the games for your group.` : 'The games are being drawn at random.');
         const wait = groupsBefore(F, round, g).sort((a, c) => groupTopSeed(F, a) - groupTopSeed(F, c)).find(x => x.machines.length !== 3);
         if (wait) fail(409, `Group ${wait.label} picks their games before your group.`);
-        const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); g.machines = ms;
+        if (b.defer) {
+          g.defer = (g.defer || 0) + 1;
+          // the last seed deferred too: draw the games at random
+          if (!gamePicker(F, g)) { g.machines = randomPicks(F, round, g); g.pickedBy = null; }
+        } else {
+          const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); g.machines = ms; g.pickedBy = me.id;
+        }
       } else {
         if (g.machines.length !== 3) fail(409, 'The games get picked first.');
         const turn = order.find(pid => !g.positions[pid]);
@@ -978,8 +1006,10 @@ async function route(req, res, url) {
     if (fin.champion) fail(409, 'The finals are finished. Undo the result first.');
     const g = round.groups.find(x => x.id === String(b.gid || '')) || fail(404, 'Group not found. Only the current round can be changed.');
     if (act === 'picks') {
-      if (Array.isArray(b.machines)) {
+      if (b.random && g.machines.length !== 3) { g.machines = randomPicks(F, round, g); g.pickedBy = null; g.defer = g.players.length; }
+      else if (Array.isArray(b.machines)) {
         const ms = b.machines.map(String);
+        if (g.machines.length !== 3 && g.pickedBy === undefined) g.pickedBy = gamePicker(F, g);
         checkPicks(F, ms); checkSlots(F, round, g, ms);
         // changing a game wipes the scores already entered for that game slot (the app asks first)
         const changed = [0, 1, 2].filter(i => g.machines[i] !== ms[i]);
