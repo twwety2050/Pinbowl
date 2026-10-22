@@ -45,7 +45,7 @@ if(['northstar','classic','dark'].indexOf(t)<0)t='northstar';document.documentEl
   --display:"Graduate","Bowlby One","Arial Black",Impact,sans-serif;
   color-scheme:dark;
 }
-*,*::before,*::after{box-sizing:inherit}
+*,*::before,*::after{box-sizing:border-box} /* set directly: content inside <details> doesn't inherit it in Chrome */
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 var(--body)}
 h1,h2,h3,p{margin:0}
@@ -140,7 +140,8 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 
 /* standings */
 .stand{padding:0;overflow:hidden}
-.stand summary{list-style:none;display:flex;align-items:center;gap:.8rem;padding:.8rem 1rem;cursor:pointer}
+.stand summary{list-style:none;display:flex;align-items:center;gap:.8rem;padding:.8rem .7rem .8rem 1rem;cursor:pointer}
+.stand summary .chev{margin-left:-.2rem}
 .stand summary::-webkit-details-marker{display:none}
 .stand.me summary{background:var(--me)}
 .rank{font:400 1.25rem/1 var(--display);color:var(--lane);min-width:2rem;text-align:center}
@@ -153,7 +154,59 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .mcard[hidden]{display:none}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
 .mcard h3{margin:0 0 .15rem}
-.mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;margin:.7rem 0}
+.mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin:.7rem 0}
+/* compact machine rows (Machines and Stored machines tabs) */
+.mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,480px),1fr));gap:.6rem 1rem;align-items:start}
+.mrow{padding:0;margin:0;overflow:hidden}
+.mrow[hidden]{display:none}
+.mrow>summary{list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:.7rem;align-items:center;padding:.6rem .8rem;cursor:pointer}
+.mrow>summary::-webkit-details-marker{display:none}
+.mrow>summary:hover{background:color-mix(in srgb,var(--paper) 60%,var(--card))}
+.mrow .mname{min-width:0}
+.mrow .mname b{font:700 1.08rem/1.2 var(--cond);display:block;overflow-wrap:anywhere}
+.mrow .mname small{display:block;color:var(--muted);font-size:.86rem;line-height:1.35}
+.mflags{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.2rem}
+.tag.warn{background:var(--me);border-color:var(--warn);color:var(--warn)}
+.chev{color:var(--muted);font:700 1.4rem/1 var(--body);transition:transform .15s;width:1rem;text-align:center}
+details[open]>summary .chev{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.chev{transition:none}}
+.mrow .inner{padding:.2rem .8rem .9rem;border-top:1px solid var(--grid)}
+.mrow .inner .mstats{margin-top:.7rem}
+.mform{display:grid;grid-template-columns:repeat(auto-fit,minmax(7rem,1fr));gap:.2rem .8rem;margin-top:.5rem}
+.mform label{margin-top:.5rem}
+.mh{font:700 .95rem var(--cond);margin:.8rem 0 .2rem;display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
+.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem}
+.toolbar .search{flex:1 1 14rem;margin:0}
+.sortlab{display:flex;gap:.35rem;align-items:center;margin:0;font-size:.9rem}
+.sortlab select{width:auto;padding:.4rem .5rem}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap;margin:.3rem 0 .8rem}
+.chip{border:1px solid var(--grid);background:var(--card);border-radius:999px;padding:.25rem .75rem;font:600 .86rem var(--cond);cursor:pointer;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.wslist{list-style:none;padding:0;margin:0}
+.ws{display:flex;gap:.6rem;align-items:center;padding:.45rem 0;border-top:1px solid var(--grid)}
+.ws:first-child{border-top:0}
+.ws span:nth-child(2){flex:1;min-width:0}
+.wsi{flex:0 0 1.5rem;height:1.5rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:700 .9rem/1 var(--body);background:var(--grid);color:var(--ink)}
+.ws.ok .wsi{background:var(--ok);color:#fff}
+.ws.warn .wsi{background:var(--warn);color:#fff}
+.ws.warn span:nth-child(2){font-weight:600}
+.plist{display:flex;flex-direction:column}
+.prow{display:flex;flex-wrap:wrap;gap:.4rem .8rem;align-items:center;padding:.6rem 0;border-top:1px solid var(--grid)}
+.prow[hidden]{display:none}
+.prow:first-child{border-top:0}
+details.prow{display:block}
+details.prow>summary{list-style:none;display:flex;gap:.6rem;align-items:center;cursor:pointer}
+details.prow>summary::-webkit-details-marker{display:none}
+details.prow>.pacts{margin-top:.6rem}
+.pinfo{flex:1 1 15rem;min-width:0}
+.pinfo b{font:700 1.08rem/1.2 var(--cond)}
+.pinfo small{display:block;color:var(--muted);font-size:.86rem}
+.pacts{display:flex;gap:.35rem;flex-wrap:wrap}
+.addbox{margin-top:.8rem}
+.addbox>summary{cursor:pointer;font-weight:600;color:var(--lane);list-style:none;display:inline-flex;gap:.4rem;align-items:center}
+.addbox>summary::-webkit-details-marker{display:none}
+.addbox>summary::before{content:'+';font:700 1.2rem/1 var(--body);width:1.4rem;height:1.4rem;border:2px solid currentColor;border-radius:50%;display:inline-flex;align-items:center;justify-content:center}
+.addbox[open]>summary::before{content:'–'}
 .mstats div{background:var(--head);color:var(--headInk);border-radius:8px;padding:.45rem .6rem}
 .mstats small{display:block;font-size:.75rem;opacity:.8}
 .mstats b{font:400 1.15rem/1.2 var(--display)}
@@ -205,8 +258,9 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--
 
 /* TV board */
 .tvctl{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.8rem}
-.tvctl label{margin:0;display:flex;gap:.4rem;align-items:center;font-weight:600}
-.tvctl select{width:auto;padding:.35rem .5rem}
+.tvctl label{margin:0;display:flex;gap:.4rem;align-items:center;font-weight:600;max-width:100%;min-width:0}
+.tvctl select{width:auto;padding:.35rem .5rem;max-width:100%;min-width:0;text-overflow:ellipsis}
+@media (max-width:600px){.tvctl label:has(#soFollow),.tvctl label:has(#moArena){flex-wrap:wrap;width:100%}.tvctl #soFollow,.tvctl #moArena{width:100%}}
 .tv{--s:1;background:var(--head);color:var(--headInk);border-radius:10px;padding:calc(.9rem*var(--s));display:flex;flex-direction:column;font-size:calc(clamp(13px,1.15vw,30px)*var(--s));overflow:hidden}
 .tv.max{position:fixed;inset:0;z-index:50;border-radius:0}
 .tv:fullscreen{border-radius:0;width:100vw;height:100vh}
@@ -236,6 +290,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem;background:var(--
 .tvf .cm.pend{color:var(--muted);font-weight:500}
 .tvtot{display:flex;align-items:center;justify-content:center;font:400 1.55em/1 var(--display);background:var(--paper)}
 .tvempty{padding:2em;text-align:center;opacity:.8}
+@media (max-width:760px){.tv:not(.max):not(:fullscreen){zoom:.6}}
 body.tvmode .top,body.tvmode .banner{display:none}
 body.tvmode main{max-width:none;padding:0}
 body.tvmode .tvctl{display:none}
@@ -410,14 +465,17 @@ body.streammode #toast,body.tvmode #toast{display:none}
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const num = v => { if(v===null||v===undefined||v==='') return null; const n=parseInt(String(v).replace(/[^\d]/g,''),10); return isNaN(n)?null:n; };
+const num = v => { if(v===null||v===undefined||v==='') return null; const s=String(v).trim().toLowerCase().replace(/,/g,'');
+  const m=s.match(/^(\d*\.?\d+)\s*([kmb])$/); if(m) return Math.round(parseFloat(m[1])*{k:1e3,m:1e6,b:1e9}[m[2]]);
+  const n=parseInt(s.replace(/[^\d]/g,''),10); return isNaN(n)?null:n; };
 const fmt = n => n==null ? '' : Number(n).toLocaleString('en-US');
 const store = { get:k=>{try{return localStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}, del:k=>{try{localStorage.removeItem(k)}catch(e){}} };
 let toastTimer;
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3400); }
 
 async function api(path, method='GET', body){
-  const r = await fetch(path, {method, headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined, credentials:'same-origin'});
+  let r; try{ r = await fetch(path, {method, headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined, credentials:'same-origin'}); }
+  catch(e){ throw new Error("Can't reach the server. Check your connection and try again."); }
   let j=null; try{ j=await r.json(); }catch(e){}
   if(!r.ok) throw new Error((j&&j.error) || `Error ${r.status}`);
   return j;
@@ -581,7 +639,7 @@ function frameListHTML(r, mode){ // mode: 'admin' | 'self' | 'view'
       <button class="btn small" data-move="${f.g.id}" data-dir="-1" ${i===0?'disabled':''}>Move up</button>
       <button class="btn small" data-move="${f.g.id}" data-dir="1" ${i===all.length-1?'disabled':''}>Move down</button>
       <button class="btn small danger" data-del="${f.g.id}">Delete</button></div>`;
-    else if(!readOnly() && mode==='self' && Array.isArray(f.g.balls)) acts=`<div class="facts"><button class="btn small" data-fix="${f.g.id}">Fix my scores</button></div>`;
+    else if(!readOnly() && mode==='self' && Array.isArray(f.g.balls)) acts=`<div class="facts"><button class="btn small" data-fix="${f.g.id}" aria-label="Fix the scores of this game">Fix</button></div>`;
     return `<li class="fl ${kind==='unused'?'dim':''}"><span class="fno">${label}</span>
       <div class="fmid"><b><span class="tag">${esc(abbr(a))}</span> ${esc(a?a.name:'Removed machine')}</b><small>${esc(scoreText(f.g))}</small></div>
       <div class="fmk"><span>${sy.map(s=>`<em class="${s==='X'||s==='/'?'mk':''}">${s}</em>`).join(' ')}</span><small>${what}</small></div>
@@ -594,6 +652,12 @@ function frameListHTML(r, mode){ // mode: 'admin' | 'self' | 'view'
   }
   if(!html) return '<p class="note" style="margin-top:.6rem">No games played yet.</p>';
   return `<ul class="flist">${html}</ul>`;
+}
+// Slide a scorecard sideways so the frame being played (or the last one played) is in view on a phone
+function scrollSheets(root){
+  (root||document).querySelectorAll('.card-scroll').forEach(sc=>{ const fr=[...sc.querySelectorAll('.fr')]; const live=sc.querySelector('.fa.live'); let el=live?live.parentElement:null;
+    if(!el){ const played=fr.filter(f=>f.querySelector('.cum')&&f.querySelector('.cum').textContent.trim()); el=played[played.length-1]; }
+    if(el && sc.scrollWidth>sc.clientWidth) sc.scrollLeft=Math.max(0, el.offsetLeft - sc.clientWidth/2 + el.offsetWidth/2); });
 }
 function bindGameActions(root){
   root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const g=T.games.find(x=>x.id===b.dataset.edit);
@@ -845,23 +909,27 @@ function renderPicker(){
   if(dailyOpen()) return renderJoinPicker();
   const players=[...T.players].sort((a,b)=>a.name.localeCompare(b.name));
   $('#main').innerHTML=`<div class="panel"><h2>Which player are you?</h2>
-    <p class="note">This phone remembers you, including in future weeks. Just signed up? Your name shows up here within a minute.</p>
-    ${players.length?`<div class="pick">${players.map(p=>`<button data-me="${esc(p.name)}">${esc(p.name)}</button>`).join('')}</div>`:'<p class="note" style="margin-top:.8rem">No players have signed up yet.</p>'}
+    <p class="note">Tap your name. This phone remembers you, including in future weeks. Just signed up in Matchplay? Your name shows up here within a minute.</p>
+    ${players.length>8?`<div style="margin-top:.8rem">${searchHTML('pksearch','Find your name',JSEARCH)}</div>`:''}
+    ${players.length?`<div class="pick">${players.map(p=>`<button data-me="${esc(p.name)}" data-find="${esc(p.name.toLowerCase())}">${esc(p.name)}</button>`).join('')}</div><p class="note" id="pknone" hidden style="margin-top:.6rem">No one by that name. Not signed up yet? Sign up in Matchplay or ask an organizer to add you.</p>`:'<p class="note" style="margin-top:.8rem">No players have signed up yet.</p>'}
     <div class="row" style="margin-top:1rem"><button class="btn" id="watch">I'm just watching</button></div></div>`;
-  $$('[data-me]').forEach(b=>b.onclick=()=>{ pickName=b.dataset.me; screen='pin'; render(); });
+  if($('#pksearch')){ const filt=()=>{ const q=JSEARCH.trim().toLowerCase(); let n=0; $$('[data-me]').forEach(b=>{ const hit=!q||b.dataset.find.includes(q); b.hidden=!hit; if(hit) n++; }); $('#pknone').hidden=n>0; };
+    $('#pksearch').oninput=e=>{ JSEARCH=e.target.value; filt(); }; filt(); $('#pksearch').onkeydown=e=>{ if(e.key==='Enter'){ const one=$$('[data-me]').filter(b=>!b.hidden); if(one.length===1) one[0].click(); } }; }
+  $$('[data-me]').forEach(b=>b.onclick=()=>{ JSEARCH=''; pickName=b.dataset.me; screen='pin'; render(); });
   $('#watch').onclick=()=>{ store.set('pb-watch','1'); go('standings'); };
 }
 async function renderPin(){
   let exists=false; try{ exists=(await api('/api/player/exists?name='+encodeURIComponent(pickName))).exists; }catch(e){}
   $('#main').innerHTML=`<div class="panel" style="max-width:30rem"><h2>${esc(pickName)}</h2>
     <p class="note">${exists?'Enter your 4-digit PIN.':'Create a 4-digit PIN. You\'ll use it if you switch phones, and it keeps anyone else from entering scores as you.'}</p>
-    <label for="pin">${exists?'PIN':'New PIN'}</label><input type="password" id="pin" inputmode="numeric" maxlength="4" autocomplete="off" style="max-width:10rem;font-size:1.4rem;letter-spacing:.4em">
+    <label for="pin">${exists?'PIN':'New PIN'}</label><input type="password" id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" enterkeyhint="done" style="max-width:10rem;font-size:1.4rem;letter-spacing:.4em">
     <div class="row" style="margin-top:1rem"><button class="btn primary" id="pgo">${exists?'Continue':'Save PIN'}</button><button class="btn" id="pback">Back</button></div>
     <p class="err" id="perr"></p>${exists?'<p class="note" style="margin-top:.6rem">Forgot it? Ask an admin to reset your PIN.</p>':''}</div>`;
   const submit=async()=>{ try{ await api('/api/player/claim','POST',{name:pickName,pin:$('#pin').value}); store.del('pb-watch'); screen=null; await refreshList();
-      if(dailyOpen() && !inT(pickName)){ KNOWN=null; await joinDaily(); tab='play'; } else { tab=tab==='play'?'play':'mine'; toast(`Welcome, ${pickName}`); }
+      if(dailyOpen() && !inT(pickName)){ KNOWN=null; await joinDaily(); tab='play'; } else { tab=tab==='play'?'play':'mine'; toast(exists?`Welcome back, ${pickName}`:`Welcome, ${pickName}! Tap Enter score when you sit down at a machine.`); }
       render(); }catch(e){ $('#perr').textContent=e.message; } };
   $('#pgo').onclick=submit; $('#pin').onkeydown=e=>{ if(e.key==='Enter') submit(); };
+  $('#pin').oninput=e=>{ e.target.value=e.target.value.replace(/\D/g,'').slice(0,4); if(exists && e.target.value.length===4) submit(); };
   $('#pback').onclick=()=>{ screen=null; renderHeader(); renderPicker(); };
   $('#pin').focus();
 }
@@ -893,7 +961,7 @@ function renderMine(){
   </div>`;
   $('#chg').onclick=switchPlayer;
   if($('#toPlay')) $('#toPlay').onclick=()=>go('play');
-  bindGameActions($('#main'));
+  bindGameActions($('#main')); scrollSheets($('#main'));
 }
 
 /* ================= player: enter score ball by ball ================= */
@@ -924,7 +992,7 @@ function renderPlay(){
       <p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
       <ul class="balllist">${g.balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>
       <label for="bs">Score after ball ${n}</label>
-      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
+      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off" enterkeyhint="done">
       <div class="preview" id="bhint"></div>
       <div class="row"><button class="btn primary" id="bgo">Save ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
       <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>
@@ -941,15 +1009,15 @@ function renderPlay(){
     const spare10 = r.frames[T.frames-1] && r.frames[T.frames-1].type==='spare';
     body=`<h2>${!isBonus?`Frame ${slot.n} of ${T.frames}`:`Frame ${T.frames+1+slot.idx}: bonus frame`}</h2>
       <p class="note">${isBonus?`Everyone plays the same machine for this frame. It was drawn at random.${spare10?' Only your ball 1 score counts toward your spare.':''}`:'Pick the machine you are about to play.'}</p>
-      <div class="choices" style="margin-top:.6rem">${arenas.map(x=>{ const blocked=!isBonus && ((!repeatOK && played.has(x.id)) || !x.target);
-        return `<button class="choice" data-parena="${x.id}" aria-pressed="${x.id===PF.arenaId}" ${blocked?'disabled':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${!x.target?'no target yet':played.has(x.id)&&!repeatOK?'already played':`${x.balls} balls, target ${fmt(x.target)}`}</small></button>`; }).join('')}</div>
-      ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)}</label>
-      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off">
+      <div class="choices" style="margin-top:.6rem">${arenas.map(x=>({x, blocked:!isBonus && ((!repeatOK && played.has(x.id)) || !x.target)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>
+        `<button class="choice" data-parena="${x.id}" aria-pressed="${x.id===PF.arenaId}" ${blocked?'disabled':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${!x.target?'no target yet':played.has(x.id)&&!repeatOK?'already played':`${x.balls} balls · target ${fmtShort(x.target)}`}</small></button>`).join('')}</div>
+      ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)} <span class="note">(${a.balls} balls, target ${fmt(a.target)})</span></label>
+      <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off" enterkeyhint="done">
       <div class="preview" id="bhint"></div>
       <div class="row"><button class="btn primary" id="bgo">Save ball 1</button></div>${rangesBox(a)}`:''}`;
   }
   m.innerHTML=`<div class="two"><div class="panel">${body}</div><div class="panel"><h2>My card</h2>${sheetHTML(r)}</div></div>`;
-  bindRanges();
+  bindRanges(); scrollSheets(m);
 
   $$('[data-parena]').forEach(b=>b.onclick=()=>{ PF.arenaId=b.dataset.parena; renderPlay(); const i=$('#bs'); if(i) i.focus(); });
   const inp=$('#bs');
@@ -996,47 +1064,71 @@ function renderStandings(){
   if(T.finals) return renderFinalsStandings();
   if(!T.players.length){ $('#main').innerHTML='<div class="panel">No players yet.</div>'; return; }
   const rows=standings(), mine=me();
-  $('#main').innerHTML = rows.map((x,i)=>{
+  const byHand = Array.isArray(T.seedOverride) && T.seedOverride.length ? `<div class="panel note" style="padding:.7rem 1rem">The organizer set this order by hand (for example after a tiebreaker), so it may not follow the totals.</div>` : '';
+  $('#main').innerHTML = byHand + rows.map((x,i)=>{
     const isMe = mine && x.p.id===mine.id, cut=cutAfter(i, rows.length, 'cutline');
     const st = x.r.playing ? `Playing ${esc(A(x.r.playing.arenaId)?.name||'')} now` : x.r.complete ? 'Complete' : `${x.r.regCount} of ${T.frames} frames${x.r.stillNeeded?', bonus game needed':''}`;
-    return `<details class="panel stand ${isMe?'me':''}" data-pid="${x.p.id}" ${isMe?'open':''}><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.p.name)}<small>${st}</small></span><span class="ptotal">${x.r.total}</span></summary>
+    return `<details class="panel stand ${isMe?'me':''}" data-pid="${x.p.id}" ${isMe?'open':''}><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.p.name)}<small>${st}</small></span><span class="ptotal">${x.r.total}</span><span class="chev" aria-hidden="true">›</span></summary>
       <div class="inner">${sheetHTML(x.r)}${frameListHTML(x.r, staff()?'admin':(isMe?'self':'view'))}</div></details>${cut}`;
-  }).join('') + `<p class="note">Tap a name to see their card. A “…” means a frame is waiting on its strike or spare bonus.${ADMIN?' Move up and Move down change the order a player\'s games count in, which changes which frames their bonuses come from. Use them if games were entered out of order.':''}</p>`;
-  bindGameActions($('#main'));
+  }).join('') + `<p class="note">A “…” means a frame is waiting on its strike or spare bonus.${ADMIN?' Move up and Move down change the order a player\'s games count in, which changes which frames their bonuses come from. Use them if games were entered out of order.':''}</p>`;
+  bindGameActions($('#main')); $$('.stand').forEach(d=>d.addEventListener('toggle',()=>{ if(d.open) scrollSheets(d); })); scrollSheets($('#main'));
 }
 
 /* ================= machines ================= */
+let MCAT='all', MOPEN=new Set(); // filter chip and the rows left open, kept across re-renders
+// One compact row per machine: tap to open the details (stats, score table, settings).
+function machineRow(id, a, o){
+  return `<details class="panel mrow" data-mid="${id}" data-find="${esc(o.find||'')}" data-cat="${esc(o.cat||'none')}" data-attn="${o.attn?'1':'0'}" ${MOPEN.has(id)?'open':''}>
+    <summary><span class="tag big-tag">${esc(abbr(a))}</span><span class="mname"><b>${esc(a.name)}</b><small>${o.line||''}</small>${o.flags?`<span class="mflags">${o.flags}</span>`:''}</span><span class="chev" aria-hidden="true">›</span></summary>
+    <div class="inner">${o.inner||''}</div></details>`;
+}
+function bindMachineRows(){ $$('details.mrow').forEach(d=>d.addEventListener('toggle',()=>{ if(d.open) MOPEN.add(d.dataset.mid); else MOPEN.delete(d.dataset.mid); })); }
+const chipsHTML=(list,cur)=>`<div class="chips">${list.map(([k,l])=>`<button class="chip" data-chip="${k}" aria-pressed="${cur===k}">${l}</button>`).join('')}</div>`;
+const searchHTML=(id,ph,val)=>`<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="${id}" placeholder="${ph}" aria-label="${ph}" value="${esc(val)}" autocomplete="off"></div>`;
+// Hides rows that don't match the search box or the chip. Returns how many are showing.
+function filterRows(q, cat){
+  q=(q||'').trim().toLowerCase(); let n=0;
+  $$('details.mrow').forEach(r=>{ const hit=(!q || (r.dataset.find||'').includes(q)) && (cat==='all' || (cat==='attn' ? r.dataset.attn==='1' : r.dataset.cat===cat)); r.hidden=!hit; if(hit) n++; });
+  return n;
+}
+function expandAllBtn(){ return `<button class="btn small" id="expandAll">Expand all</button>`; }
+function bindExpandAll(){ const b=$('#expandAll'); if(!b) return; const rows=()=>$$('details.mrow:not([hidden])'); const sync=()=>{ b.textContent = rows().length && rows().every(d=>d.open) ? 'Collapse all' : 'Expand all'; };
+  b.onclick=()=>{ const open=!rows().every(d=>d.open); rows().forEach(d=>{ d.open=open; }); sync(); }; $$('details.mrow').forEach(d=>d.addEventListener('toggle',sync)); sync(); }
+const machineLine = parts => parts.filter(Boolean).join(' · ');
 function renderMachines(){
   const edit = ADMIN && !readOnly();
   const list = ADMIN ? T.arenas : T.arenas.filter(a=>a.active || bonusFrameOf(a));
   if(ADMIN && !STORED){ loadStored().then(()=>{ if(tab==='machines' && !readOnly()) renderMachines(); }); }
-  const src = a => a.targetSource==='mp' ? '<span class="tag">from Matchplay</span>' : a.targetSource==='saved' ? '<span class="tag">saved from last time</span>' : '';
-  const cards = list.map(a=>{
-    const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>g.hitBall===1).length;
+  const src = a => a.targetSource==='mp' ? 'Target came from Matchplay.' : a.targetSource==='saved' ? 'Target saved from last time.' : a.target ? 'Target set here.' : '';
+  let attn=0;
+  const rows = list.map(a=>{
+    const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>g.hitBall===1).length, spares=gs.filter(g=>g.hitBall>=2).length;
     const avg = gs.length ? (gs.reduce((s,g)=>{ const r=gameRolls(g); return s+(r.type==='open'?r.rolls[0]+r.rolls[1]:10); },0)/gs.length).toFixed(1) : '–';
-    const ctl = edit ? `<div class="row" style="margin-top:.6rem">
-        <div style="flex:0 0 5.5rem"><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div>
-        <div style="flex:0 0 7rem"><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
-        <div style="flex:0 0 5rem"><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
-        <div class="grow"><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div></div>
-        <label class="check"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label>
-        <button class="btn small danger" data-rma="${a.id}" style="margin-top:.4rem">Remove machine</button>` : '';
-    return `<div class="panel mcard" data-find="${esc((a.name+' '+abbr(a)+' '+catName(a.cat)).toLowerCase())}"><h3><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h3>
-      <p class="note">${a.cat?`<span class="tag">${catName(a.cat)}</span> `:''}${a.balls} balls, target ${a.target?fmt(a.target):'not set'} ${src(a)}${bonusFrameOf(a)?` <span class="tag">bonus frame ${bonusFrameOf(a)}</span>`:(!a.active?' <span class="tag">closed</span>':'')}</p>
-      <div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
-      ${a.target?`<details class="ranges" data-mid="${a.id}"><summary>Score needed for each pin count</summary>${brackets(a)}</details>`:brackets(a)}${ctl}</div>`;
+    const issues=[!a.target?'No target':'', ADMIN&&!a.cat&&!a.bonusOnly?'No category':''].filter(Boolean); if(issues.length) attn++;
+    const bf=bonusFrameOf(a);
+    const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), bf?`<span class="tag">Bonus frame ${bf}</span>`:'', (!a.active && !bf)?'<span class="tag">Closed</span>':''].filter(Boolean).join('');
+    const line=machineLine([a.cat?catName(a.cat):'', `${a.balls} balls`, a.target?`target ${fmtShort(a.target)}`:'', gs.length?`${gs.length} played`:'']);
+    const ctl = edit ? `<div class="mform">
+        <div><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div>
+        <div><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
+        <div><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
+        <div><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div></div>
+        <p class="note" style="margin-top:.3rem">${src(a)} Changes save by themselves. You can type 150m for 150,000,000.</p>
+        <div class="row" style="margin-top:.6rem;align-items:center"><label class="check" style="margin:0"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label><button class="btn small danger" data-rma="${a.id}">Remove machine</button></div>` : '';
+    const inner=`<div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Spares</small><b>${spares}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
+      ${a.target?`<p class="mh">Score needed for each pin count <span class="note">target ${fmt(a.target)}</span></p>${brackets(a)}`:'<p class="note">No target score yet, so this machine can\'t be played.</p>'}${ctl}`;
+    return machineRow(a.id, a, {line, flags, inner, cat:a.cat||'none', attn:issues.length, find:(a.name+' '+abbr(a)+' '+catName(a.cat)).toLowerCase()});
   }).join('');
-  const add = edit ? bonusPanel() + `<div class="panel"><h2>Machines</h2><p class="note">Targets, ball counts and short names are remembered on the Stored machines tab. When a machine comes back in a later tournament, they fill in automatically.</p>${catMixNote()}
-    <div class="row" style="margin-top:.5rem"><div class="grow"><label for="na">Add a machine by hand</label><input type="text" id="na"></div><button class="btn" id="naGo">Add machine</button></div></div>` : '';
-  const toggle = list.some(a=>a.target) ? `<div class="row" style="margin-bottom:.8rem"><button class="btn small" id="rangesAll">Show all score ranges</button></div>` : '';
-  const search = list.length>1 ? `<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-    <input type="search" id="msearch" placeholder="Search machines by name or short name" aria-label="Search machines" value="${esc(MSEARCH)}" autocomplete="off"></div>` : '';
-  $('#main').innerHTML = add + search + toggle + (list.length?`<div class="mgrid">${cards}</div><p class="note" id="mnone" hidden>No machines match that search.</p>`:'<div class="panel note">No machines yet.</div>');
-  const filterMachines=()=>{ const q=MSEARCH.trim().toLowerCase(); let shown=0;
-    $$('.mcard').forEach(c=>{ const hit=!q || (c.dataset.find||'').includes(q); c.hidden=!hit; if(hit) shown++; });
-    if($('#mnone')) $('#mnone').hidden = shown>0; };
-  if($('#msearch')){ $('#msearch').oninput=e=>{ MSEARCH=e.target.value; filterMachines(); }; filterMachines(); }
-  if($('#rangesAll')) $('#rangesAll').onclick=()=>{ const ds=$$('details.ranges'), open=!ds.every(d=>d.open); ds.forEach(d=>d.open=open); $('#rangesAll').textContent=open?'Hide all score ranges':'Show all score ranges'; };
+  const add = edit ? bonusPanel() + `<div class="panel"><h2>Machines</h2><p class="note">Tap a machine to see its score table, stats and settings. Targets, ball counts and short names are remembered on the Stored machines tab and fill in by themselves next time.</p>${catMixNote()}
+    <details class="addbox"><summary>Add a machine by hand</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="na" style="margin-top:0">Machine name</label><input type="text" id="na" placeholder="For a machine that isn't in Matchplay" enterkeyhint="done"></div><button class="btn" id="naGo">Add machine</button></div></details></div>` : '';
+  const chips=[['all',`All (${list.length})`],...CATS.map(([k,l])=>[k,`${l} (${list.filter(a=>(a.cat||'')===k).length})`]), ...(attn?[['attn',`Needs attention (${attn})`]]:[])];
+  if(MCAT==='attn' && !attn) MCAT='all';
+  const tools = list.length>1 ? `<div class="toolbar">${searchHTML('msearch','Search machines',MSEARCH)}${expandAllBtn()}</div>${chipsHTML(chips,MCAT)}` : '';
+  $('#main').innerHTML = add + tools + (list.length?`<div class="mlist">${rows}</div><p class="note" id="mnone" hidden>No machines match.</p>`:'<div class="panel note">No machines yet.</div>');
+  const refilter=()=>{ const n=filterRows(MSEARCH, MCAT); if($('#mnone')) $('#mnone').hidden=n>0; };
+  if($('#msearch')){ $('#msearch').oninput=e=>{ MSEARCH=e.target.value; refilter(); }; }
+  $$('[data-chip]').forEach(b=>b.onclick=()=>{ MCAT=b.dataset.chip; $$('[data-chip]').forEach(x=>x.setAttribute('aria-pressed',x===b)); refilter(); });
+  refilter(); bindMachineRows(); bindExpandAll();
   if(!edit) return;
   $$('[data-bdraw]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.bdraw), a=bonusArena(i);
     const n=a?T.games.filter(g=>g.arenaId===a.id).length:0;
@@ -1044,11 +1136,12 @@ function renderMachines(){
     change('/bonus','POST',{index:i},`Frame ${T.frames+1+i} machine drawn`); });
   $$('[data-bpick]').forEach(s=>s.onchange=()=>{ if(s.value) change('/bonus','POST',{index:Number(s.dataset.bpick), machineId:s.value},'Bonus machine set'); });
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
+  $('#na').onkeydown=e=>{ if(e.key==='Enter') $('#naGo').click(); };
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
   $$('[data-cat]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.cat}`,'PATCH',{cat:i.value},'Category saved'); });
-  $$('[data-target]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'));
-  $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},'Saved'));
+  $$('[data-target]').forEach(i=>{ i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
+  $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},i.checked?'Open for play':'Closed'));
   $$('[data-rma]').forEach(b=>b.onclick=()=>{ const n=T.games.filter(g=>g.arenaId===b.dataset.rma).length; if(confirm(n?`${n} games were played on this machine. Removing it deletes them. Continue?`:'Remove this machine?')) change(`/arenas/${b.dataset.rma}`,'DELETE',null,'Machine removed'); });
 }
 
@@ -1450,38 +1543,52 @@ async function renderStats(){
 }
 
 /* ================= admin: stored machines ================= */
-let STORED=null, SSEARCH='';
+let STORED=null, SSEARCH='', SCAT='all', SSORT=store.get('pb-ssort2')||'name';
 async function loadStored(){ try{ STORED=(await api('/api/admin/machines')).machines; }catch(e){ STORED=STORED||[]; toast(e.message); } }
 async function renderStored(){
   if(!STORED){ $('#main').innerHTML='<div class="panel">Loading stored machines…</div>'; await loadStored(); if(tab!=='stored') return; }
   const inT = m => T && T.arenas.some(a=>a.mid===m.id);
   const withT=STORED.filter(m=>m.target>0).length, inDraw=STORED.filter(m=>m.target>0 && m.inDraw!==false).length;
-  const cards=STORED.map(m=>`<div class="panel mcard" data-find="${esc((m.name+' '+(m.abbr||'')+' '+catName(m.cat)).toLowerCase())}">
-      <h3><span class="tag big-tag">${esc(m.abbr||'?')}</span> ${esc(m.name)}</h3>
-      <p class="note">${m.games} game${m.games===1?'':'s'} in ${m.tournaments} tournament${m.tournaments===1?'':'s'}${m.lastUsed?`, last used ${new Date(m.lastUsed).toLocaleDateString()}`:''} ${inT(m)?'<span class="tag">in this tournament</span>':''}</p>
-      <div class="row" style="margin-top:.4rem">
-        <div style="flex:0 0 5.5rem"><label for="sa${m.id}">Short name</label><input type="text" id="sa${m.id}" data-sabbr="${m.id}" value="${esc(m.abbr||'')}" maxlength="5" style="text-transform:uppercase"></div>
-        <div style="flex:0 0 7rem"><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
-        <div style="flex:0 0 5rem"><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}"><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
-        <div class="grow"><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div></div>
-      <label class="check"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random (bonus frames and the daily challenge)${m.target?'':' (needs a target)'}</label>
-      <button class="btn small danger" data-srm="${m.id}" style="margin-top:.4rem">Remove from stored machines</button></div>`).join('');
+  const sorters={ name:(a,b)=>a.name.localeCompare(b.name), used:(a,b)=>(b.lastUsed||0)-(a.lastUsed||0) || a.name.localeCompare(b.name), played:(a,b)=>b.games-a.games || a.name.localeCompare(b.name), cat:(a,b)=>(CATS.findIndex(c=>c[0]===a.cat)+9)%9-(CATS.findIndex(c=>c[0]===b.cat)+9)%9 || a.name.localeCompare(b.name) };
+  const sorted=STORED.slice().sort(sorters[SSORT]||sorters.name);
+  let attn=0;
+  const rows=sorted.map(m=>{
+    const issues=[!m.target?'No target':'', !m.cat?'No category':''].filter(Boolean); if(issues.length) attn++;
+    const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), m.target&&m.inDraw===false?'<span class="tag">Not in random draw</span>':''].filter(Boolean).join('');
+    const use = inT(m) ? 'in this tournament' : m.tournaments ? `${m.tournaments} tournament${m.tournaments===1?'':'s'}, last ${new Date(m.lastUsed||0).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'never used';
+    const line=machineLine([m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use]);
+    const inner=`<div class="mform">
+        <div><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div>
+        <div><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
+        <div><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}"><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
+        <div><label for="sa${m.id}">Short name</label><input type="text" id="sa${m.id}" data-sabbr="${m.id}" value="${esc(m.abbr||'')}" maxlength="5" style="text-transform:uppercase"></div></div>
+      <p class="note" style="margin-top:.3rem">${m.games} game${m.games===1?'':'s'} played in ${m.tournaments} tournament${m.tournaments===1?'':'s'}. Changes save by themselves${inT(m)?' and update this tournament too':''}. You can type 150m for 150,000,000.</p>
+      <label class="check" style="margin-top:.6rem"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random for bonus frames and the daily challenge${m.target?'':' (needs a target first)'}</label>
+      <div class="row" style="margin-top:.6rem"><button class="btn small danger" data-srm="${m.id}">Remove from stored machines</button></div>`;
+    return machineRow(m.id, m, {line, flags, inner, cat:m.cat||'none', attn:issues.length, find:(m.name+' '+(m.abbr||'')+' '+catName(m.cat)).toLowerCase()});
+  }).join('');
+  const chips=[['all',`All (${STORED.length})`],...CATS.map(([k,l])=>[k,`${l} (${STORED.filter(m=>m.cat===k).length})`]),...(attn?[['attn',`Needs attention (${attn})`]]:[])];
+  if(SCAT==='attn' && !attn) SCAT='all';
   $('#main').innerHTML=`<div class="panel"><h2>Stored machines</h2>
-    <p class="note">Every machine used in a tournament. Targets, ball counts and short names here fill in automatically when a machine comes back. Changing one also updates any open tournament that has the machine.</p>
-    <p style="margin-top:.5rem"><b>${STORED.length}</b> machines, <b>${withT}</b> with targets, <b>${inDraw}</b> in the bonus draw. ${CATS.map(([k,l])=>`${l} ${STORED.filter(m=>m.cat===k).length}`).join(', ')}${STORED.some(m=>!m.cat)?`, no category ${STORED.filter(m=>!m.cat).length}`:''}.</p>
-    <div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn">Add a machine</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 11rem"><label for="snt">Target score</label><input type="text" inputmode="numeric" id="snt"></div><div style="flex:0 0 7rem"><label for="sncat">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></div>
-    ${STORED.length>1?`<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="ssearch" placeholder="Search stored machines" aria-label="Search stored machines" value="${esc(SSEARCH)}" autocomplete="off"></div>`:''}
-    ${STORED.length?`<div class="mgrid">${cards}</div><p class="note" id="snone" hidden>No stored machines match that search.</p>`:'<div class="panel note">No machines stored yet. They are added as tournaments use them.</div>'}`;
-  const filt=()=>{ const q=SSEARCH.trim().toLowerCase(); let n=0; $$('.mcard').forEach(c=>{ const hit=!q||(c.dataset.find||'').includes(q); c.hidden=!hit; if(hit) n++; }); if($('#snone')) $('#snone').hidden=n>0; };
-  if($('#ssearch')){ $('#ssearch').oninput=e=>{ SSEARCH=e.target.value; filt(); }; filt(); }
+    <p class="note">Every machine that has ever been in a tournament, with its saved target, ball count and short name. These fill in by themselves when a machine comes back, and a change here also updates any open tournament that has the machine. Tap a machine to change it.</p>
+    <p style="margin-top:.5rem"><b>${STORED.length}</b> machines · <b>${withT}</b> with targets · <b>${inDraw}</b> in the random draw${attn?` · <span class="err">${attn} need${attn===1?'s':''} attention</span>`:''}</p>
+    <details class="addbox"><summary>Add a machine</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn" style="margin-top:0">Machine name</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 9rem"><label for="snt" style="margin-top:0">Target score</label><input type="text" inputmode="numeric" id="snt" placeholder="e.g. 50m"></div><div style="flex:0 0 7rem"><label for="sncat" style="margin-top:0">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></details></div>
+    ${STORED.length>1?`<div class="toolbar">${searchHTML('ssearch','Search stored machines',SSEARCH)}<label class="sortlab">Sort <select id="ssort">${[['name','Name'],['used','Last used'],['played','Most played'],['cat','Category']].map(([k,l])=>`<option value="${k}" ${SSORT===k?'selected':''}>${l}</option>`).join('')}</select></label>${expandAllBtn()}</div>${chipsHTML(chips,SCAT)}`:''}
+    ${STORED.length?`<div class="mlist">${rows}</div><p class="note" id="snone" hidden>No stored machines match.</p>`:'<div class="panel note">No machines stored yet. They are added as tournaments use them, or add one above.</div>'}`;
+  const refilter=()=>{ const n=filterRows(SSEARCH, SCAT); if($('#snone')) $('#snone').hidden=n>0; };
+  if($('#ssearch')) $('#ssearch').oninput=e=>{ SSEARCH=e.target.value; refilter(); };
+  if($('#ssort')) $('#ssort').onchange=e=>{ SSORT=e.target.value; store.set('pb-ssort2',SSORT); renderStored(); };
+  $$('[data-chip]').forEach(b=>b.onclick=()=>{ SCAT=b.dataset.chip; $$('[data-chip]').forEach(x=>x.setAttribute('aria-pressed',x===b)); refilter(); });
+  refilter(); bindMachineRows(); bindExpandAll();
   const save=async(id,body,msg)=>{ try{ const j=await api(`/api/admin/machines/${id}`,'PATCH',body); const i=STORED.findIndex(x=>x.id===id); STORED[i]={...STORED[i],...j.machine}; if(T && T.status==='active' && T.arenas.some(a=>a.mid===id)) await loadT(T.id); toast(msg); renderStored(); }catch(e){ toast(e.message); } };
   $$('[data-sabbr]').forEach(i=>i.onchange=()=>save(i.dataset.sabbr,{abbr:i.value},'Short name saved'));
   $$('[data-sballs]').forEach(i=>i.onchange=()=>save(i.dataset.sballs,{balls:Number(i.value)},'Saved'));
   $$('[data-scat]').forEach(i=>i.onchange=()=>save(i.dataset.scat,{cat:i.value},'Category saved'));
-  $$('[data-starget]').forEach(i=>i.onchange=()=>save(i.dataset.starget,{target:num(i.value)||0},'Target saved'));
-  $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the bonus draw':'Left out of the bonus draw'));
+  $$('[data-starget]').forEach(i=>{ i.onchange=()=>save(i.dataset.starget,{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
+  $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the random draw':'Left out of the random draw'));
   $$('[data-srm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this machine from stored machines? Past tournaments keep their scores.')) return; try{ await api(`/api/admin/machines/${b.dataset.srm}`,'DELETE'); STORED=STORED.filter(x=>x.id!==b.dataset.srm); toast('Removed'); renderStored(); }catch(e){ toast(e.message); } });
-  $('#snGo').onclick=async()=>{ const name=$('#sn').value.trim(); if(!name) return; try{ await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
+  const addOne=async()=>{ const name=$('#sn').value.trim(); if(!name){ toast('Type the machine name.'); return; } try{ const j=await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); MOPEN.add(j.machine.id); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
+  $('#snGo').onclick=addOne; ['sn','snt'].forEach(id=>{ $('#'+id).onkeydown=e=>{ if(e.key==='Enter') addOne(); }; });
 }
 
 /* ================= finals ================= */
@@ -1556,7 +1663,7 @@ function fCard(g, pid){
   const res=g.scores[pid]||[], frames=g.machines.map((aid,i)=> res[i] && res[i].status!=='playing' ? {...gameRolls({arenaId:aid, ...res[i]})} : null);
   let total=0;
   frames.forEach((f,k)=>{ if(!f) return; const need=k===frames.length-1?0:(f.type==='strike'?2:f.type==='spare'?1:0);
-    const next=frames.slice(k+1).filter(Boolean).flatMap(x=>x.rolls).slice(0,need); f.pts=(f.type==='open'?f.rolls[0]+f.rolls[1]:10)+next.reduce((a,b)=>a+b,0); f.wait=next.length<need; total+=f.pts; });
+    const next=frames.slice(k+1).filter(Boolean).flatMap(x=>x.rolls).slice(0,need); f.pts=(f.type==='open'?f.rolls[0]+f.rolls[1]:10)+next.reduce((a,b)=>a+b,0); f.wait=next.length<need && frames.slice(k+1).some(x=>!x); total+=f.pts; });
   return {pid, seed:fSeed(pid), frames, total, complete:g.machines.length===3 && frames.length===3 && frames.every(Boolean)};
 }
 function fResult(g, final){
@@ -2004,8 +2111,8 @@ function renderEnter(){
     <select id="psel"><option value="">Choose a player</option>${players.map(p=>`<option value="${p.id}" ${p.id===F.playerId?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
     ${slotTxt}
     <label>Machine</label>
-    <div class="choices">${(bonusA?[bonusA]:T.arenas.filter(x=>x.active || x.id===F.arenaId)).map(x=>{ const blocked=!repeatOK && played.has(x.id);
-      return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${x.balls} balls, target ${x.target?fmt(x.target):'not set'}</small></button>`; }).join('')}</div>
+    <div class="choices">${(bonusA?[bonusA]:T.arenas.filter(x=>x.active || x.id===F.arenaId)).map(x=>({x,blocked:!repeatOK && played.has(x.id)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>{
+      return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${blocked?'already played':`${x.balls} balls · target ${x.target?fmtShort(x.target):'not set'}`}</small></button>`; }).join('')}</div>
     ${a ? `<p class="note" style="margin-top:.7rem">Enter the total score after each ball${a.target?` (target ${fmt(a.target)})`:''}. Balls after the target is reached are greyed out.</p>${ballBoxesHTML(a, F.balls, 'q')}` : ''}
     <div class="preview" id="preview"></div>
     <div class="row"><button class="btn primary" id="saveBtn">${F.editingId?'Save changes':'Save game'}</button>${F.editingId?'<button class="btn" id="cancelEdit">Cancel</button>':''}</div>
@@ -2057,6 +2164,7 @@ function renderSide(pid){
 }
 
 /* ================= admin: players ================= */
+let PSEARCH='';
 async function renderPlayers(){
   try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings=adminSettings||{pins:[]}; }
   const pinSet=new Set(adminSettings.pins||[]), keepSet=new Set(adminSettings.scorekeepers||[]);
@@ -2070,10 +2178,15 @@ async function renderPlayers(){
     ${readOnly()?'':`<div class="row" style="margin-top:.8rem"><div class="grow"><label for="np">Add a player by hand</label><input type="text" id="np" placeholder="Name"></div><button class="btn" id="npGo">Add player</button></div>`}
     <p class="note" style="margin-top:.8rem">Players set a 4-digit PIN the first time they pick their name. If someone forgets it, reset it and they'll make a new one.</p>
     <p class="note" style="margin-top:.4rem">Scorekeepers can enter and fix anyone's scores from a Scorekeeper tab and still have their own card. They stay scorekeepers in future tournaments until you turn it off.</p>
-    <div class="tablewrap" style="margin-top:.5rem"><table><thead><tr><th>Name</th><th class="n">Games</th><th class="n">Total</th><th></th></tr></thead><tbody>
-    ${players.map(p=>`<tr><td>${esc(p.name)} ${p.mpId!=null?'<span class="tag">Matchplay</span>':''} ${pinSet.has(p.name.toLowerCase())?'<span class="tag">PIN set</span>':''} ${keepSet.has(p.name.toLowerCase())?'<span class="tag">Scorekeeper</span>':''}</td><td class="n">${T.games.filter(g=>g.playerId===p.id && g.status!=='playing').length}</td><td class="n">${scorePlayer(p.id).total}</td>
-      <td class="n" style="white-space:nowrap"><button class="btn small" data-keep="${esc(p.name)}" data-on="${keepSet.has(p.name.toLowerCase())?'0':'1'}">${keepSet.has(p.name.toLowerCase())?'Remove scorekeeper':'Make scorekeeper'}</button> ${pinSet.has(p.name.toLowerCase())?`<button class="btn small" data-pin="${esc(p.name)}">Reset PIN</button> `:''}${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove</button>`}</td></tr>`).join('')}
-    </tbody></table></div></div>`;
+    ${players.length>8?`<div style="margin-top:.8rem">${searchHTML('psearch','Search players',PSEARCH)}</div>`:''}
+    <div class="plist" style="margin-top:.4rem">
+    ${players.map(p=>{ const key=p.name.toLowerCase(), games=T.games.filter(g=>g.playerId===p.id && g.status!=='playing').length, r=scorePlayer(p.id);
+      const tags=[p.mpId!=null?'<span class="tag">Matchplay</span>':'<span class="tag">Added by hand</span>', pinSet.has(key)?'<span class="tag">PIN set</span>':'<span class="tag">No PIN yet</span>', keepSet.has(key)?'<span class="tag" style="background:var(--me)">Scorekeeper</span>':''].filter(Boolean).join(' ');
+      return `<details class="prow" data-find="${esc(key)}" ${MOPEN.has('p:'+p.id)?'open':''} data-pid2="${p.id}"><summary><div class="pinfo"><b>${esc(p.name)}</b><small>${games} game${games===1?'':'s'} · total <b>${r.total}</b>${r.playing?' · playing now':''}</small><span class="mflags">${tags}</span></div><span class="chev" aria-hidden="true">›</span></summary>
+      <div class="pacts"><button class="btn small" data-keep="${esc(p.name)}" data-on="${keepSet.has(key)?'0':'1'}">${keepSet.has(key)?'Remove scorekeeper':'Make scorekeeper'}</button>${pinSet.has(key)?`<button class="btn small" data-pin="${esc(p.name)}">Reset PIN</button>`:'<span class="note" style="align-self:center">No PIN to reset</span>'}${readOnly()?'':`<button class="btn small danger" data-rmp="${p.id}">Remove from tournament</button>`}</div></details>`; }).join('')}
+    </div><p class="note" id="pnone" hidden>No players match.</p><p class="note" style="margin-top:.6rem">Tap a player for Reset PIN, scorekeeper and remove.</p></div>`;
+  $$('details.prow').forEach(d=>d.addEventListener('toggle',()=>{ const k='p:'+d.dataset.pid2; if(d.open) MOPEN.add(k); else MOPEN.delete(k); }));
+  if($('#psearch')){ const filt=()=>{ const q=PSEARCH.trim().toLowerCase(); let n=0; $$('.prow').forEach(r=>{ const hit=!q||r.dataset.find.includes(q); r.hidden=!hit; if(hit) n++; }); $('#pnone').hidden=n>0; }; $('#psearch').oninput=e=>{ PSEARCH=e.target.value; filt(); }; filt(); }
   $$('[data-keep]').forEach(b=>b.onclick=async()=>{ const on=b.dataset.on==='1'; try{ await api('/api/admin/scorekeepers','POST',{name:b.dataset.keep, on}); toast(on?`${b.dataset.keep} is now a scorekeeper`:`${b.dataset.keep} is no longer a scorekeeper`); renderPlayers(); }catch(e){ toast(e.message); } });
   $$('[data-pin]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Reset ${b.dataset.pin}'s PIN? They will make a new one next time they pick their name.`)) return; try{ await api('/api/admin/pin-reset','POST',{name:b.dataset.pin}); toast('PIN reset'); renderPlayers(); }catch(e){ toast(e.message); } });
   if(readOnly()) return;
@@ -2084,6 +2197,23 @@ async function renderPlayers(){
 }
 
 /* ================= admin: tournaments ================= */
+// A short checklist for the week, so a new organizer can see what's done and what's next
+function weekStatusHTML(cur){
+  if(!cur || cur.daily || cur.finals || readOnly()) return '';
+  const noT=cur.arenas.filter(a=>a.active && !a.target).length, {reg,c}=catMix(), mixOk=!c.none && reg.length===cur.frames && [c.classic,c.mid,c.modern].sort().join('/')==='3/3/4';
+  const n=cur.players.length, done=cur.players.filter(p=>scorePlayer(p.id).complete).length, started=cur.players.filter(p=>scorePlayer(p.id).regCount>0 || playingGame(p.id)).length;
+  const fin=LIST.find(t=>t.id===cur.finalsId);
+  const item=(state,text,tab2)=>`<li class="ws ${state}"><span class="wsi" aria-hidden="true">${state==='ok'?'✓':state==='warn'?'!':'•'}</span><span>${text}</span>${tab2?`<button class="linkbtn" data-ws="${tab2}">Open</button>`:''}</li>`;
+  const items=[
+    item(cur.mpId?'ok':'todo', cur.mpId?'Linked to Matchplay, new sign-ups arrive by themselves':'Not linked to Matchplay: add players and machines by hand', cur.mpId?null:'players'),
+    item(noT?'warn':(cur.tenthBonus && !mixOk)?'warn':'ok', noT?`${noT} machine${noT===1?' needs':'s need'} a target score before anyone can play ${noT===1?'it':'them'}`:(cur.tenthBonus && !mixOk)?'Machines have targets. For bonus frames, use 3 Classic, 3 Mid and 4 Modern (or 3/4/3)':`${reg.length} machines ready with targets`, 'machines'),
+    item(n?'ok':'todo', n?`${n} player${n===1?'':'s'} signed up`:'No players yet', 'players'),
+    item(done===n && n?'ok':started?'todo':'todo', n?`Qualifying: ${done} of ${n} cards complete${started>done?`, ${started-done} in progress`:''}`:'Qualifying has not started', 'standings'),
+    item(fin?'ok':cur.done?'todo':'todo', fin?'Finals made. Run them on the Finals tab':cur.done?'Marked done. Next: make the finals':`When qualifying ends: mark as done, then make the finals (top ${cutCount(cur)})`, 'finals'),
+    item('todo', fin?'After the finals: enter the Matchplay totals, then archive this tournament below':'Afterwards: enter the Matchplay totals, then archive this tournament', fin?'totals':null)
+  ];
+  return `<div class="panel"><h2>This week at a glance</h2><ul class="wslist">${items.join('')}</ul></div>`;
+}
 async function renderTournaments(){
   if(!adminSettings || adminSettings.hasToken===undefined){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[],pins:[]}; } }
   const cur=T, dl=adminSettings.daily||{on:true}, run=LIST.find(t=>t.id===dl.running);
@@ -2092,7 +2222,7 @@ async function renderTournaments(){
     <label class="check"><input type="checkbox" id="dOn" ${dl.on!==false?'checked':''}> Run the daily challenge automatically</label>
     <p style="margin-top:.6rem">${run?`<b>Running now:</b> ${esc(run.name)}, until ${ctTime(run.end)}.`:(dl.on!==false && dl.next?`<b>Next:</b> ${ctDay(dl.next.start)}, ${ctTime(dl.next.start)} to ${ctTime(dl.next.end)}.`:'Not scheduled.')}</p>
     <div class="row" style="margin-top:.6rem">${run?`<button class="btn" id="dOpen">Show it</button><button class="btn danger" id="dEnd">End now and pick the winner</button>`:`<button class="btn" id="dStart">Start one now</button>`}</div></div>`;
-  $('#main').innerHTML=`${dailyPanel}
+  $('#main').innerHTML=`${weekStatusHTML(cur)}${dailyPanel}
   <div class="panel"><h2>Start a new tournament</h2>
     <p class="note">Create the tournament in Matchplay first, then paste its link here. Players and machines come over automatically, and saved targets fill in for machines you've used before.</p>
     <label for="nmp">Matchplay tournament link or ID</label><input type="text" id="nmp" placeholder="https://app.matchplay.events/tournaments/123456">
@@ -2113,14 +2243,19 @@ async function renderTournaments(){
     ${cur.mpId?`<details style="margin-top:1rem"><summary class="note">Matchplay data check</summary><p class="note">Shows what Matchplay sent last time, which helps if target scores aren't coming through.</p><pre id="raw">Loading…</pre></details>`:''}
   </div>`:''}
 
-  <div class="panel"><h2>All tournaments</h2><div class="tablewrap"><table><tbody>
-    ${LIST.map(t=>`<tr><td>${esc(t.name)}</td><td>${t.status==='archived'?'Archived':'Open'}</td><td class="n">${t.players} players</td><td class="n">${cur&&t.id===cur.id?'<span class="tag">Showing</span>':`<button class="btn small" data-open="${t.id}">Open</button>`}</td></tr>`).join('') || '<tr><td class="note">None yet.</td></tr>'}
-  </tbody></table></div></div>
+  <div class="panel"><h2>All tournaments</h2><div class="plist">
+    ${LIST.map(t=>`<div class="prow"><div class="pinfo"><b>${esc(t.name)}</b><small>${t.daily?'Daily challenge':t.finals?'Finals':'Weekly tournament'} · ${t.players} player${t.players===1?'':'s'}</small><span class="mflags">${t.status==='archived'?'<span class="tag">Archived</span>':'<span class="tag" style="background:var(--me)">Open</span>'}${t.done?'<span class="tag">Done</span>':''}</span></div>
+      <div class="pacts">${cur&&t.id===cur.id?'<span class="tag">Showing now</span>':`<button class="btn small" data-open="${t.id}">Open</button>`}</div></div>`).join('') || '<p class="note">None yet.</p>'}
+  </div></div>
 
-  <div class="panel"><h2>Matchplay connection</h2>
-    <p class="note">${adminSettings.hasToken?'<span class="good">An API token is saved.</span> Paste a new one to replace it.':'Create a token in Matchplay under Account settings, API tokens, and paste it here.'} The token stays on the server and is never shown to players.</p>
-    <div class="row" style="margin-top:.4rem"><div class="grow"><input type="password" id="tok" placeholder="Matchplay API token" autocomplete="off"></div><button class="btn" id="tokGo">Save token</button></div></div>`;
+  ${adminSettings.hasToken?`<details class="panel"><summary style="cursor:pointer;font:700 1.35rem/1.2 var(--cond)">Matchplay connection <span class="tag" style="vertical-align:middle">connected</span></summary>
+    <p class="note" style="margin-top:.6rem">An API token is saved. Paste a new one only if you need to replace it. The token stays on the server and is never shown to players.</p>
+    <div class="row" style="margin-top:.4rem"><div class="grow"><input type="password" id="tok" placeholder="New Matchplay API token" autocomplete="off"></div><button class="btn" id="tokGo">Save token</button></div></details>`
+  :`<div class="panel"><h2>Matchplay connection</h2>
+    <p class="note">Create a token in Matchplay under Account settings, API tokens, and paste it here. The token stays on the server and is never shown to players. Without it, players and machines can't be pulled from Matchplay.</p>
+    <div class="row" style="margin-top:.4rem"><div class="grow"><input type="password" id="tok" placeholder="Matchplay API token" autocomplete="off"></div><button class="btn primary" id="tokGo">Save token</button></div></div>`}`;
 
+  $$('[data-ws]').forEach(b=>b.onclick=()=>go(b.dataset.ws));
   $('#ngo').onclick=async()=>{
     try{ const j=await api('/api/admin/tournaments','POST',{mp:$('#nmp').value, name:$('#nname').value, copyMachines: $('#ncopy')?$('#ncopy').checked:false});
       T=j.tournament; store.set('pb-tid',T.id); await refreshList(); toast(j.note?`Created. ${j.note}`:'Tournament created'); go('machines'); }
