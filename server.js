@@ -79,6 +79,7 @@ function remember(a, when = Date.now()) {
   if (a.balls) m.balls = a.balls;
   if (a.abbr) m.abbr = a.abbr;
   if (a.cat) m.cat = a.cat;
+  if (typeof a.em === 'boolean') m.em = a.em;
   m.lastUsed = Math.max(m.lastUsed || 0, when);
   return m;
 }
@@ -86,7 +87,7 @@ const libPut = a => remember(a);
 function newArena(name, mpId) {
   const a = { id: uid(), name, mpId: mpId ?? null, balls: 3, target: 0, active: true, abbr: abbrOf(name), targetSource: '' };
   const l = storedFor(a);
-  if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; a.cat = l.cat || ''; if (a.target) a.targetSource = 'saved'; }
+  if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; a.cat = l.cat || ''; a.em = !!l.em; if (a.em) a.balls = 5; if (a.target) a.targetSource = 'saved'; }
   return a;
 }
 // Machine slots: one per frame ("Frames per card"). t.slots[i] is an arena id, or null for a blank slot.
@@ -117,11 +118,15 @@ db.tournaments.forEach(ensureSlots);
 
 /* ---------------- scoring (mirrors the page) ---------------- */
 function pins(score, target) { if (score == null || !target) return 0; return Math.max(0, Math.min(9, Math.floor(score * 10 / target))); }
+// EM (electromechanical) machines: 5 balls, a strike is the target by ball 2, a spare by ball 3, 4 or 5,
+// and the first throw's pins come from the score after ball 2. Other machines: strike on ball 1, spare on 2-3.
+const strikeLast = a => (a && a.em) ? 2 : 1;
+const spareLast = a => (a && a.em) ? 5 : SPARE_LAST_BALL;
 function rollsOf(t, g) {
   const a = t.arenas.find(x => x.id === g.arenaId), tg = a ? a.target : 0;
-  if (g.hitBall === 1) return { type: 'strike', rolls: [10] };
+  if (g.hitBall >= 1 && g.hitBall <= strikeLast(a)) return { type: 'strike', rolls: [10] };
   const first = pins(g.b1, tg);
-  if (g.hitBall >= 2 && g.hitBall <= SPARE_LAST_BALL) return { type: 'spare', rolls: [first, 10 - first] };
+  if (g.hitBall > strikeLast(a) && g.hitBall <= spareLast(a)) return { type: 'spare', rolls: [first, 10 - first] };
   const tot = Math.max(first, pins(g.final, tg));
   return { type: 'open', rolls: [first, tot - first] };
 }
@@ -204,10 +209,9 @@ function derive(g, a) {
   let hit = 0;
   for (let i = 0; i < b.length; i++) if (a.target && b[i] >= a.target) { hit = i + 1; break; }
   if (hit) b.length = hit; // nothing after the target counts
-  g.b1 = b[0]; g.final = b[b.length - 1];
-  if (hit === 1) { g.hitBall = 1; g.status = 'done'; }
-  else if (hit >= 2 && hit <= SPARE_LAST_BALL) { g.hitBall = hit; g.status = 'done'; }
-  else if (hit > SPARE_LAST_BALL || b.length >= (a.balls || 3)) { g.hitBall = 0; g.status = 'done'; }
+  g.b1 = b[Math.min(strikeLast(a) - 1, b.length - 1)]; g.final = b[b.length - 1];
+  if (hit && hit <= spareLast(a)) { g.hitBall = hit; g.status = 'done'; }
+  else if (hit > spareLast(a) || b.length >= (a.balls || 3)) { g.hitBall = 0; g.status = 'done'; }
   else { g.hitBall = 0; g.status = 'playing'; }
 }
 function cleanBalls(list, a) {
@@ -902,7 +906,7 @@ async function route(req, res, url) {
         if (!a || !a.target) continue;
         games.push({
           key: a.mid || 'name:' + lower(a.name), name: a.name, cat: a.cat || '', target: a.target, nb: a.balls || 3,
-          balls: Array.isArray(g.balls) ? g.balls : null, b1: g.b1, final: g.final, hit: g.hitBall,
+          balls: Array.isArray(g.balls) ? g.balls : null, b1: g.b1, final: g.final, hit: g.hitBall, em: !!a.em,
           tid: t.id, tname: t.name, daily: !!t.daily, when: t.createdAt,
         });
       }
@@ -939,6 +943,7 @@ async function route(req, res, url) {
     if (b.target !== undefined) x.target = toInt(b.target) || 0;
     if (typeof b.inDraw === 'boolean') x.inDraw = b.inDraw;
     if (b.cat !== undefined) x.cat = cleanCat(b.cat);
+    if (typeof b.em === 'boolean') { x.em = b.em; if (b.em) x.balls = 5; }
     // keep open tournaments that use this machine in step
     for (const t of db.tournaments) {
       if (t.status !== 'active') continue;
@@ -948,6 +953,7 @@ async function route(req, res, url) {
         if (b.balls === 3 || b.balls === 5) { a.balls = x.balls; a.ballsSetByAdmin = true; }
         if (typeof b.abbr === 'string') a.abbr = x.abbr;
         if (b.cat !== undefined) a.cat = x.cat;
+        if (typeof b.em === 'boolean') { a.em = x.em; if (x.em) { a.balls = 5; a.ballsSetByAdmin = true; } }
         rederive(t, a);
       }
       ensureBonus(t);
@@ -1156,6 +1162,7 @@ async function route(req, res, url) {
     if (b.cat !== undefined) { a.cat = cleanCat(b.cat); const st = storedFor(a); if (st) st.cat = a.cat; }
     if (b.balls === 3 || b.balls === 5) { a.balls = b.balls; a.ballsSetByAdmin = true; }
     if (b.target !== undefined) { a.target = toInt(b.target) || 0; a.targetSource = a.target ? 'admin' : ''; }
+    if (typeof b.em === 'boolean') { a.em = b.em; if (b.em) { a.balls = 5; a.ballsSetByAdmin = true; } }
     rederive(t, a); libPut(a); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
