@@ -57,7 +57,19 @@ a{color:inherit}
 .bar{display:flex;align-items:center;gap:.45rem;max-width:1100px;margin:0 auto}
 .bar h1{font:400 1.7rem/1 var(--display)}
 :root:not([data-theme="classic"]) .bar h1{font-size:1.32rem;letter-spacing:.01em;background:linear-gradient(#fff 55%,var(--sky) 55%);-webkit-background-clip:text;background-clip:text;color:transparent}
-.bar select{flex:1 1 0;min-width:0;background:transparent;color:var(--headInk);border:1px solid color-mix(in srgb,var(--headInk) 40%,transparent);border-radius:6px;padding:.62rem .35rem;font-size:.6rem;line-height:1.2;font-weight:600}
+.barspace{flex:1 1 0;min-width:0}
+/* tournament picker: its own full line in the header */
+.tbar{display:flex;align-items:center;gap:.5rem;max-width:1100px;margin:.5rem auto 0}
+.tlabel{margin:0;font:700 .72rem var(--cond);text-transform:uppercase;letter-spacing:.06em;opacity:.7;white-space:nowrap}
+.tselwrap{position:relative;flex:1;min-width:0}
+#tsel{width:100%;appearance:none;-webkit-appearance:none;background:color-mix(in srgb,var(--headInk) 8%,transparent);color:var(--headInk);border:1.5px solid var(--lane);border-radius:8px;padding:.5rem 2.2rem .5rem .75rem;font:700 1.05rem/1.25 var(--cond);letter-spacing:.01em;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+#tsel:focus{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--lane) 35%,transparent)}
+#tsel option{color:#16324F;background:#fff;font-weight:600}
+.tcaret{position:absolute;right:.6rem;top:50%;transform:translateY(-50%);width:1.1rem;height:1.1rem;color:var(--lane);pointer-events:none}
+.tstate{margin-left:.1rem;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;font:700 .72rem var(--cond);text-transform:uppercase;letter-spacing:.04em;padding:.2rem .5rem;border-radius:999px;white-space:nowrap;background:var(--lane);color:var(--laneInk)}
+.tstate:empty{display:none}
+.tstate.arch{background:color-mix(in srgb,var(--headInk) 20%,transparent);color:var(--headInk)}
+@media (max-width:420px){.tlabel{display:none}}
 .bar select option{color:#16324F;background:#fff}
 .linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem .15rem;white-space:nowrap}
 .navwrap{position:relative;display:flex;align-items:stretch;max-width:1100px;margin:.5rem auto 0}
@@ -484,8 +496,7 @@ body.streammode.clear{background:transparent}
 [data-theme="fancy"] .btn:not(.primary):not(.danger):hover{background:color-mix(in srgb,var(--lane) 8%,transparent)}
 [data-theme="fancy"] input[type=text],[data-theme="fancy"] input[type=password],[data-theme="fancy"] input[type=number],[data-theme="fancy"] select,[data-theme="fancy"] textarea{background:#F6F9FC;border-color:#C6D4DF}
 [data-theme="fancy"] input[type=search]{background:#fff;border:1px solid #C6D4DF;border-radius:8px;padding-top:.45rem;padding-bottom:.45rem;box-shadow:0 6px 14px -12px rgba(20,16,13,.5)}
-[data-theme="fancy"] .bar select{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.28)}
-[data-theme="fancy"] .bar select:focus{border-color:var(--lane)}
+[data-theme="fancy"] #tsel{background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.03))}
 [data-theme="fancy"] input:focus,[data-theme="fancy"] select:focus{border-color:var(--lane);box-shadow:0 0 0 3px color-mix(in srgb,var(--lane) 22%,transparent);outline:none}
 [data-theme="fancy"] .choice{background:#F6F9FC}
 [data-theme="fancy"] .choice[aria-pressed="true"]{border-color:var(--lane);box-shadow:0 0 0 3px color-mix(in srgb,var(--lane) 18%,transparent);background:var(--card)}
@@ -512,11 +523,13 @@ body.streammode #toast,body.tvmode #toast{display:none}
 <header class="top">
   <div class="bar">
     <h1>Pinbowl</h1>
-    <select id="tsel" aria-label="Tournament"></select>
+    <span class="tstate" id="tstate"></span>
+    <span class="barspace"></span>
     <button class="linkbtn iconbtn" id="themeBtn" aria-label="Change colors" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
   </div>
+  <div class="tbar"><label for="tsel" class="tlabel">Tournament</label><div class="tselwrap"><select id="tsel"></select><svg class="tcaret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div></div>
   <div class="navwrap"><button class="navarrow l" id="navL" aria-label="Show tabs to the left" hidden>‹</button><nav id="nav" role="tablist" aria-label="Sections"></nav><button class="navarrow r" id="navR" aria-label="Show tabs to the right" hidden>›</button></div>
 </header>
 <div class="banner" id="banner"></div>
@@ -804,6 +817,9 @@ function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-ta
 function renderHeader(){
   const sel=$('#tsel');
   sel.innerHTML = LIST.length ? LIST.map(t=>`<option value="${t.id}" ${T&&t.id===T.id?'selected':''}>${esc(t.name)}${t.status==='archived'?' (archived)':''}</option>`).join('') : '<option>No tournaments yet</option>';
+  const st=$('#tstate'); if(st){ const s = !T ? '' : T.status==='archived' ? 'Archived' : T.daily ? 'Daily · live' : T.finals ? (T.finals.champion?'Finals · done':'Finals · live') : T.done ? 'Done' : 'Live';
+    st.textContent=s; st.className='tstate'+(T&&T.status==='archived'?' arch':''); }
+  document.title = T ? `${T.name} · Pinbowl` : 'Pinbowl';
   sel.disabled=!LIST.length;
   $('#acct').textContent = ADMIN ? 'Log out' : 'Admin';
   $('#nav').innerHTML = screen ? '' : tabs().map(([k,l])=>`<button role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('');
