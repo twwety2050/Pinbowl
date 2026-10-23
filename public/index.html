@@ -779,7 +779,8 @@ function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
 const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules']];
 const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
-function tabs(){ if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
+const NO_T_TABS=['tournaments','stored','stats','admins'];
+function tabs(){ if(!T && ADMIN) return ADMIN_TABS.filter(x=>NO_T_TABS.includes(x[0])); if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
 function renderHeader(){
@@ -808,7 +809,7 @@ function render(){
   if(screen==='setup') return renderSetupScreen();
   if(screen==='login') return renderLogin();
   if(screen==='pin') return renderPin();
-  if(!T){ if(ADMIN){ tab='tournaments'; renderHeader(); renderTournaments(); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
+  if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
   const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals}[tab];
   (fn||renderStandings)();
@@ -839,10 +840,87 @@ $('#themeBtn').onclick=e=>{
 };
 document.addEventListener('click',e=>{ const m=$('#themeMenu'); if(!m.hidden && !m.contains(e.target)){ m.hidden=true; $('#themeBtn').setAttribute('aria-expanded','false'); } });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('#themeMenu').hidden){ $('#themeMenu').hidden=true; $('#themeBtn').focus(); } });
+// Printable cards for each machine: 6 per letter page, with cut lines. ?sheet=cards&t=<tournament id>
+async function renderCards(){
+  const url=location.origin+'/';
+  let qr=''; try{ const q=qrcode(0,'M'); q.addData(url); q.make(); qr=q.createSvgTag({cellSize:6, margin:0, scalable:true}); }catch(e){}
+  document.title='Pinbowl – machine cards'; document.body.className='sheetmode';
+  let t=null, stored=null; const tid=QS.get('t');
+  try{ const s=await api('/api/state'); LIST=s.tournaments; const id=tid||(LIST.find(x=>x.status==='active'&&!x.finals&&!x.daily)||LIST[0]||{}).id; if(id) t=await api('/api/t/'+id); }catch(e){}
+  try{ stored=(await api('/api/admin/machines')).machines; }catch(e){}
+  const opt={ src:QS.get('kind')||store.get('pb-cards-src')||'t', ranges:store.get('pb-cards-rng')!=='0' };
+  const draw=()=>{
+    let ms=[];
+    if(opt.src==='t' && t){ const ids=[...(t.slots||t.arenas.filter(a=>a.active).map(a=>a.id)), ...(t.bonusArenas||[])].filter(Boolean); ms=ids.map(id=>t.arenas.find(a=>a.id===id)).filter(Boolean); }
+    else if(opt.src==='stored' && stored) ms=stored.slice().sort((a,b)=>a.name.localeCompare(b.name));
+    else if(opt.src==='blank') ms=Array.from({length:6},()=>null);
+    else if(opt.src==='generic') ms=Array.from({length:6},()=>'generic');
+    const generic=()=>`<div class="mc gc"><div class="gc-brand">Pinbowl</div>
+        <div class="gc-call"><strong>Enter your score after every ball</strong></div>
+        <p class="gc-text">After each ball, type the total score showing on the machine into the app, <b>before</b> you plunge the next one.</p>
+        <div class="gc-foot"><div class="gc-qr">${qr}</div><span>Scan to open the app and score</span></div></div>`;
+    const card=a=>{
+      if(a==='generic') return generic();
+      const t2=a&&a.target, rows=[]; if(t2) for(let n=9;n>=1;n--) rows.push(`<span><b>${n}</b>${fmtShort(Math.ceil(n*t2/10))}</span>`);
+      return `<div class="mc">
+        <div class="mc-head">${a?`<span class="mc-tag">${esc(abbr(a))}</span><b>${esc(a.name)}</b>`:'<b>Pinbowl</b>'}${a?`<small>${a.balls||3} balls${t2?` · target ${fmtShort(t2)}`:''}</small>`:''}</div>
+        <div class="mc-mid"><div class="mc-call"><strong>Enter your score after every ball</strong><span>Type the total on the machine after each ball, before you plunge the next one.</span></div><div class="mc-qr">${qr}<small>Scan to score</small></div></div>
+        ${opt.ranges && t2?`<div class="mc-hit"><span><b class="mk">Strike</b> ${fmtShort(t2)} on ball 1</span><span><b class="mk">Spare</b> ${fmtShort(t2)} on ball 2 or 3</span></div><div class="mc-pins"><em>Score needed for each pin count</em>${rows.join('')}</div>`
+          :`<div class="mc-hit"><span><b class="mk">Strike</b> target on ball 1</span><span><b class="mk">Spare</b> target on ball 2 or 3</span></div><p class="mc-note">Otherwise 1 pin for every 10% of the target. Targets are on the Machines tab.</p>`}
+      </div>`; };
+    const pages=[]; for(let i=0;i<Math.max(ms.length,1);i+=6) pages.push(ms.slice(i,i+6));
+    document.body.innerHTML=`<style>
+      @page{size:letter portrait;margin:.35in}
+      body.sheetmode{background:#d9d9d9;margin:0;color:#17120F;font-family:var(--body);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .ctl{position:sticky;top:0;z-index:2;background:#17120F;color:#fff;padding:.6rem 1rem;display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;font-weight:600}
+      .ctl select{width:auto;padding:.35rem .5rem;border-radius:6px;border:0}
+      .ctl button{background:#DE7A22;border:0;border-radius:6px;padding:.45rem 1rem;font-weight:700;cursor:pointer}
+      .ctl span{font-weight:500;opacity:.8}
+      .page{width:7.8in;height:10.3in;margin:.3in auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.25);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr);page-break-after:always;break-after:page}
+      .page:last-child{page-break-after:auto;break-after:auto}
+      .mc{border:1px dashed #9AA7B1;padding:.14in .18in .12in;display:flex;flex-direction:column;gap:.06in;overflow:hidden}
+      .mc-head{background:#17120F;color:#fff;border-radius:6px;padding:.07in .12in;border-top:4px solid #DE7A22;display:flex;flex-wrap:wrap;align-items:center;gap:.04in .1in}
+      .mc-head b{font:400 14pt/1.05 "Graduate","Bowlby One",Impact,sans-serif;flex:1;min-width:0}
+      .mc-head small{flex-basis:100%;font:600 9.5pt "Barlow Condensed",sans-serif;color:#F4B57A}
+      .mc-tag{font:700 10pt "Barlow Condensed",sans-serif;background:#DE7A22;color:#17120F;border-radius:3px;padding:0 .05in}
+      .mc-mid{display:flex;gap:.1in;align-items:stretch}
+      .mc-call{flex:1;border:3px solid #C2461A;background:#FFE7CF;border-radius:6px;padding:.06in .08in;display:flex;flex-direction:column;justify-content:center}
+      .mc-call strong{font:400 15pt/1.05 "Bowlby One","Graduate",Impact,sans-serif;color:#C2461A;text-transform:uppercase}
+      .mc-call span{font:600 9.5pt/1.25 "Barlow",sans-serif;margin-top:.03in}
+      .mc-qr{width:.85in;text-align:center;flex:0 0 auto}
+      .mc-qr svg{width:.85in;height:.85in;display:block}
+      .mc-qr small{font:700 7.5pt "Barlow Condensed",sans-serif}
+      .mc-hit{display:flex;gap:.16in;font:600 11pt "Barlow Condensed",sans-serif;flex-wrap:wrap}
+      .mk{color:#C2461A}
+      .mc-pins{flex:1;display:grid;grid-template-columns:repeat(3,1fr);align-content:space-evenly;gap:.02in .14in;font:600 11pt "Barlow Condensed",sans-serif;font-variant-numeric:tabular-nums;border-top:1px solid #C3D2DD;padding-top:.04in}
+      .mc-pins em{grid-column:1/-1;font-style:normal;color:#56636E;font-size:9pt}
+      .mc-pins span{display:flex;justify-content:space-between;gap:.04in;border-bottom:1px dotted #C3D2DD}
+      .mc-pins b{color:#56636E}
+      .mc-pins b::after{content:' pins';font-weight:500;font-size:8.5pt}
+      .mc-note{font:500 8.5pt/1.3 "Barlow",sans-serif;color:#56636E;margin:0}
+      .gc{justify-content:space-between;text-align:center;border-top:6px solid #DE7A22}
+      .gc-brand{font:400 13pt/1 "Graduate","Bowlby One",Impact,sans-serif;color:#17120F;letter-spacing:.02em}
+      .gc-call{border:4px solid #C2461A;background:#FFE7CF;border-radius:8px;padding:.1in .12in}
+      .gc-call strong{display:block;font:400 22pt/1.05 "Bowlby One","Graduate",Impact,sans-serif;color:#C2461A;text-transform:uppercase}
+      .gc-text{font:600 11pt/1.3 "Barlow",sans-serif;margin:0 .05in}
+      .gc-foot{display:flex;align-items:center;justify-content:center;gap:.12in;font:700 10pt "Barlow Condensed",sans-serif}
+      .gc-qr svg{width:.7in;height:.7in;display:block}
+      @media print{.ctl{display:none}body.sheetmode{background:#fff}.page{margin:0;box-shadow:none;width:auto;height:10.3in}}
+    </style>
+    <div class="ctl"><label>Cards for <select id="csrc">${t?`<option value="t" ${opt.src==='t'?'selected':''}>${esc(t.name)} (${ms.length&&opt.src==='t'?ms.length:''} machines)</option>`:''}${stored?`<option value="stored" ${opt.src==='stored'?'selected':''}>All stored machines</option>`:''}<option value="generic" ${opt.src==='generic'?'selected':''}>Generic notice (no game details)</option><option value="blank" ${opt.src==='blank'?'selected':''}>Blank cards (no machine)</option></select></label>
+      ${opt.src==='t'||opt.src==='stored'?`<label><input type="checkbox" id="crng" ${opt.ranges?'checked':''}> Show target and pin scores</label>`:''}<button onclick="window.print()">Print</button><span>6 cards per page. Cut along the dashed lines.</span></div>
+    ${ms.length?pages.map(pg=>`<div class="page">${pg.map(card).join('')}</div>`).join(''):'<p style="text-align:center;padding:2rem">No machines to print.</p>'}`;
+    document.getElementById('csrc').onchange=e=>{ opt.src=e.target.value; store.set('pb-cards-src',opt.src); draw(); };
+    if(document.getElementById('crng')) document.getElementById('crng').onchange=e=>{ opt.ranges=e.target.checked; store.set('pb-cards-rng',opt.ranges?'1':'0'); draw(); };
+  };
+  if(opt.src==='t' && !t) opt.src=stored?'stored':'blank';
+  draw();
+}
 function renderSheet(){
+  const daily = QS.get('sheet')==='daily';
   const url=location.origin+'/';
   let svg=''; try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:0, scalable:true}); }catch(e){}
-  document.title='Pinbowl – how to play';
+  document.title=daily?'NPC Daily Pinbowl Challenge – how to play':'Pinbowl – how to play';
   document.body.className='sheetmode';
   document.body.innerHTML=`<style>
     @page{size:letter portrait;margin:.45in}
@@ -880,14 +958,15 @@ function renderSheet(){
   </style>
   <button class="sh-print" onclick="window.print()">Print this page</button>
   <div class="sheet">
-    <div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>
+    ${daily?`<div class="sh-head"><h1>Daily Pinbowl Challenge</h1><p>Northstar Pinball Collective · Fridays 5 PM to midnight · Saturdays and Sundays 11 AM to 7 PM</p></div>`:`<div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>`}
     <div class="sh-body">
       <div class="sh-top">
         <div class="sh-qr">${svg}<b>Scan with your phone camera</b><small>${esc(url)}</small></div>
         <ol class="sh-steps">
           <li><b>Scan the code</b> with your phone's camera and open the link.</li>
-          <li><b>Pick your name</b> from the list and set a 4-digit PIN. You only do this once; your phone remembers you.</li>
-          <li><b>Tap Enter score</b> and pick the machine you're about to play.</li>
+          ${daily?`<li><b>Join the challenge:</b> pick your name if you've played before, or type it in as a new player. Set a 4-digit PIN the first time; your phone remembers you.</li>
+          <li><b>Tap Enter score</b> and pick one of today's 10 machines.</li>`:`<li><b>Pick your name</b> from the list and set a 4-digit PIN. You only do this once; your phone remembers you.</li>
+          <li><b>Tap Enter score</b> and pick the machine you're about to play.</li>`}
           <li><b>Type your score after each ball.</b> The app tells you if you got a strike or spare and moves you to your next game.</li>
           <li><b>Check My card and Standings</b> any time to see your frames and where you rank.</li>
         </ol>
@@ -898,8 +977,9 @@ function renderSheet(){
           <p>Play by yourself, or with other people in a group of <b>2, 3 or 4</b>, taking turns on the same machine like a normal multiplayer game.</p>
           <p>Everyone keeps their own score on <b>their own phone</b>, after every ball.</p>
           <p>Made a typo? Open <b>My card</b> and use <b>Fix my scores</b>, or ask a scorekeeper.</p>
-          <h2 style="margin-top:.1in">Finals</h2>
-          <p>The top half of the field moves on to finals, played in groups of up to 4, PAPA style. The app tells you when it's your turn to pick, and the top 2 in each group move on. Details are on the <b>Rules</b> tab.</p>
+          ${daily?`<h2 style="margin-top:.1in">How you win</h2>
+          <p>Each challenge has <b>10 machines picked at random</b>: 3 Classic, 3 Mid, 3 Modern and 1 more. Play any time while it's open. When it closes, scores lock and the <b>highest total wins</b>. No finals: just your best card.</p>`:`<h2 style="margin-top:.1in">Finals</h2>
+          <p>The top half of the field moves on to finals, played in groups of up to 4, PAPA style. The app tells you when it's your turn to pick, and the top 2 in each group move on. Details are on the <b>Rules</b> tab.</p>`}
         </div>
         <div class="sh-box"><h2>How scoring works</h2>
           <p>Each game you play is <b>one frame of bowling</b>. Play the machines in any order. Your card adds up like real bowling, so a perfect card is 300. Every machine has a <b>target score</b> (see the Machines tab).</p>
@@ -913,7 +993,7 @@ function renderSheet(){
         </div>
       </div>
     </div>
-    <div class="sh-foot"><span>Questions? Ask the tournament director or a scorekeeper.</span><span>${esc(url.replace(/^https?:\/\//,'').replace(/\/$/,''))}</span></div>
+    <div class="sh-foot"><span>${daily?'Strike or spare in frame 10? You earn bonus frames on machines everyone shares.':'Questions? Ask the tournament director or a scorekeeper.'}</span><span>${esc(url.replace(/^https?:\/\//,'').replace(/\/$/,''))}</span></div>
   </div>`;
 }
 $('#share').onclick=()=>{
@@ -923,7 +1003,7 @@ $('#share').onclick=()=>{
   const d=$('#shareBox');
   d.innerHTML=`<div class="sharecard" role="dialog" aria-modal="true" aria-label="Share this site"><h2>Scan to follow along</h2><div class="qr">${svg}</div><p class="url">${esc(url)}</p>
     <div class="row" style="justify-content:center">${navigator.share?'<button class="btn primary" id="natShare">Share link</button>':''}<button class="btn" id="cpLink">Copy link</button><button class="btn" id="closeShare">Close</button></div>
-    ${ADMIN?`<p style="margin-top:.6rem;text-align:center"><a href="/?sheet=1" target="_blank" rel="noopener">Print the how-to-play sheet</a></p>`:''}</div>`;
+    ${ADMIN?`<p style="margin-top:.8rem;font-weight:600">Print</p><p style="margin-top:.3rem;text-align:center;line-height:1.9"><a href="/?sheet=1" target="_blank" rel="noopener">How-to-play sheet</a> · <a href="/?sheet=daily" target="_blank" rel="noopener">Daily challenge sheet</a> · <a href="/?sheet=cards${T?`&t=${T.id}`:''}" target="_blank" rel="noopener">Machine cards (6 per page)</a> · <a href="/?sheet=cards&kind=generic" target="_blank" rel="noopener">Generic "score every ball" cards</a></p>`:''}</div>`;
   d.hidden=false;
   const close=()=>{ d.hidden=true; d.innerHTML=''; };
   $('#closeShare').onclick=close; d.onclick=e=>{ if(e.target===d) close(); };
@@ -1186,11 +1266,11 @@ async function setSlot(i, machineId){
   const oldId=T.slots[i], played=oldId?T.games.filter(g=>g.arenaId===oldId).length:0, old=oldId&&A(oldId);
   let games;
   if(played){
-    games=await askChoice(machineId?'Swap this machine?':'Blank this slot?', `${played} game${played===1?' was':'s were'} already played on <b>${esc(old.name)}</b>. Keep ${played===1?'it':'them'} (${played===1?'it still counts':'they still count'} on players' cards) or delete ${played===1?'it':'them'}?`, [['keep','Keep the games','primary'],['delete','Delete the games','danger']]);
+    games=await askChoice(machineId?'Swap this machine?':'Delete this game?', `${played} game${played===1?' was':'s were'} already played on <b>${esc(old.name)}</b>. Keep ${played===1?'it':'them'} (${played===1?'it still counts':'they still count'} on players' cards) or delete ${played===1?'it':'them'}?`, [['keep','Keep the games','primary'],['delete','Delete the games','danger']]);
     if(!games) return renderMachines();
   }
   const m=machineId&&(STORED||[]).find(x=>x.id===machineId);
-  await change('/slots','POST',{index:i, machineId:machineId||null, games}, machineId?`Slot ${i+1}: ${m?m.name:'machine'}`:`Slot ${i+1} is blank`);
+  await change('/slots','POST',{index:i, machineId:machineId||null, games}, machineId?`Slot ${i+1}: ${m?m.name:'machine'}`:`Game deleted. Slot ${i+1} is blank`);
 }
 function storedOptions(curMid, label){
   const inUse=new Set([...(T.slots||[]), ...(T.bonusArenas||[])].map(id=>id&&A(id)).filter(Boolean).map(a=>a.mid));
@@ -1220,7 +1300,7 @@ function renderMachines(){
     const line=machineLine([a.cat?catName(a.cat):'', `${a.balls} balls`, a.target?`target ${fmtShort(a.target)}`:'', gs.length?`${gs.length} played`:'']);
     const swap = !edit ? '' : x.bonus!=null
       ? `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="bp${key}">Swap for a stored machine</label><select id="bp${key}" data-bpick="${x.bonus}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small" data-bdraw="${x.bonus}">Draw again</button></div>`
-      : `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="sw${key}">Swap for a stored machine</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small danger" data-blank="${x.slot}">Make slot blank</button></div>`;
+      : `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="sw${key}">Swap for a stored machine</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small danger" data-blank="${x.slot}">Delete game</button></div>`;
     const ctl = edit ? `${swap}<div class="mform">
         <div><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div>
         <div><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
@@ -1232,7 +1312,7 @@ function renderMachines(){
     return machineRow(key, a, {line, flags, inner, cat:a.cat||'none', attn:issues.length, find:(a.name+' '+abbr(a)+' '+catName(a.cat)+' '+x.label).toLowerCase(), slotNo:edit?(x.bonus!=null?T.frames+1+x.bonus:x.slot+1):null});
   }).join('');
   const blanks=slots.filter(id=>!id).length;
-  const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">There's one slot for each frame on the card (${T.frames}, set by Frames per card on the Tournaments tab). Tap a slot to see its score table and stats, change its settings, swap in a stored machine or make it blank.${T.tenthBonus?` Slots ${T.frames+1} and ${T.frames+2} (bonus frames) appear here once someone earns them.`:''}</p>
+  const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">There's one slot for each frame on the card (${T.frames}, set by Frames per card on the Tournaments tab). Tap a slot to see its score table and stats, change its settings, swap in a stored machine or delete the game from the slot.${T.tenthBonus?` Slots ${T.frames+1} and ${T.frames+2} (bonus frames) appear here once someone earns them.`:''}</p>
     ${catMixNote()}${blanks?`<p class="err" style="margin-top:.4rem">${blanks} slot${blanks===1?' is':'s are'} blank.</p>`:''}
     <div class="row" style="margin-top:.7rem">${T.mpId?`<button class="btn" id="mpMach">Refresh machines from Matchplay</button>`:''}</div>
     ${T.mpId?`<p class="note" style="margin-top:.3rem">Machines only come from Matchplay when the tournament is created and when you press this button. New player sign-ups still arrive by themselves.</p>`:''}
@@ -1255,7 +1335,7 @@ function renderMachines(){
     change('/bonus','POST',{index:i},`Frame ${T.frames+1+i} machine drawn`); });
   $$('[data-bpick]').forEach(s=>s.onchange=()=>{ if(s.value) change('/bonus','POST',{index:Number(s.dataset.bpick), machineId:s.value},'Bonus machine set'); });
   $$('[data-swap]').forEach(s=>s.onchange=()=>{ if(s.value) setSlot(Number(s.dataset.swap), s.value); });
-  $$('[data-blank]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.blank); if(!T.games.some(g=>g.arenaId===T.slots[i]) && !confirm(`Make slot ${i+1} blank?`)) return; setSlot(i, null); });
+  $$('[data-blank]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.blank); if(!T.games.some(g=>g.arenaId===T.slots[i]) && !confirm(`Delete ${A(T.slots[i])?.name||'this game'} from slot ${i+1}? The slot stays, blank, until you put a machine in it.`)) return; setSlot(i, null); });
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},`${v} added to slot ${(T.slots||[]).findIndex(x=>!x)+1}`); };
   $('#na').onkeydown=e=>{ if(e.key==='Enter') $('#naGo').click(); };
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
@@ -2535,7 +2615,7 @@ setInterval(async()=>{
     }
   }catch(e){}
 }, 20000);
-if(QS.has('sheet')) renderSheet(); else if(STREAMMODE && QS.get('view')==='machine') machineWindow(); else boot();
+if(QS.get('sheet')==='cards') renderCards(); else if(QS.has('sheet')) renderSheet(); else if(STREAMMODE && QS.get('view')==='machine') machineWindow(); else boot();
 </script>
 </body>
 </html>
