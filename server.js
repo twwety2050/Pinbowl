@@ -89,6 +89,21 @@ function newArena(name, mpId) {
   if (l) { a.target = l.target || 0; a.balls = l.balls || 3; a.abbr = l.abbr || a.abbr; a.cat = l.cat || ''; if (a.target) a.targetSource = 'saved'; }
   return a;
 }
+// Machine slots: one per frame ("Frames per card"). t.slots[i] is an arena id, or null for a blank slot.
+// A machine is open for play only while it sits in a slot (bonus-frame machines are separate).
+function syncActive(t) { for (const a of t.arenas) if (!a.bonusOnly) a.active = t.slots.includes(a.id); }
+function ensureSlots(t) {
+  if (t.finals) return;
+  if (!Array.isArray(t.slots)) t.slots = t.arenas.filter(a => a.active && !a.bonusOnly && !(t.bonusArenas || []).includes(a.id)).map(a => a.id);
+  t.slots = t.slots.map(id => (id && t.arenas.some(a => a.id === id)) ? id : null);
+  while (t.slots.length < t.frames) t.slots.push(null);
+  t.slots.length = t.frames;
+  syncActive(t);
+}
+const firstBlank = t => t.slots.findIndex(x => !x);
+// Arenas that no slot, bonus frame or game uses any more are dropped
+function pruneArenas(t) { t.arenas = t.arenas.filter(a => t.slots.includes(a.id) || (t.bonusArenas || []).includes(a.id) || t.games.some(g => g.arenaId === a.id)); }
+
 // Upgrade data from earlier versions and build the stored machines list from past tournaments.
 if (!Array.isArray(db.machines)) db.machines = [];
 if (!Array.isArray(db.scorekeepers)) db.scorekeepers = [];
@@ -98,6 +113,7 @@ db.tournaments.sort((a, b) => a.createdAt - b.createdAt).forEach(t => t.arenas.f
   remember(a, t.createdAt);
 }));
 delete db.machineLib;
+db.tournaments.forEach(ensureSlots);
 
 /* ---------------- scoring (mirrors the page) ---------------- */
 function pins(score, target) { if (score == null || !target) return 0; return Math.max(0, Math.min(9, Math.floor(score * 10 / target))); }
@@ -270,6 +286,7 @@ function createDaily(w, manual) {
     daily: { key: manual ? 'manual-' + nowMs() : w.key, start: w.start, end: w.end },
   };
   t.arenas = pickDailyMachines().map(m => { const a = newArena(m.name, m.mpId); a.mid = m.id; a.cat = m.cat || ''; remember(a, t.createdAt); return a; });
+  t.slots = t.arenas.map(a => a.id); ensureSlots(t);
   db.tournaments.push(t); save();
   console.log(`Started ${t.name} with ${t.arenas.length} machines.`);
   return t;
@@ -499,7 +516,7 @@ function findNum(o, keys) {
 const TARGET_KEYS = ['targetScore', 'target_score', 'target', 'targetscore'];
 const BALL_KEYS = ['balls', 'ballCount', 'numberOfBalls', 'ballsPerGame'];
 
-async function syncTournament(t) {
+async function syncTournament(t, opt = { players: true, arenas: false }) {
   const token = db.settings.mpToken || process.env.MATCHPLAY_TOKEN;
   if (!t.mpId) fail(400, 'This tournament is not linked to a Matchplay tournament.');
   if (!token) fail(400, 'Add your Matchplay API token on the Tournaments tab first.');
@@ -516,7 +533,7 @@ async function syncTournament(t) {
 
   if (!t.name || t.name === 'New tournament') t.name = d.name || t.name;
   let addedPlayers = 0, addedArenas = 0;
-  (d.players || []).forEach(x => {
+  if (opt.players) (d.players || []).forEach(x => {
     const id = x.playerId ?? x.id, name = (x.name || '').trim();
     if (id == null || !name) return;
     const p = t.players.find(q => q.mpId === id) || t.players.find(q => q.mpId == null && lower(q.name) === lower(name));
@@ -531,7 +548,8 @@ async function syncTournament(t) {
       const b = findNum(o, BALL_KEYS); if (b === 3 || b === 5) balls[o.arenaId] = b;
     }
   }
-  (d.arenas || []).forEach(x => {
+  const mpOrder = [];
+  if (opt.arenas) (d.arenas || []).forEach(x => {
     const id = x.arenaId ?? x.id, name = (x.name || '').trim();
     if (id == null || !name) return;
     let a = t.arenas.find(q => q.mpId === id) || t.arenas.find(q => q.mpId == null && lower(q.name) === lower(name));
@@ -540,8 +558,10 @@ async function syncTournament(t) {
     // Matchplay's target wins over a saved one, but not over one an admin typed for this tournament
     if (targets[id] && a.targetSource !== 'admin' && a.target !== targets[id]) { a.target = targets[id]; a.targetSource = 'mp'; rederive(t, a); libPut(a); }
     if (balls[id] && !a.ballsSetByAdmin) a.balls = balls[id];
-    remember(a, t.createdAt);
+    remember(a, t.createdAt); mpOrder.push(a.id);
   });
+  // Matchplay's machine list fills the slots in order (slots past Frames per card stay out)
+  if (opt.arenas && !t.finals) { t.slots = mpOrder.filter(id => !(t.bonusArenas || []).includes(id)).slice(0, t.frames); ensureSlots(t); pruneArenas(t); }
   ensureBonus(t);
   const samples = {};
   for (const [k, v] of Object.entries(d)) if (Array.isArray(v) && v.length && typeof v[0] === 'object') samples[k] = v[0];
@@ -952,7 +972,8 @@ async function route(req, res, url) {
     if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
     let note = '';
-    if (t.mpId) { try { await syncTournament(t); } catch (e) { t.lastSyncError = e.message; note = e.message; save(); } }
+    ensureSlots(t);
+    if (t.mpId) { try { await syncTournament(t, { players: true, arenas: true }); } catch (e) { t.lastSyncError = e.message; note = e.message; save(); } }
     return send(res, 200, { tournament: publicT(t), note });
   }
   if (!(mt = p.match(/^\/api\/admin\/t\/(\w+)(\/.*)?$/))) fail(404, 'Not found.');
@@ -963,7 +984,7 @@ async function route(req, res, url) {
     if (b.status === 'archived' || b.status === 'active') t.status = b.status;
     if (t.status === 'archived' && Object.keys(b).some(k => k !== 'status')) fail(409, 'Reopen the tournament to change its settings.');
     if (typeof b.name === 'string' && b.name.trim()) t.name = b.name.trim();
-    if (b.frames != null) t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10));
+    if (b.frames != null) { t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10)); ensureSlots(t); }
     if (typeof b.tenthBonus === 'boolean') t.tenthBonus = b.tenthBonus;
     if (typeof b.allowRepeats === 'boolean') t.allowRepeats = b.allowRepeats;
     if (b.mp !== undefined) t.mpId = toInt(String(b.mp).match(/tournaments\/(\d+)/)?.[1] ?? b.mp) || null;
@@ -980,7 +1001,11 @@ async function route(req, res, url) {
     db.tournaments = db.tournaments.filter(x => x.id !== tid); save();
     return send(res, 200, { ok: true });
   }
-  if (m === 'POST' && sub === '/sync') { const t = openT(tid), r = await syncTournament(t); return send(res, 200, { tournament: publicT(t), ...r }); }
+  if (m === 'POST' && sub === '/sync') {
+    const t = openT(tid), b = await readBody(req), machines = b.what === 'machines';
+    const r = await syncTournament(t, machines ? { players: false, arenas: true } : { players: true, arenas: false });
+    return send(res, 200, { tournament: publicT(t), ...r });
+  }
   if (m === 'GET' && sub === '/raw') return send(res, 200, getT(tid).mpRaw || {});
 
   if (m === 'POST' && sub === '/finals') {
@@ -1098,7 +1123,29 @@ async function route(req, res, url) {
   if (m === 'POST' && sub === '/arenas') {
     const t = scoringT(tid), b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a machine name.');
-    const a = newArena(name, null); remember(a, t.createdAt); t.arenas.push(a); save();
+    ensureSlots(t); const i = firstBlank(t);
+    if (i < 0) fail(409, 'Every slot has a machine. Blank a slot first, or raise Frames per card.');
+    const a = newArena(name, null); remember(a, t.createdAt); t.arenas.push(a); t.slots[i] = a.id; syncActive(t); ensureBonus(t); save();
+    return send(res, 200, { tournament: publicT(t) });
+  }
+  // Put a stored machine in a slot, or blank it. games: 'keep' or 'delete' for games played on the old machine.
+  if (m === 'POST' && sub === '/slots') {
+    const t = scoringT(tid), b = await readBody(req); ensureSlots(t);
+    const i = parseInt(b.index, 10); if (!(i >= 0 && i < t.slots.length)) fail(400, 'That slot does not exist.');
+    const oldId = t.slots[i], played = oldId ? t.games.filter(g => g.arenaId === oldId).length : 0;
+    let newId = null;
+    if (b.machineId) {
+      const mm = db.machines.find(x => x.id === String(b.machineId)) || fail(404, 'Machine not found.');
+      let a = t.arenas.find(x => x.mid === mm.id);
+      if (a && t.slots.includes(a.id) && a.id !== oldId) fail(409, `${mm.name} is already in slot ${t.slots.indexOf(a.id) + 1}.`);
+      if (a && (t.bonusArenas || []).includes(a.id)) fail(409, `${mm.name} is a bonus frame machine this week.`);
+      if (!a) { a = newArena(mm.name, mm.mpId); a.mid = mm.id; remember(a, t.createdAt); t.arenas.push(a); }
+      newId = a.id;
+    }
+    if (oldId === newId) return send(res, 200, { tournament: publicT(t) });
+    if (played && b.games !== 'keep' && b.games !== 'delete') fail(409, 'Games were played on this machine. Choose to keep or delete them.');
+    if (played && b.games === 'delete') t.games = t.games.filter(g => g.arenaId !== oldId);
+    t.slots[i] = newId; syncActive(t); pruneArenas(t); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PATCH' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
@@ -1109,13 +1156,12 @@ async function route(req, res, url) {
     if (b.cat !== undefined) { a.cat = cleanCat(b.cat); const st = storedFor(a); if (st) st.cat = a.cat; }
     if (b.balls === 3 || b.balls === 5) { a.balls = b.balls; a.ballsSetByAdmin = true; }
     if (b.target !== undefined) { a.target = toInt(b.target) || 0; a.targetSource = a.target ? 'admin' : ''; }
-    if (typeof b.active === 'boolean') a.active = b.active;
     rederive(t, a); libPut(a); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'DELETE' && (mt = sub.match(/^\/arenas\/(\w+)$/))) {
     const t = scoringT(tid);
-    t.games = t.games.filter(g => g.arenaId !== mt[1]); t.arenas = t.arenas.filter(x => x.id !== mt[1]); save();
+    t.games = t.games.filter(g => g.arenaId !== mt[1]); t.arenas = t.arenas.filter(x => x.id !== mt[1]); ensureSlots(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
 
