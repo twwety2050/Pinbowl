@@ -572,6 +572,19 @@ document.addEventListener('input', e=>{
   try{ el.setSelectionRange(i,i); }catch(err){}
 }, true);
 
+// Stop phones from suggesting or auto-filling a number typed last time into score, target and PIN boxes.
+// Browsers remember entries by the box's name, so every number box gets a fresh random name each time it's drawn.
+function noAutofill(el){
+  if(el.dataset.naf) return; el.dataset.naf='1';
+  el.setAttribute('autocomplete', el.type==='password' ? 'new-password' : 'off');
+  el.setAttribute('name', 'n'+Math.random().toString(36).slice(2,10));
+  el.setAttribute('autocorrect','off'); el.setAttribute('autocapitalize','off'); el.setAttribute('spellcheck','false');
+  el.setAttribute('data-lpignore','true'); el.setAttribute('data-1p-ignore','true'); el.setAttribute('data-form-type','other');
+}
+const numSel='input[inputmode="numeric"]';
+new MutationObserver(ms=>{ for(const m of ms) for(const n of m.addedNodes){ if(n.nodeType!==1) continue; if(n.matches&&n.matches(numSel)) noAutofill(n); n.querySelectorAll&&n.querySelectorAll(numSel).forEach(noAutofill); } })
+  .observe(document.documentElement,{childList:true,subtree:true});
+
 /* ================= state ================= */
 let ADMIN=null, PLAYER=null, LIST=[], T=null, NEEDS_SETUP=false, tab=null, screen=null, adminSettings=null, pickName=null;
 const SPARE_LAST_BALL = 3;
@@ -1835,9 +1848,50 @@ function mpGameSplit(g, final){
   const games=[0,1,2].map(i=>{ const m={}; actual[i].forEach((pid,k)=>m[pid]={pts:vals[best.pick[i][k]], actualPlace:k, adjusted:best.pick[i][k]!==k}); return m; });
   return {ranked, games, tot:best.tot, target, total};
 }
+// IFPA TGP estimate (WPPR v6.2 rules): 4% per meaningful game.
+//  - Qualifying counts only if it cuts at least half the field. A pinbowl card is like bowling:
+//    a frame can end on ball 1, so each game counts 1/3 (IFPA: a 10-frame card is about 3.33 games).
+//  - Finals: games the winner plays, 3 per round, x2 for 4-player groups (x1.5 for 3), also 1/3 each.
+//  - Up to 200% with separate qualifying and finals (finals need 10%+ of players and a 4-player round).
+let PARENTS={};
+function tgpEstimate(){
+  const fin=T.finals, par=PARENTS[fin.parentId]; if(!par) return null;
+  const players=par.players.length, finalists=fin.seeds.length, frames=par.frames||10;
+  const cutOk = finalists <= players/2;
+  const qualGames = cutOk ? frames/3 : 0;
+  const mult = n => n>=4 ? 2 : n===3 ? 1.5 : 1;
+  let rounds=[], est=false;
+  if(fin.champion) rounds=fin.rounds.map(r=>r.groups.find(g=>g.players.includes(fin.champion))).filter(Boolean).map(g=>g.players.length);
+  else { // expected path for the winner: every round after the byes
+    est=true; const plan=fPlan(finalists); let n=finalists-plan.byes, adv=plan.byes;
+    while(true){ const groups=Math.max(1,Math.ceil(n/4)); rounds.push(Math.min(4, Math.round(n/groups))); if(n<=4 && adv===0) break; n=groups*2+adv; adv=0; }
+    if(plan.byes) rounds.shift(); // the top seeds skip round 1
+  }
+  const finalsGames = rounds.reduce((s,n)=>s+3*mult(n)/3, 0);
+  const finalsOk = finalists >= players*0.1 && rounds.some(n=>n<=4);
+  const cap = finalsOk ? 200 : 100;
+  const tgp = Math.min(cap, 4*(qualGames+finalsGames));
+  return {players, finalists, frames, cutOk, qualGames, rounds, finalsGames, finalsOk, cap, tgp, est, noShort:Math.min(cap, 4*(cutOk?frames:0) + 4*rounds.reduce((s,n)=>s+3*mult(n),0))};
+}
+function tgpHTML(){
+  const e=tgpEstimate(); if(!e) return `<div class="panel"><h2>IFPA TGP</h2><p class="note">Working it out…</p></div>`;
+  const pct=v=>`${Math.round(v*100)/100}%`, mg=v=>Math.round(v*100)/100;
+  return `<div class="panel"><h2>IFPA TGP ${e.est?'estimate':''}</h2>
+    <p style="font:400 2rem/1.1 var(--display);color:var(--lane);margin:.2rem 0 .4rem">${pct(e.tgp)}</p>
+    <p class="note">${e.est?'The finals are not finished, so this assumes the winner plays every round after the byes. It updates when the champion is decided.':'Based on the rounds the champion actually played.'}</p>
+    <div class="tablewrap" style="margin-top:.6rem"><table><tbody>
+      <tr><td>Qualifying: ${e.frames} frames per card${e.cutOk?`, ${e.finalists} of ${e.players} advance (at least half cut)`:`, but ${e.finalists} of ${e.players} advance (less than half cut, so qualifying counts as seeding)`}</td><td class="n">${mg(e.qualGames)} games</td><td class="n">${pct(e.qualGames*4)}</td></tr>
+      ${e.rounds.map((n,i)=>`<tr><td>Finals round ${i+1}: 3 games in a ${n}-player group${n>=4?' (×2)':n===3?' (×1.5)':''}</td><td class="n">${mg(3*(n>=4?2:n===3?1.5:1)/3)} games</td><td class="n">${pct(4*3*(n>=4?2:n===3?1.5:1)/3)}</td></tr>`).join('')}
+      <tr><td><b>Total</b>${e.tgp>=e.cap?` (capped at ${e.cap}%)`:''}</td><td class="n"><b>${mg(e.qualGames+e.finalsGames)} games</b></td><td class="n"><b>${pct(e.tgp)}</b></td></tr>
+    </tbody></table></div>
+    <details style="margin-top:.6rem"><summary class="note" style="cursor:pointer">How this is worked out</summary>
+      <p class="note" style="margin-top:.4rem">IFPA counts 4% per meaningful game. A pinbowl frame can end on ball 1 (a strike), so IFPA treats each game as 1/3 of a meaningful game; their guide puts a 10-frame bowling card at about 3.33 games. Bonus frames 11 and 12 aren't counted because not every player plays them. Finals games in 4-player groups count twice (3-player groups 1.5 times). With separate qualifying and finals the cap is 200%${e.finalsOk?'':`, but these finals don't meet IFPA's finals requirements (at least 10% of players and a round of 4 or fewer), so the cap is 100%`}.</p>
+      <p class="note" style="margin-top:.4rem">If IFPA counted every game in full (no 1/3 rule), it would be ${pct(e.noShort)}. IFPA makes the final call when the event is submitted, and tiebreakers must be played as full games for the finals to count.</p></details></div>`;
+}
 function renderFinalsTotals(){
   const fin=T.finals, place=k=>['1st','2nd','3rd','4th'][k];
-  let h=`<div class="panel"><h2>Totals for Matchplay</h2>
+  if(!PARENTS[fin.parentId]) api('/api/t/'+fin.parentId).then(p=>{ PARENTS[fin.parentId]=p; if(tab==='totals' && T.finals) renderFinalsTotals(); }).catch(()=>{});
+  let h=tgpHTML()+`<div class="panel"><h2>Totals for Matchplay</h2>
     <p class="note">Enter these in Matchplay for each finals game: 4 points for 1st, 2 for 2nd, 1 for 3rd and 0 for 4th. Strike and spare bonuses carry between games in pinbowl, so the points are worked out once all 3 games in a group are done. Each player's 3-game total is as close as possible to their share of 21, and the pinbowl finishing order is always kept. Sometimes that means a game's points don't match who actually won that game; those are marked with *.</p></div>`;
   for(let ri=fin.rounds.length-1; ri>=0; ri--){ const r=fin.rounds[ri];
     h+=`<h2 style="font:700 1.3rem var(--cond);margin:1rem 0 .5rem">${esc(roundName(ri, fin.rounds.length, r))}</h2><div class="fgrid">`;
