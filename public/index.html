@@ -500,6 +500,20 @@ async function pchange(path, method, body, okMsg){
   catch(e){ toast(e.message); return null; }
 }
 
+// Score and target boxes get commas while you type (50,000 vs 500,000), keeping the cursor in place.
+// Shorthand like 150m or 1.5k is left alone until the box is left. PIN boxes are skipped.
+document.addEventListener('input', e=>{
+  const el=e.target;
+  if(!(el instanceof HTMLInputElement) || el.type!=='text' || el.inputMode!=='numeric' || el.dataset.nocomma!==undefined) return;
+  const v=el.value; if(/[^\d,\s]/.test(v)) return;
+  const pos=el.selectionStart==null ? v.length : el.selectionStart, before=v.slice(0,pos).replace(/\D/g,'').length;
+  const digits=v.replace(/\D/g,''), out=digits.replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  if(out===v) return;
+  el.value=out;
+  let i=0, seen=0; while(i<out.length && seen<before){ if(/\d/.test(out[i])) seen++; i++; }
+  try{ el.setSelectionRange(i,i); }catch(err){}
+}, true);
+
 /* ================= state ================= */
 let ADMIN=null, PLAYER=null, LIST=[], T=null, NEEDS_SETUP=false, tab=null, screen=null, adminSettings=null, pickName=null;
 const SPARE_LAST_BALL = 3;
