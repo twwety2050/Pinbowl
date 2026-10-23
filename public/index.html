@@ -163,6 +163,11 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .mrow>summary::-webkit-details-marker{display:none}
 .mrow>summary:hover{background:color-mix(in srgb,var(--paper) 60%,var(--card))}
 .mrow .mname{min-width:0}
+.mrow>summary:has(.slotno){grid-template-columns:auto auto minmax(0,1fr) auto}
+.mrow.blank>summary:has(.slotno){grid-template-columns:auto minmax(0,1fr) auto}
+.mrow.blank{border-style:dashed;background:color-mix(in srgb,var(--card) 70%,transparent)}
+.mrow.blank .mname b{color:var(--muted)}
+.slotno{font:400 1rem/1 var(--display);color:var(--lane);min-width:1.4rem;text-align:center}
 .mrow .mname b{font:700 1.08rem/1.2 var(--cond);display:block;overflow-wrap:anywhere}
 .mrow .mname small{display:block;color:var(--muted);font-size:.86rem;line-height:1.35}
 .mflags{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.2rem}
@@ -576,6 +581,8 @@ const readOnly = () => T && T.status==='archived';
 const me = () => PLAYER && T ? T.players.find(p=>p.name.toLowerCase()===PLAYER.name.toLowerCase()) : null;
 const abbr = a => a ? (a.abbr || a.name.slice(0,3).toUpperCase()) : '?';
 const playingGame = pid => T.games.find(g=>g.playerId===pid && g.status==='playing');
+// Machines in their slot order (slots are 1 per frame; blank slots are skipped)
+const slotArenas = () => Array.isArray(T.slots) ? T.slots.map(id=>id&&A(id)).filter(Boolean) : T.arenas.filter(a=>a.active);
 
 /* ================= scoring ================= */
 // each 10% of the target is one pin, starting at 0, capped at 9 (10 only comes from a strike or spare)
@@ -1083,7 +1090,7 @@ function renderPlay(){
     if(isBonus && !ba){ m.innerHTML=`<div class="panel"><h2>Frame ${T.frames+1+slot.idx}</h2><p>The machine for this bonus frame hasn't been drawn yet. Ask an organizer.</p></div>`; return; }
     if(isBonus) PF.arenaId=ba.id;
     const played=playedArenaIds(p.id), repeatOK=T.allowRepeats || isBonus;
-    const arenas=isBonus ? [ba] : T.arenas.filter(a=>a.active);
+    const arenas=isBonus ? [ba] : slotArenas();
     const a=A(PF.arenaId);
     const spare10 = r.frames[T.frames-1] && r.frames[T.frames-1].type==='spare';
     body=`<h2>${!isBonus?`Frame ${slot.n} of ${T.frames}`:`Frame ${T.frames+1+slot.idx}: bonus frame`}</h2>
@@ -1158,7 +1165,7 @@ let MCAT='all', MOPEN=new Set(); // filter chip and the rows left open, kept acr
 // One compact row per machine: tap to open the details (stats, score table, settings).
 function machineRow(id, a, o){
   return `<details class="panel mrow" data-mid="${id}" data-find="${esc(o.find||'')}" data-cat="${esc(o.cat||'none')}" data-attn="${o.attn?'1':'0'}" ${MOPEN.has(id)?'open':''}>
-    <summary><span class="tag big-tag">${esc(abbr(a))}</span><span class="mname"><b>${esc(a.name)}</b><small>${o.line||''}</small>${o.flags?`<span class="mflags">${o.flags}</span>`:''}</span><span class="chev" aria-hidden="true">›</span></summary>
+    <summary>${o.slotNo!=null?`<span class="slotno">${o.slotNo}</span>`:''}<span class="tag big-tag">${esc(abbr(a))}</span><span class="mname"><b>${esc(a.name)}</b><small>${o.line||''}</small>${o.flags?`<span class="mflags">${o.flags}</span>`:''}</span><span class="chev" aria-hidden="true">›</span></summary>
     <div class="inner">${o.inner||''}</div></details>`;
 }
 function bindMachineRows(){ $$('details.mrow').forEach(d=>d.addEventListener('toggle',()=>{ if(d.open) MOPEN.add(d.dataset.mid); else MOPEN.delete(d.dataset.mid); })); }
@@ -1174,54 +1181,87 @@ function expandAllBtn(){ return `<button class="btn small" id="expandAll">Expand
 function bindExpandAll(){ const b=$('#expandAll'); if(!b) return; const rows=()=>$$('details.mrow:not([hidden])'); const sync=()=>{ b.textContent = rows().length && rows().every(d=>d.open) ? 'Collapse all' : 'Expand all'; };
   b.onclick=()=>{ const open=!rows().every(d=>d.open); rows().forEach(d=>{ d.open=open; }); sync(); }; $$('details.mrow').forEach(d=>d.addEventListener('toggle',sync)); sync(); }
 const machineLine = parts => parts.filter(Boolean).join(' · ');
+// Put a stored machine in a slot (or blank it), asking first what to do with games played on the old one
+async function setSlot(i, machineId){
+  const oldId=T.slots[i], played=oldId?T.games.filter(g=>g.arenaId===oldId).length:0, old=oldId&&A(oldId);
+  let games;
+  if(played){
+    games=await askChoice(machineId?'Swap this machine?':'Blank this slot?', `${played} game${played===1?' was':'s were'} already played on <b>${esc(old.name)}</b>. Keep ${played===1?'it':'them'} (${played===1?'it still counts':'they still count'} on players' cards) or delete ${played===1?'it':'them'}?`, [['keep','Keep the games','primary'],['delete','Delete the games','danger']]);
+    if(!games) return renderMachines();
+  }
+  const m=machineId&&(STORED||[]).find(x=>x.id===machineId);
+  await change('/slots','POST',{index:i, machineId:machineId||null, games}, machineId?`Slot ${i+1}: ${m?m.name:'machine'}`:`Slot ${i+1} is blank`);
+}
+function storedOptions(curMid, label){
+  const inUse=new Set([...(T.slots||[]), ...(T.bonusArenas||[])].map(id=>id&&A(id)).filter(Boolean).map(a=>a.mid));
+  const list=(STORED||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  return `<option value="">${STORED?label:'Loading machines…'}</option>${CATS.concat([['','No category']]).map(([k,l])=>{ const g=list.filter(m=>(m.cat||'')===k); return g.length?`<optgroup label="${l}">${g.map(m=>`<option value="${m.id}" ${m.id===curMid?'selected':''} ${inUse.has(m.id)&&m.id!==curMid?'disabled':''}>${esc(m.name)}${m.target?` (${fmtShort(m.target)})`:' (no target)'}${inUse.has(m.id)&&m.id!==curMid?' – in use':''}</option>`).join('')}</optgroup>`:''; }).join('')}`;
+}
 function renderMachines(){
   const edit = ADMIN && !readOnly();
-  const list = ADMIN ? T.arenas : T.arenas.filter(a=>a.active || bonusFrameOf(a));
   if(ADMIN && !STORED){ loadStored().then(()=>{ if(tab==='machines' && !readOnly()) renderMachines(); }); }
   const src = a => a.targetSource==='mp' ? 'Target came from Matchplay.' : a.targetSource==='saved' ? 'Target saved from last time.' : a.target ? 'Target set here.' : '';
+  const slots = Array.isArray(T.slots) ? T.slots : T.arenas.filter(a=>a.active).map(a=>a.id);
+  // rows: the regular slots, then bonus frames once they've been drawn (unlocked)
+  const entries = slots.map((id,i)=>({slot:i, a:id?A(id):null, label:`Slot ${i+1}`}))
+    .concat([0,1].map(i=>({bonus:i, a:bonusArena(i), label:`Slot ${T.frames+1+i}`})).filter(x=>T.tenthBonus && x.a));
+  const visible = edit ? entries : entries.filter(x=>x.a);
   let attn=0;
-  const rows = list.map(a=>{
+  const rows = visible.map(x=>{
+    const a=x.a, key=x.bonus!=null?'b'+x.bonus:'s'+x.slot;
+    if(!a){ attn++; return `<details class="panel mrow blank" data-mid="${key}" data-find="slot ${x.slot+1} blank" data-cat="none" data-attn="1" ${MOPEN.has(key)?'open':''}>
+      <summary><span class="slotno">${x.slot+1}</span><span class="mname"><b>Slot ${x.slot+1} · blank</b><small>No machine. Pick one from stored machines.</small></span><span class="chev" aria-hidden="true">›</span></summary>
+      <div class="inner"><label for="sw${key}">Put a machine in this slot</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(null,'Choose a stored machine…')}</select>
+      <p class="note" style="margin-top:.4rem">Not listed? Add it on the Stored machines tab, or use "Add a machine by hand" above.</p></div></details>`; }
     const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>g.hitBall===1).length, spares=gs.filter(g=>g.hitBall>=2).length;
     const avg = gs.length ? (gs.reduce((s,g)=>{ const r=gameRolls(g); return s+(r.type==='open'?r.rolls[0]+r.rolls[1]:10); },0)/gs.length).toFixed(1) : '–';
-    const issues=[!a.target?'No target':'', ADMIN&&!a.cat&&!a.bonusOnly?'No category':''].filter(Boolean); if(issues.length) attn++;
-    const bf=bonusFrameOf(a);
-    const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), bf?`<span class="tag">Bonus frame ${bf}</span>`:'', (!a.active && !bf)?'<span class="tag">Closed</span>':''].filter(Boolean).join('');
+    const issues=[!a.target?'No target':'', ADMIN&&!a.cat?'No category':''].filter(Boolean); if(issues.length) attn++;
+    const flags=[...issues.map(t=>`<span class="tag warn">${t}</span>`), x.bonus!=null?`<span class="tag">Bonus frame ${T.frames+1+x.bonus}</span>`:''].filter(Boolean).join('');
     const line=machineLine([a.cat?catName(a.cat):'', `${a.balls} balls`, a.target?`target ${fmtShort(a.target)}`:'', gs.length?`${gs.length} played`:'']);
-    const ctl = edit ? `<div class="mform">
+    const swap = !edit ? '' : x.bonus!=null
+      ? `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="bp${key}">Swap for a stored machine</label><select id="bp${key}" data-bpick="${x.bonus}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small" data-bdraw="${x.bonus}">Draw again</button></div>`
+      : `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="sw${key}">Swap for a stored machine</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small danger" data-blank="${x.slot}">Make slot blank</button></div>`;
+    const ctl = edit ? `${swap}<div class="mform">
         <div><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div>
         <div><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
         <div><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
         <div><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div></div>
-        <p class="note" style="margin-top:.3rem">${src(a)} Changes save by themselves. You can type 150m for 150,000,000.</p>
-        <div class="row" style="margin-top:.6rem;align-items:center"><label class="check" style="margin:0"><input type="checkbox" data-active="${a.id}" ${a.active?'checked':''}> Open for play</label><button class="btn small danger" data-rma="${a.id}">Remove machine</button></div>` : '';
+        <p class="note" style="margin-top:.3rem">${src(a)} Changes save by themselves. You can type 150m for 150,000,000.</p>` : '';
     const inner=`<div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Spares</small><b>${spares}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
       ${a.target?`<p class="mh">Score needed for each pin count <span class="note">target ${fmt(a.target)}</span></p>${brackets(a)}`:'<p class="note">No target score yet, so this machine can\'t be played.</p>'}${ctl}`;
-    return machineRow(a.id, a, {line, flags, inner, cat:a.cat||'none', attn:issues.length, find:(a.name+' '+abbr(a)+' '+catName(a.cat)).toLowerCase()});
+    return machineRow(key, a, {line, flags, inner, cat:a.cat||'none', attn:issues.length, find:(a.name+' '+abbr(a)+' '+catName(a.cat)+' '+x.label).toLowerCase(), slotNo:edit?(x.bonus!=null?T.frames+1+x.bonus:x.slot+1):null});
   }).join('');
-  const add = edit ? bonusPanel() + `<div class="panel"><h2>Machines</h2><p class="note">Tap a machine to see its score table, stats and settings. Targets, ball counts and short names are remembered on the Stored machines tab and fill in by themselves next time.</p>${catMixNote()}
-    <details class="addbox"><summary>Add a machine by hand</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="na" style="margin-top:0">Machine name</label><input type="text" id="na" placeholder="For a machine that isn't in Matchplay" enterkeyhint="done"></div><button class="btn" id="naGo">Add machine</button></div></details></div>` : '';
-  const chips=[['all',`All (${list.length})`],...CATS.map(([k,l])=>[k,`${l} (${list.filter(a=>(a.cat||'')===k).length})`]), ...(attn?[['attn',`Needs attention (${attn})`]]:[])];
+  const blanks=slots.filter(id=>!id).length;
+  const add = edit ? `<div class="panel"><h2>Machines</h2><p class="note">There's one slot for each frame on the card (${T.frames}, set by Frames per card on the Tournaments tab). Tap a slot to see its score table and stats, change its settings, swap in a stored machine or make it blank.${T.tenthBonus?` Slots ${T.frames+1} and ${T.frames+2} (bonus frames) appear here once someone earns them.`:''}</p>
+    ${catMixNote()}${blanks?`<p class="err" style="margin-top:.4rem">${blanks} slot${blanks===1?' is':'s are'} blank.</p>`:''}
+    <div class="row" style="margin-top:.7rem">${T.mpId?`<button class="btn" id="mpMach">Refresh machines from Matchplay</button>`:''}</div>
+    ${T.mpId?`<p class="note" style="margin-top:.3rem">Machines only come from Matchplay when the tournament is created and when you press this button. New player sign-ups still arrive by themselves.</p>`:''}
+    <details class="addbox"><summary>Add a machine by hand</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="na" style="margin-top:0">Machine name</label><input type="text" id="na" placeholder="Goes into the first blank slot" enterkeyhint="done"></div><button class="btn" id="naGo">Add machine</button></div></details></div>` : '';
+  const shown=visible.filter(x=>x.a);
+  const chips=[['all',`All (${visible.length})`],...CATS.map(([k,l])=>[k,`${l} (${shown.filter(x=>(x.a.cat||'')===k).length})`]), ...(attn?[['attn',`Needs attention (${attn})`]]:[])];
   if(MCAT==='attn' && !attn) MCAT='all';
-  const tools = list.length>1 ? `<div class="toolbar">${searchHTML('msearch','Search machines',MSEARCH)}${expandAllBtn()}</div>${chipsHTML(chips,MCAT)}` : '';
-  $('#main').innerHTML = add + tools + (list.length?`<div class="mlist">${rows}</div><p class="note" id="mnone" hidden>No machines match.</p>`:'<div class="panel note">No machines yet.</div>');
+  const tools = visible.length>1 ? `<div class="toolbar">${searchHTML('msearch','Search machines',MSEARCH)}${expandAllBtn()}</div>${chipsHTML(chips,MCAT)}` : '';
+  $('#main').innerHTML = add + tools + (visible.length?`<div class="mlist">${rows}</div><p class="note" id="mnone" hidden>No machines match.</p>`:'<div class="panel note">No machines yet.</div>');
   const refilter=()=>{ const n=filterRows(MSEARCH, MCAT); if($('#mnone')) $('#mnone').hidden=n>0; };
   if($('#msearch')){ $('#msearch').oninput=e=>{ MSEARCH=e.target.value; refilter(); }; }
   $$('[data-chip]').forEach(b=>b.onclick=()=>{ MCAT=b.dataset.chip; $$('[data-chip]').forEach(x=>x.setAttribute('aria-pressed',x===b)); refilter(); });
   refilter(); bindMachineRows(); bindExpandAll();
   if(!edit) return;
+  if($('#mpMach')) $('#mpMach').onclick=async()=>{ if(!confirm(`Refresh machines from Matchplay? The slots are filled again in Matchplay's order, and targets update from Matchplay unless you typed one here. Games already played are kept.`)) return;
+    const j=await change('/sync','POST',{what:'machines'}); if(j) toast(`Machines refreshed from Matchplay${j.addedArenas?`: ${j.addedArenas} new`:''}`); };
   $$('[data-bdraw]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.bdraw), a=bonusArena(i);
     const n=a?T.games.filter(g=>g.arenaId===a.id).length:0;
     if(a && !confirm(n?`${a.name} has already been played ${n} time${n===1?'':'s'}. Draw a different machine for frame ${T.frames+1+i} anyway? Games already played stay as they are.`:`Draw a different machine for frame ${T.frames+1+i}?`)) return;
     change('/bonus','POST',{index:i},`Frame ${T.frames+1+i} machine drawn`); });
   $$('[data-bpick]').forEach(s=>s.onchange=()=>{ if(s.value) change('/bonus','POST',{index:Number(s.dataset.bpick), machineId:s.value},'Bonus machine set'); });
-  $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},'Machine added'); };
+  $$('[data-swap]').forEach(s=>s.onchange=()=>{ if(s.value) setSlot(Number(s.dataset.swap), s.value); });
+  $$('[data-blank]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.blank); if(!T.games.some(g=>g.arenaId===T.slots[i]) && !confirm(`Make slot ${i+1} blank?`)) return; setSlot(i, null); });
+  $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},`${v} added to slot ${(T.slots||[]).findIndex(x=>!x)+1}`); };
   $('#na').onkeydown=e=>{ if(e.key==='Enter') $('#naGo').click(); };
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
   $$('[data-cat]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.cat}`,'PATCH',{cat:i.value},'Category saved'); });
   $$('[data-target]').forEach(i=>{ i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
-  $$('[data-active]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.active}`,'PATCH',{active:i.checked},i.checked?'Open for play':'Closed'));
-  $$('[data-rma]').forEach(b=>b.onclick=()=>{ const n=T.games.filter(g=>g.arenaId===b.dataset.rma).length; if(confirm(n?`${n} games were played on this machine. Removing it deletes them. Continue?`:'Remove this machine?')) change(`/arenas/${b.dataset.rma}`,'DELETE',null,'Machine removed'); });
 }
 
 /* ================= TV board ================= */
@@ -2210,7 +2250,7 @@ function renderEnter(){
     <select id="psel"><option value="">Choose a player</option>${players.map(p=>`<option value="${p.id}" ${p.id===F.playerId?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
     ${slotTxt}
     <label>Machine</label>
-    <div class="choices">${(bonusA?[bonusA]:T.arenas.filter(x=>x.active || x.id===F.arenaId)).map(x=>({x,blocked:!repeatOK && played.has(x.id)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>{
+    <div class="choices">${(bonusA?[bonusA]:[...slotArenas(), ...(F.arenaId && !slotArenas().some(x=>x.id===F.arenaId) && A(F.arenaId) ? [A(F.arenaId)] : [])]).map(x=>({x,blocked:!repeatOK && played.has(x.id)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>{
       return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${blocked?'already played':`${x.balls} balls · target ${x.target?fmtShort(x.target):'not set'}`}</small></button>`; }).join('')}</div>
     ${a ? `<p class="note" style="margin-top:.7rem">Enter the total score after each ball${a.target?` (target ${fmt(a.target)})`:''}. Balls after the target is reached are greyed out.</p>${ballBoxesHTML(a, F.balls, 'q')}` : ''}
     <div class="preview" id="preview"></div>
@@ -2272,7 +2312,7 @@ async function renderPlayers(){
   $('#main').innerHTML=`<div class="panel"><h2>Players (${players.length})</h2>
     ${T.mpId?`<p class="note">New Matchplay sign-ups are added automatically about once a minute while this tournament is open.${ago?` Last check: ${ago}.`:''}</p>
       ${T.lastSyncError?`<p class="err">${esc(T.lastSyncError)}</p>`:''}
-      ${readOnly()?'':'<div class="row" style="margin-top:.6rem"><button class="btn" id="syncNow">Check Matchplay now</button></div>'}`
+      ${readOnly()?'':'<div class="row" style="margin-top:.6rem"><button class="btn" id="syncNow">Check Matchplay for new players</button></div>'}`
       :'<p class="note">This tournament is not linked to Matchplay. Add players by hand, or link it on the Tournaments tab.</p>'}
     ${readOnly()?'':`<div class="row" style="margin-top:.8rem"><div class="grow"><label for="np">Add a player by hand</label><input type="text" id="np" placeholder="Name"></div><button class="btn" id="npGo">Add player</button></div>`}
     <p class="note" style="margin-top:.8rem">Players set a 4-digit PIN the first time they pick their name. If someone forgets it, reset it and they'll make a new one.</p>
@@ -2289,7 +2329,7 @@ async function renderPlayers(){
   $$('[data-keep]').forEach(b=>b.onclick=async()=>{ const on=b.dataset.on==='1'; try{ await api('/api/admin/scorekeepers','POST',{name:b.dataset.keep, on}); toast(on?`${b.dataset.keep} is now a scorekeeper`:`${b.dataset.keep} is no longer a scorekeeper`); renderPlayers(); }catch(e){ toast(e.message); } });
   $$('[data-pin]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Reset ${b.dataset.pin}'s PIN? They will make a new one next time they pick their name.`)) return; try{ await api('/api/admin/pin-reset','POST',{name:b.dataset.pin}); toast('PIN reset'); renderPlayers(); }catch(e){ toast(e.message); } });
   if(readOnly()) return;
-  if($('#syncNow')) $('#syncNow').onclick=async()=>{ const j=await change('/sync','POST'); if(j) toast(`Checked Matchplay: ${j.addedPlayers} new players, ${j.addedArenas} new machines`); };
+  if($('#syncNow')) $('#syncNow').onclick=async()=>{ const j=await change('/sync','POST',{what:'players'}); if(j) toast(j.addedPlayers?`Checked Matchplay: ${j.addedPlayers} new player${j.addedPlayers===1?'':'s'}`:'Checked Matchplay: no new players'); };
   $('#npGo').onclick=()=>{ const v=$('#np').value.trim(); if(v) change('/players','POST',{name:v},`Added ${v}`); };
   $('#np').onkeydown=e=>{ if(e.key==='Enter') $('#npGo').click(); };
   $$('[data-rmp]').forEach(b=>b.onclick=()=>{ const n=T.games.filter(g=>g.playerId===b.dataset.rmp).length; if(confirm(n?`This player has ${n} games. Removing them deletes those games. Continue?`:'Remove this player?')) change(`/players/${b.dataset.rmp}`,'DELETE',null,'Player removed'); });
@@ -2334,7 +2374,8 @@ async function renderTournaments(){
       <div class="row" style="margin-top:.8rem"><button class="btn" id="reopen">Reopen tournament</button><button class="btn danger" id="tdel">Delete tournament</button></div>`:`
     <label for="tname">Name</label><input type="text" id="tname" value="${esc(cur.name)}">
     ${cur.finals?`<p class="note" style="margin-top:.6rem">This is a finals event. Run it on the Finals tab.</p>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
-    <label for="tfr">Frames per player</label><input type="number" id="tfr" min="1" max="20" value="${cur.frames}" style="max-width:7rem">
+    <label for="tfr">Frames per card</label><input type="number" id="tfr" min="1" max="20" value="${cur.frames}" style="max-width:7rem">
+    <p class="note" style="margin-top:.3rem">How many frames are on each player's card. This is also the number of machine slots on the Machines tab.</p>
     <label class="check"><input type="checkbox" id="ttb" ${cur.tenthBonus?'checked':''}> A strike or spare in the last frame earns bonus games</label>
     <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>`}
     <div class="row" style="margin-top:.8rem"><button class="btn" id="tsave">Save settings</button><button class="btn danger" id="tarch">Archive tournament</button></div>
@@ -2418,6 +2459,17 @@ async function renderAdmins(){
   $('#mypwGo').onclick=async()=>{ try{ await api(`/api/admin/admins/${ADMIN.id}/password`,'PUT',{password:$('#mypw').value}); toast('Password changed'); $('#mypw').value=''; }catch(e){ toast(e.message); } };
   $$('[data-rmadm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this admin?')) return; try{ await api(`/api/admin/admins/${b.dataset.rmadm}`,'DELETE'); toast('Admin removed'); renderAdmins(); }catch(e){ toast(e.message); } });
   $$('[data-pw]').forEach(b=>b.onclick=async()=>{ const pw=prompt('New password for this admin (6 or more characters):'); if(!pw) return; try{ await api(`/api/admin/admins/${b.dataset.pw}/password`,'PUT',{password:pw}); toast('Password reset'); }catch(e){ toast(e.message); } });
+}
+
+/* ================= small choice dialog ================= */
+// askChoice('Title','Text',[['keep','Keep them','primary'],['delete','Delete them','danger']]) resolves to the key, or null for Cancel
+function askChoice(title, text, choices){
+  return new Promise(res=>{ const d=$('#invite');
+    d.innerHTML=`<div class="sharecard" role="dialog" aria-modal="true" aria-labelledby="chh"><h2 id="chh" style="font:700 1.35rem var(--cond);color:var(--ink)">${esc(title)}</h2><p>${text}</p>
+      <div class="row" style="justify-content:center">${choices.map(([k,l,c])=>`<button class="btn ${c||''}" data-ch="${k}">${esc(l)}</button>`).join('')}<button class="btn" data-ch="">Cancel</button></div></div>`;
+    d.hidden=false; const done=v=>{ d.hidden=true; d.innerHTML=''; res(v); };
+    d.querySelectorAll('[data-ch]').forEach(b=>b.onclick=()=>done(b.dataset.ch||null)); d.onclick=e=>{ if(e.target===d) done(null); };
+    d.querySelector('[data-ch]').focus(); });
 }
 
 /* ================= finals invite ================= */
