@@ -1196,6 +1196,7 @@ function renderPlay(){
       <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off" enterkeyhint="done">
       <div class="preview" id="bhint"></div>
       <div class="row"><button class="btn primary" id="bgo">Save ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
+      ${g.oneThrow?`<p style="margin-top:.6rem"><b>One-throw bonus game:</b> only your first throw counts${a.em?' (balls 1 and 2 on this EM machine)':' (ball 1)'}, then the game ends.</p>`:''}
       <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>
       ${rangesBox(a)}`;
   } else {
@@ -1209,7 +1210,7 @@ function renderPlay(){
     const a=A(PF.arenaId);
     const spare10 = r.frames[T.frames-1] && r.frames[T.frames-1].type==='spare';
     body=`<h2>${!isBonus?`Frame ${slot.n} of ${T.frames}`:`Frame ${T.frames+1+slot.idx}: bonus frame`}</h2>
-      <p class="note">${isBonus?`Everyone plays the same machine for this frame. It was drawn at random.${spare10?' Only your ball 1 score counts toward your spare.':''}`:'Pick the machine you are about to play.'}</p>
+      <p class="note">${isBonus?`Everyone plays the same machine for this frame. It was drawn at random.${r.stillNeeded===1?` <b>Only your first throw counts${ba&&ba.em?' (balls 1 and 2 on this EM machine)':' (ball 1)'}, and the game ends after it.</b>`:''}`:'Pick the machine you are about to play.'}</p>
       <div class="choices" style="margin-top:.6rem">${arenas.map(x=>({x, blocked:!isBonus && ((!repeatOK && played.has(x.id)) || !x.target)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>
         `<button class="choice" data-parena="${x.id}" aria-pressed="${x.id===PF.arenaId}" ${blocked?'disabled':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${!x.target?'no target yet':played.has(x.id)&&!repeatOK?'already played':`${x.balls} balls · target ${fmtShort(x.target)}`}</small></button>`).join('')}</div>
       ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)} <span class="note">(${a.balls} balls, target ${fmt(a.target)})</span></label>
@@ -2331,7 +2332,8 @@ function renderRules(){
 
   <h3>The last frame</h3>
   ${T.tenthBonus?`<p>A strike or spare in frame ${T.frames} earns bonus frames, just like the 10th frame in bowling.</p>
-  <p><b>Spare in frame ${T.frames}:</b> play frame ${T.frames+1}. Only your ball 1 score counts.<br><b>Strike in frame ${T.frames}:</b> play frame ${T.frames+1}. If that's a strike too, play frame ${T.frames+2}.</p>
+  <p><b>Spare in frame ${T.frames}:</b> play frame ${T.frames+1} for one throw only. On a regular machine that's ball 1; on an EM machine it's balls 1 and 2. The game ends after that throw.<br><b>Strike in frame ${T.frames}:</b> play frame ${T.frames+1} as a full game (both throws count). If that's a strike too, play frame ${T.frames+2} for one throw only.</p>
+  <p class="note">A throw is: the first throw = ball 1 (EM: balls 1 and 2), the second throw = balls 2 and 3 (EM: balls 3, 4 and 5).</p>
   <p>Frame ${T.frames+1} is played on one machine drawn at random from machines we've played before. It's drawn the first time anyone needs it, and then everyone plays that same machine. Frame ${T.frames+2} gets its own machine the same way.</p>
   <p>Machines come in three categories: Classic, Mid and Modern. Frames 1 to ${T.frames} use 3 from two categories and 4 from the third. Frames ${T.frames+1} and ${T.frames+2} come from the two categories with 3, so a full card has 4 of each.</p>
   ${bonusLine()?`<p><b>This week:</b> ${bonusLine().replace(/^Bonus frames? for everyone: /,'')}.</p>`:''}`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
@@ -2413,7 +2415,7 @@ function renderEnter(){
     <label>Machine</label>
     <div class="choices">${(bonusA?[bonusA]:[...slotArenas(), ...(F.arenaId && !slotArenas().some(x=>x.id===F.arenaId) && A(F.arenaId) ? [A(F.arenaId)] : [])]).map(x=>({x,blocked:!repeatOK && played.has(x.id)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>{
       return `<button class="choice" data-arena="${x.id}" aria-pressed="${x.id===F.arenaId}" ${blocked?'disabled title="Already played"':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${blocked?'already played':`${x.balls} balls · target ${x.target?fmtShort(x.target):'not set'}`}</small></button>`; }).join('')}</div>
-    ${a ? `<p class="note" style="margin-top:.7rem">Enter the total score after each ball${a.target?` (target ${fmt(a.target)})`:''}. Balls after the target is reached are greyed out.</p>${ballBoxesHTML(a, F.balls, 'q')}` : ''}
+    ${a ? `<p class="note" style="margin-top:.7rem">${oneThrowNow()?`<b>One-throw bonus game:</b> only the first throw counts (${a.em?'balls 1 and 2 on this EM machine':'ball 1'}), then it ends. `:''}Enter the total score after each ball${a.target?` (target ${fmt(a.target)})`:''}. Balls after the target is reached are greyed out.</p>${ballBoxesHTML(entryArena(), F.balls, 'q')}` : ''}
     <div class="preview" id="preview"></div>
     <div class="row"><button class="btn primary" id="saveBtn">${F.editingId?'Save changes':'Save game'}</button>${F.editingId?'<button class="btn" id="cancelEdit">Cancel</button>':''}</div>
     ${rangesBox(a)}
@@ -2422,11 +2424,15 @@ function renderEnter(){
   $('#saveBtn').dataset.bxsave='q';
   $('#psel').onchange=e=>{ F.playerId=e.target.value; renderEnter(); };
   $$('[data-arena]').forEach(b=>b.onclick=()=>{ F.arenaId=b.dataset.arena; renderEnter(); const i=$('#q0'); if(i) i.focus(); });
-  if(a) bindBallBoxes('q', a, F.balls, rd=>{ updatePreview(); const last=rd.nums.length?rd.nums[rd.nums.length-1]:null; updateRanges(a, last, Math.max(1,rd.nums.length)); });
+  if(a) bindBallBoxes('q', entryArena(), F.balls, rd=>{ updatePreview(); const last=rd.nums.length?rd.nums[rd.nums.length-1]:null; updateRanges(a, last, Math.max(1,rd.nums.length)); });
   $('#saveBtn').onclick=saveGame;
   if($('#cancelEdit')) $('#cancelEdit').onclick=()=>{ resetForm(false); go('standings'); };
   updatePreview(); renderSide();
 }
+// The machine as staff should enter it: a bonus game that needs just one more throw only has
+// the first-throw balls (ball 1, or balls 1-2 on an EM machine)
+function oneThrowNow(){ if(!F.playerId) return false; if(F.editingId){ const g=T.games.find(x=>x.id===F.editingId); return !!(g&&g.oneThrow); } const s=nextSlot(F.playerId); return s.kind==='bonus' && scorePlayer(F.playerId).stillNeeded===1; }
+function entryArena(){ const a=A(F.arenaId); return a && oneThrowNow() ? {...a, balls:strikeLast(a)} : a; }
 function validate(){
   if(!F.playerId) return {err:'Choose a player.'};
   if(!F.arenaId) return {err:'Choose a machine.'};
@@ -2438,11 +2444,11 @@ function validate(){
     if(slot.kind==='done') return {err:`${P(F.playerId).name} has finished their card.`};
     if(slot.kind==='frame' && !T.allowRepeats && playedArenaIds(F.playerId).has(F.arenaId)) return {err:`${P(F.playerId).name} already played ${a.name}.`};
   }
-  const rd=ballRead(a, F.balls);
+  const rd=ballRead(entryArena(), F.balls);
   if(rd.err) return {err:rd.err};
   if(!rd.nums.length) return {err:'Enter the score after ball 1.'};
   if(!rd.done) return {err:`Enter every ball, or stop at the ball that reached the target. ${ballVerdict(a, rd).replace(/<[^>]+>/g,'')}`};
-  return {g:{playerId:F.playerId, arenaId:F.arenaId, balls:rd.nums, hitBall:rd.hitBall, b1:rd.b1, final:rd.final}, text:ballVerdict(a, rd)};
+  return {g:{playerId:F.playerId, arenaId:F.arenaId, balls:rd.nums, hitBall:rd.hitBall, b1:rd.b1, final:rd.final}, text:ballVerdict(entryArena(), rd)};
 }
 function updatePreview(){ const v=validate(); $('#preview').innerHTML = v.err ? `<span class="err">${esc(v.err)}</span>` : v.text; }
 async function saveGame(){
