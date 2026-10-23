@@ -600,11 +600,16 @@ const slotArenas = () => Array.isArray(T.slots) ? T.slots.map(id=>id&&A(id)).fil
 /* ================= scoring ================= */
 // each 10% of the target is one pin, starting at 0, capped at 9 (10 only comes from a strike or spare)
 function pins(score, target){ if(score==null || !target) return 0; return Math.max(0, Math.min(9, Math.floor(score*10/target))); }
+// EM machines: 5 balls, strike = target by ball 2, spare = by ball 3-5, first throw counted after ball 2
+const strikeLast = a => (a && a.em) ? 2 : 1;
+const spareLast = a => (a && a.em) ? 5 : SPARE_LAST_BALL;
+const strikeText = a => (a && a.em) ? 'on ball 1 or 2' : 'on ball 1';
+const spareText = a => (a && a.em) ? 'on ball 3, 4 or 5' : 'on ball 2 or 3';
 function gameRolls(g){
   const a=A(g.arenaId), t=a?a.target:0;
-  if(g.hitBall===1) return {type:'strike', rolls:[10]};
+  if(g.hitBall>=1 && g.hitBall<=strikeLast(a)) return {type:'strike', rolls:[10]};
   const first=pins(g.b1,t);
-  if(g.hitBall>=2 && g.hitBall<=SPARE_LAST_BALL) return {type:'spare', rolls:[first,10-first]};
+  if(g.hitBall>strikeLast(a) && g.hitBall<=spareLast(a)) return {type:'spare', rolls:[first,10-first]};
   const total=Math.max(first, pins(g.final,t));
   return {type:'open', rolls:[first,total-first]};
 }
@@ -710,7 +715,7 @@ function frameAbbr(r,k){
 function scoreText(g){
   if(Array.isArray(g.balls) && g.balls.length) return g.balls.map((s,i)=>`Ball ${i+1}: ${fmt(s)}`).join(', ');
   const parts=[];
-  if(g.hitBall===1) parts.push('Target on ball 1'); else parts.push(`Ball 1: ${fmt(g.b1)}`);
+  if(g.hitBall===1) parts.push('Target on ball 1'); else parts.push(`${A(g.arenaId)&&A(g.arenaId).em?'After ball 2':'Ball 1'}: ${fmt(g.b1)}`);
   if(g.hitBall>=2) parts.push(`target on ball ${g.hitBall}`);
   if(g.final!=null) parts.push(`final: ${fmt(g.final)}`);
   return parts.join(', ');
@@ -766,13 +771,13 @@ function bindGameActions(root){
 function brackets(a, score, ballNo){
   const t=a.target; if(!t) return '<p class="note">Target score not set yet.</p>';
   let cur=null;
-  if(score!=null){ if(score>=t) cur = ballNo===1 ? 'strike' : (ballNo>=2 && ballNo<=SPARE_LAST_BALL) ? 'spare' : 9; else cur=pins(score,t); }
-  const li=[`<li class="hit ${cur==='strike'?'cur':''}"><b>Strike</b><span>target (${fmt(t)}) on ball 1</span></li>`, `<li class="hit ${cur==='spare'?'cur':''}"><b>Spare</b><span>target (${fmt(t)}) on ball 2 or 3</span></li>`];
+  if(score!=null){ if(score>=t) cur = ballNo<=strikeLast(a) ? 'strike' : ballNo<=spareLast(a) ? 'spare' : 9; else cur=pins(score,t); }
+  const li=[`<li class="hit ${cur==='strike'?'cur':''}"><b>Strike</b><span>target (${fmt(t)}) ${strikeText(a)}</span></li>`, `<li class="hit ${cur==='spare'?'cur':''}"><b>Spare</b><span>target (${fmt(t)}) ${spareText(a)}</span></li>`];
   for(let n=9;n>=0;n--){
     const lo=Math.ceil(n*t/10), hi=n===9?t-1:Math.ceil((n+1)*t/10)-1;
     li.push(`<li class="${cur===n?'cur':''}"><b>${n} pin${n===1?'':'s'}</b><span>${n===9&&a.balls===5?`${fmt(lo)} or more`:`${fmt(lo)}–${fmt(hi)}`}</span></li>`);
   }
-  return `<ul class="brackets">${li.join('')}</ul>`;
+  return `${a.em?'<p class="note" style="margin:.3rem 0 0"><b>EM machine:</b> 5 balls. Your first throw is your score after ball 2.</p>':''}<ul class="brackets">${li.join('')}</ul>`;
 }
 // Collapsible score ranges for the Enter score screens. Remembers if it was left open.
 function rangesBox(a, score, ballNo){
@@ -876,9 +881,9 @@ async function renderCards(){
       if(a==='generic') return generic();
       const t2=a&&a.target, rows=[]; if(t2) for(let n=9;n>=1;n--) rows.push(`<span><b>${n}</b>${fmtShort(Math.ceil(n*t2/10))}</span>`);
       return `<div class="mc">
-        <div class="mc-head">${a?`<span class="mc-tag">${esc(abbr(a))}</span><b>${esc(a.name)}</b>`:'<b>Pinbowl</b>'}${a?`<small>${a.balls||3} balls${t2?` · target ${fmtShort(t2)}`:''}</small>`:''}</div>
+        <div class="mc-head">${a?`<span class="mc-tag">${esc(abbr(a))}</span><b>${esc(a.name)}</b>`:'<b>Pinbowl</b>'}${a?`<small>${a.em?'EM · ':''}${a.balls||3} balls${t2?` · target ${fmtShort(t2)}`:''}${a.em?' · first throw counts after ball 2':''}</small>`:''}</div>
         <div class="mc-mid"><div class="mc-call"><strong>Enter your score after every ball</strong><span>Type the total on the machine after each ball, before you plunge the next one.</span></div><div class="mc-qr">${qr}<small>Scan to score</small></div></div>
-        ${opt.ranges && t2?`<div class="mc-hit"><span><b class="mk">Strike</b> ${fmtShort(t2)} on ball 1</span><span><b class="mk">Spare</b> ${fmtShort(t2)} on ball 2 or 3</span></div><div class="mc-pins"><em>Score needed for each pin count</em>${rows.join('')}</div>`
+        ${opt.ranges && t2?`<div class="mc-hit"><span><b class="mk">Strike</b> ${fmtShort(t2)} ${strikeText(a)}</span><span><b class="mk">Spare</b> ${fmtShort(t2)} ${spareText(a)}</span></div><div class="mc-pins"><em>Score needed for each pin count</em>${rows.join('')}</div>`
           :`<div class="mc-hit"><span><b class="mk">Strike</b> target on ball 1</span><span><b class="mk">Spare</b> target on ball 2 or 3</span></div><p class="mc-note">Otherwise 1 pin for every 10% of the target. Targets are on the Machines tab.</p>`}
       </div>`; };
     const pages=[]; for(let i=0;i<Math.max(ms.length,1);i+=6) pages.push(ms.slice(i,i+6));
@@ -1151,11 +1156,12 @@ function ballHint(a, ballNo, score){
   if(score==null) return '';
   const t=a.target, pct=Math.floor(score*100/t);
   if(score>=t){
-    if(ballNo===1) return `<span class="big">X</span> That reaches the target (${fmt(t)}) on ball 1: a strike!`;
-    if(ballNo<=SPARE_LAST_BALL) return `<span class="big">/</span> That reaches the target (${fmt(t)}) on ball ${ballNo}: a spare!`;
+    if(ballNo<=strikeLast(a)) return `<span class="big">X</span> That reaches the target (${fmt(t)}) on ball ${ballNo}: a strike!`;
+    if(ballNo<=spareLast(a)) return `<span class="big">/</span> That reaches the target (${fmt(t)}) on ball ${ballNo}: a spare!`;
     return `That reaches the target (${fmt(t)}) on ball ${ballNo}: 9 pins.`;
   }
   const last = ballNo>=a.balls;
+  if(a.em && ballNo===1) return `${pct}% of the target so far. On this EM machine your first throw counts after ball 2.`;
   return `${pct}% of the target: <b>${pins(score,t)} pin${pins(score,t)===1?'':'s'}</b>${last?' final.':' so far.'}`;
 }
 function renderPlay(){
@@ -1306,19 +1312,20 @@ function renderMachines(){
       <summary><span class="slotno">${x.slot+1}</span><span class="mname"><b>Slot ${x.slot+1} · blank</b><small>No machine. Pick one from stored machines.</small></span><span class="chev" aria-hidden="true">›</span></summary>
       <div class="inner"><label for="sw${key}">Put a machine in this slot</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(null,'Choose a stored machine…')}</select>
       <p class="note" style="margin-top:.4rem">Not listed? Add it on the Stored machines tab, or use "Add a machine by hand" above.</p></div></details>`; }
-    const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>g.hitBall===1).length, spares=gs.filter(g=>g.hitBall>=2).length;
+    const gs=T.games.filter(g=>g.arenaId===a.id && g.status!=='playing'), strikes=gs.filter(g=>gameRolls(g).type==='strike').length, spares=gs.filter(g=>gameRolls(g).type==='spare').length;
     const avg = gs.length ? (gs.reduce((s,g)=>{ const r=gameRolls(g); return s+(r.type==='open'?r.rolls[0]+r.rolls[1]:10); },0)/gs.length).toFixed(1) : '–';
     const issues=[!a.target?'No target':'', ADMIN&&!a.cat?'No category':''].filter(Boolean); if(issues.length) attn++;
     const flags=[...issues.map(t=>`<span class="tag warn">${t}</span>`), x.bonus!=null?`<span class="tag">Bonus frame ${T.frames+1+x.bonus}</span>`:''].filter(Boolean).join('');
-    const line=machineLine([a.cat?catName(a.cat):'', `${a.balls} balls`, a.target?`target ${fmtShort(a.target)}`:'', gs.length?`${gs.length} played`:'']);
+    const line=machineLine([a.em?'EM':'', a.cat?catName(a.cat):'', `${a.balls} balls`, a.target?`target ${fmtShort(a.target)}`:'', gs.length?`${gs.length} played`:'']);
     const swap = !edit ? '' : x.bonus!=null
       ? `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="bp${key}">Swap for a stored machine</label><select id="bp${key}" data-bpick="${x.bonus}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small" data-bdraw="${x.bonus}">Draw again</button></div>`
       : `<div class="row" style="margin-top:.8rem;align-items:end"><div class="grow"><label for="sw${key}">Swap for a stored machine</label><select id="sw${key}" data-swap="${x.slot}">${storedOptions(a.mid,'Choose a stored machine…')}</select></div><button class="btn small danger" data-blank="${x.slot}">Delete game</button></div>`;
     const ctl = edit ? `${swap}<div class="mform">
         <div><label for="t${a.id}">Target score</label><input type="text" inputmode="numeric" id="t${a.id}" data-target="${a.id}" value="${a.target?fmt(a.target):''}" placeholder="Required"></div>
         <div><label for="cat${a.id}">Category</label>${catSelect('cat',a.id,a.cat)}</div>
-        <div><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}"><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
+        <div><label for="b${a.id}">Balls</label><select id="b${a.id}" data-balls="${a.id}" ${a.em?'disabled':''}><option ${a.balls===3?'selected':''}>3</option><option ${a.balls===5?'selected':''}>5</option></select></div>
         <div><label for="ab${a.id}">Short name</label><input type="text" id="ab${a.id}" data-abbr="${a.id}" value="${esc(abbr(a))}" maxlength="5" style="text-transform:uppercase"></div></div>
+        <label class="check" style="margin-top:.5rem"><input type="checkbox" data-em="${a.id}" ${a.em?'checked':''}> EM (electromechanical): 5 balls, strike on ball 1 or 2, spare on ball 3, 4 or 5</label>
         <p class="note" style="margin-top:.3rem">${src(a)} Changes save by themselves. You can type 150m for 150,000,000.</p>` : '';
     const inner=`<div class="mstats"><div><small>Played</small><b>${gs.length}</b></div><div><small>Strikes</small><b>${strikes}</b></div><div><small>Spares</small><b>${spares}</b></div><div><small>Avg. pins</small><b>${avg}</b></div></div>
       ${a.target?`<p class="mh">Score needed for each pin count <span class="note">target ${fmt(a.target)}</span></p>${brackets(a)}`:'<p class="note">No target score yet, so this machine can\'t be played.</p>'}${ctl}`;
@@ -1355,6 +1362,7 @@ function renderMachines(){
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
   $$('[data-cat]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.cat}`,'PATCH',{cat:i.value},'Category saved'); });
   $$('[data-target]').forEach(i=>{ i.onchange=()=>change(`/arenas/${i.dataset.target}`,'PATCH',{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
+  $$('[data-em]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.em}`,'PATCH',{em:i.checked}, i.checked?'Scored as an EM machine (5 balls)':'Scored as a regular machine'); });
 }
 
 /* ================= TV board ================= */
@@ -1526,7 +1534,7 @@ function machineWindowHTML(a){
   const pinsRows=[]; for(let n=9;n>=1;n--) pinsRows.push(row(`${n} pin${n===1?'':'s'}`, fmtShort(Math.ceil(n*t/10))));
   pinsRows.push(row('0 pins', `under ${fmtShort(Math.ceil(t/10))}`));
   return `<div class="mwtop"><div class="mwtarget"><small>Target</small><b>${fmtShort(t)}</b></div>
-      <div class="mwhits">${row('Strike', `${fmtShort(t)} on ball 1`, 'hit')}${row('Spare', `${fmtShort(t)} on ball 2 or 3`, 'hit')}</div></div>
+      <div class="mwhits">${row('Strike', `${fmtShort(t)} ${strikeText(a)}`, 'hit')}${row('Spare', `${fmtShort(t)} ${spareText(a)}`, 'hit')}</div></div>
     <div class="mwpins">${pinsRows.join('')}</div>`;
 }
 let MW={key:''};
@@ -1639,14 +1647,14 @@ const pinsAt=(s,t)=> s==null ? null : (s>=t ? 'T' : Math.max(0,Math.min(9,Math.f
 function readGame(r){
   let per=[];
   if(r.balls) per=r.balls.map(s=>pinsAt(s,r.target));
-  else if(r.hit===1) per=['T'];
+  else if(r.hit>=1 && r.hit<=(r.em?2:1)) per=r.hit===1?['T']:[null,'T'];
   else {
     per[0]=pinsAt(r.b1,r.target);
     if(r.hit>=2){ for(let i=1;i<r.hit-1;i++) per[i]=null; per[r.hit-1]='T'; }
     else { for(let i=1;i<r.nb-1;i++) per[i]=null; per[r.nb-1]=pinsAt(r.final,r.target); }
   }
-  if(r.hit===1) return {per,type:'strike',total:10};
-  if(r.hit>=2 && r.hit<=SPARE_LAST_BALL) return {per,type:'spare',total:10};
+  if(r.hit>=1 && r.hit<=(r.em?2:1)) return {per,type:'strike',total:10};
+  if(r.hit>(r.em?2:1) && r.hit<=(r.em?5:SPARE_LAST_BALL)) return {per,type:'spare',total:10};
   const f=per[0]==null||per[0]==='T'?0:per[0], fin=pinsAt(r.final,r.target);
   return {per,type:'open',total:Math.max(f, fin==='T'?9:(fin||0))};
 }
@@ -1768,14 +1776,15 @@ async function renderStored(){
     const issues=[!m.target?'No target':'', !m.cat?'No category':''].filter(Boolean); if(issues.length) attn++;
     const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), m.target&&m.inDraw===false?'<span class="tag">Not in random draw</span>':''].filter(Boolean).join('');
     const use = inT(m) ? 'in this tournament' : m.tournaments ? `${m.tournaments} tournament${m.tournaments===1?'':'s'}, last ${new Date(m.lastUsed||0).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'never used';
-    const line=machineLine([m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use]);
+    const line=machineLine([m.em?'EM':'', m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use]);
     const inner=`<div class="mform">
         <div><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div>
         <div><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
-        <div><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}"><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
+        <div><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}" ${m.em?'disabled':''}><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
         <div><label for="sa${m.id}">Short name</label><input type="text" id="sa${m.id}" data-sabbr="${m.id}" value="${esc(m.abbr||'')}" maxlength="5" style="text-transform:uppercase"></div></div>
       <p class="note" style="margin-top:.3rem">${m.games} game${m.games===1?'':'s'} played in ${m.tournaments} tournament${m.tournaments===1?'':'s'}. Changes save by themselves${inT(m)?' and update this tournament too':''}. You can type 150m for 150,000,000.</p>
-      <label class="check" style="margin-top:.6rem"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random for bonus frames and the daily challenge${m.target?'':' (needs a target first)'}</label>
+      <label class="check" style="margin-top:.6rem"><input type="checkbox" data-sem="${m.id}" ${m.em?'checked':''}> EM (electromechanical): 5 balls, strike on ball 1 or 2, spare on ball 3, 4 or 5. The first throw counts after ball 2.</label>
+      <label class="check" style="margin-top:.4rem"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random for bonus frames and the daily challenge${m.target?'':' (needs a target first)'}</label>
       <div class="row" style="margin-top:.6rem"><button class="btn small danger" data-srm="${m.id}">Remove from stored machines</button></div>`;
     return machineRow(m.id, m, {line, flags, inner, cat:m.cat||'none', attn:issues.length, find:(m.name+' '+(m.abbr||'')+' '+catName(m.cat)).toLowerCase()});
   }).join('');
@@ -1797,6 +1806,7 @@ async function renderStored(){
   $$('[data-sballs]').forEach(i=>i.onchange=()=>save(i.dataset.sballs,{balls:Number(i.value)},'Saved'));
   $$('[data-scat]').forEach(i=>i.onchange=()=>save(i.dataset.scat,{cat:i.value},'Category saved'));
   $$('[data-starget]').forEach(i=>{ i.onchange=()=>save(i.dataset.starget,{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
+  $$('[data-sem]').forEach(i=>i.onchange=()=>save(i.dataset.sem,{em:i.checked},i.checked?'Scored as an EM machine (5 balls)':'Scored as a regular machine'));
   $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the random draw':'Left out of the random draw'));
   $$('[data-srm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this machine from stored machines? Past tournaments keep their scores.')) return; try{ await api(`/api/admin/machines/${b.dataset.srm}`,'DELETE'); STORED=STORED.filter(x=>x.id!==b.dataset.srm); toast('Removed'); renderStored(); }catch(e){ toast(e.message); } });
   const addOne=async()=>{ const name=$('#sn').value.trim(); if(!name){ toast('Type the machine name.'); return; } try{ const j=await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); MOPEN.add(j.machine.id); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
@@ -1968,7 +1978,7 @@ function bindStaffScorer(cur){
     if(!j){ $('#fssSave').disabled=false; return; }
     const ng=T.finals.rounds.at(-1).groups.find(x=>x.id===g.id), r=(ng.scores[FED.pid]||[])[idx];
     if(r && r.status!=='playing'){
-      toast(`${who}: ${r.hitBall===1?'Strike!':r.hitBall>=2?'Spare!':'game saved'}`);
+      toast(`${who}: ${({strike:'Strike!',spare:'Spare!'})[gameRolls({arenaId:ng.machines[idx],...r}).type]||'game saved'}`);
       // move on to the next player who still needs this game
       const ordP=ng.players.slice().sort((x,y)=>(ng.positions[x]||99)-(ng.positions[y]||99)), at=ordP.indexOf(FED.pid);
       const nxt=[...ordP.slice(at+1),...ordP.slice(0,at)].find(q=>{ const x=(ng.scores[q]||[])[idx]; return !x || x.status==='playing'; });
@@ -2169,7 +2179,7 @@ function bindMyFinals(mf){
     bindRanges();
     const upd=()=>{ PFS=inp.value; const s=num(inp.value); $('#mfhint').innerHTML = s==null?'' : s<min?`<span class="err">That's lower than your ball ${balls.length} score.</span>` : ballHint(a, ballNo, s); updateRanges(a, s!=null&&s>=min?s:null, ballNo); };
     inp.oninput=upd; inp.onblur=()=>{ const n=num(inp.value); if(n!=null){ inp.value=fmt(n); PFS=inp.value; } }; inp.onkeydown=e=>{ if(e.key==='Enter') $('#mfsSave').click(); }; upd();
-    $('#mfsSave').onclick=async()=>{ const s=num(inp.value); if(s==null){ toast('Enter your score.'); return; } $('#mfsSave').disabled=true; const j=await ppost('ball',{score:s}); if(j){ PFS=''; const r=(T.finals.rounds.at(-1).groups.find(x=>x.id===g.id).scores[mf.me]||[])[idx]; toast(r && r.status!=='playing' ? (r.hitBall===1?'Strike!':r.hitBall>=2?'Spare!':'Game saved') : `Ball ${ballNo} saved`); renderFinals(); } else $('#mfsSave').disabled=false; };
+    $('#mfsSave').onclick=async()=>{ const s=num(inp.value); if(s==null){ toast('Enter your score.'); return; } $('#mfsSave').disabled=true; const j=await ppost('ball',{score:s}); if(j){ PFS=''; const r=(T.finals.rounds.at(-1).groups.find(x=>x.id===g.id).scores[mf.me]||[])[idx]; toast(r && r.status!=='playing' ? (({strike:'Strike!',spare:'Spare!'})[gameRolls({arenaId:g.machines[idx],...r}).type]||'Game saved') : `Ball ${ballNo} saved`); renderFinals(); } else $('#mfsSave').disabled=false; };
     if($('#mfCancel')) $('#mfCancel').onclick=()=>{ if(confirm('Cancel this game? Its scores will be removed.')) ppost('cancel',{},'Game cancelled'); };
   }
 }
@@ -2287,6 +2297,7 @@ function renderRules(){
   <h3>Strike, spare, or pins</h3>
   <p><b class="mk">Strike (X):</b> reach the target score on ball 1.</p>
   <p><b class="mk">Spare (/):</b> reach the target on ball 2 or ball 3.</p>
+  <p><b>EM machines</b> (older electromechanical games, marked EM on the Machines tab) get 5 balls: a <b class="mk">strike</b> is reaching the target on ball 1 or 2, a <b class="mk">spare</b> is reaching it on ball 3, 4 or 5, and your first throw's pins are counted from your score after ball 2.</p>
   <p><b>Pins:</b> if you don't reach the target by ball 3, you get 1 pin for every 10% of the target, from 0 up to 9 pins. Your ball 1 score is your first throw, and your final score is your whole frame.</p>
   <div class="example"><b>Example on ${esc(a.name)}</b>, target ${fmt(t)}:<br>
   After ball 1 you have ${at(26)}. That's 26% of the target, so your first throw knocks down <b>2 pins</b>.<br>
@@ -2329,8 +2340,8 @@ function ballRead(a, vals){
   const n=a&&a.balls||3, nums=[]; let hit=0, err='';
   for(let i=0;i<n;i++){ const v=num(vals[i]); if(v==null) break; if(nums.length && v<nums[nums.length-1]){ err=`Ball ${i+1}'s score is lower than ball ${i}'s.`; break; } nums.push(v); if(a.target && v>=a.target){ hit=i+1; break; } }
   const done = !err && nums.length && (hit>0 || nums.length>=n);
-  const hitBall = hit && hit<=SPARE_LAST_BALL ? hit : 0;
-  return {nums, hit, done, err, hitBall, b1:nums[0], final:nums[nums.length-1], n};
+  const hitBall = hit && hit<=spareLast(a) ? hit : 0;
+  return {nums, hit, done, err, hitBall, b1:nums[Math.min(strikeLast(a)-1, nums.length-1)], final:nums[nums.length-1], n, a};
 }
 function ballBoxesHTML(a, vals, key){
   const n=a&&a.balls||3, rd=ballRead(a, vals), stop=rd.hit||99;
@@ -2339,12 +2350,12 @@ function ballBoxesHTML(a, vals, key){
 function ballVerdict(a, rd){
   if(rd.err) return `<span class="err">${esc(rd.err)}</span>`;
   if(!rd.nums.length) return '';
-  const t=a.target, first=pins(rd.nums[0],t), pct=v=>Math.min(100,Math.floor(v*100/t));
-  if(rd.hit===1) return '<span class="big">X</span><br>Strike: 10 pins plus the next two throws.';
-  if(rd.hitBall>=2) return `<span class="big">${first||'–'} /</span><br>${first} pins on ball 1 (${pct(rd.nums[0])}%), then a spare on ball ${rd.hitBall}.`;
+  const t=a.target, first=pins(rd.b1,t), pct=v=>Math.min(100,Math.floor(v*100/t)), fb=a.em?'balls 1–2':'ball 1';
+  if(rd.hit && rd.hit<=strikeLast(a)) return `<span class="big">X</span><br>Strike on ball ${rd.hit}: 10 pins plus the next two throws.`;
+  if(rd.hitBall>strikeLast(a)) return `<span class="big">${first||'–'} /</span><br>${first} pins on ${fb} (${pct(rd.b1)}%), then a spare on ball ${rd.hitBall}.`;
   const tot=Math.max(first,pins(rd.final,t));
-  if(!rd.done) return `${first} pins on ball 1 (${pct(rd.nums[0])}%)${rd.nums.length>1?`, ${tot} pins so far (${pct(rd.final)}%)`:''}. <span class="note">Game not finished yet.</span>`;
-  return `<span class="big">${first||'–'} ${tot-first||'–'}</span><br>${first} pins on ball 1 (${pct(rd.nums[0])}%), ${tot} pins for the game (${pct(rd.final)}%).`;
+  if(!rd.done) return a.em && rd.nums.length<2 ? `${pct(rd.nums[0])}% after ball 1. <span class="note">EM machine: the first throw counts after ball 2.</span>` : `${first} pins on ${fb} (${pct(rd.b1)}%)${rd.nums.length>strikeLast(a)?`, ${tot} pins so far (${pct(rd.final)}%)`:''}. <span class="note">Game not finished yet.</span>`;
+  return `<span class="big">${first||'–'} ${tot-first||'–'}</span><br>${first} pins on ${fb} (${pct(rd.b1)}%), ${tot} pins for the game (${pct(rd.final)}%).`;
 }
 // keep greying-out live while typing, without redrawing the page
 function bindBallBoxes(key, a, vals, onChange){
