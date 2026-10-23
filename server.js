@@ -140,7 +140,7 @@ function slotFor(t, pid) {
   const last = all[N - 1];
   const need = last.type === 'strike' ? 2 : last.type === 'spare' ? 1 : 0;
   const have = all.slice(N).flatMap(f => f.rolls).length;
-  return have < need ? { kind: 'bonus', idx: done.length - N } : { kind: 'done' };
+  return have < need ? { kind: 'bonus', idx: done.length - N, left: need - have } : { kind: 'done' };
 }
 
 /* ---------------- bonus frames 11 and 12: one random machine each, the same for everyone ---------------- */
@@ -210,6 +210,14 @@ function derive(g, a) {
   for (let i = 0; i < b.length; i++) if (a.target && b[i] >= a.target) { hit = i + 1; break; }
   if (hit) b.length = hit; // nothing after the target counts
   g.b1 = b[Math.min(strikeLast(a) - 1, b.length - 1)]; g.final = b[b.length - 1];
+  // a bonus game that only needs one more throw (after a spare, or after strikes in frames 10 and 11)
+  // ends after the first throw: ball 1, or balls 1-2 on an EM machine
+  if (g.oneThrow) {
+    if (hit && hit <= strikeLast(a)) { g.hitBall = hit; g.status = 'done'; }
+    else if (b.length >= strikeLast(a)) { b.length = strikeLast(a); g.b1 = g.final = b[b.length - 1]; g.hitBall = 0; g.status = 'done'; }
+    else { g.hitBall = 0; g.status = 'playing'; }
+    return;
+  }
   if (hit && hit <= spareLast(a)) { g.hitBall = hit; g.status = 'done'; }
   else if (hit > spareLast(a) || b.length >= (a.balls || 3)) { g.hitBall = 0; g.status = 'done'; }
   else { g.hitBall = 0; g.status = 'playing'; }
@@ -615,13 +623,14 @@ function adminGame(t, b) {
   return { ...g, balls: null, status: 'done' };
 }
 // Staff entering a whole game as the score after each ball
-function adminGameBalls(t, b) {
+function adminGameBalls(t, b, editing) {
   const g = { playerId: String(b.playerId || ''), arenaId: String(b.arenaId || '') };
   if (!t.players.some(p => p.id === g.playerId)) fail(400, 'Unknown player.');
   const a = t.arenas.find(x => x.id === g.arenaId) || fail(400, 'Unknown machine.');
-  const r = { balls: cleanBalls(b.balls, a) }; derive(r, a);
+  const slot = editing ? null : slotFor(t, g.playerId), one = editing ? !!editing.oneThrow : (slot.kind === 'bonus' && slot.left === 1);
+  const r = { balls: cleanBalls(b.balls, a), oneThrow: one || undefined }; derive(r, a);
   if (r.status !== 'done') fail(400, `Enter every ball, or stop at the ball that reached the target (${(a.target || 0).toLocaleString('en-US')}).`);
-  return { ...g, hitBall: r.hitBall, b1: r.b1, final: r.final, balls: r.balls, status: 'done' };
+  return { ...g, hitBall: r.hitBall, b1: r.b1, final: r.final, balls: r.balls, status: 'done', ...(one ? { oneThrow: true } : {}) };
 }
 function playerInT(t, name) {
   return t.players.find(p => lower(p.name) === lower(name)) || fail(403, "Your name isn't in this tournament yet. Sign up in Matchplay, then try again in a minute.");
@@ -772,6 +781,7 @@ async function route(req, res, url) {
         if (!a.target) fail(400, `${a.name} has no target score yet. Ask an admin.`);
         if (slot.kind === 'frame' && !t.allowRepeats && slot.regular.some(g => g.arenaId === a.id)) fail(409, `You already played ${a.name}.`);
         const g = { id: uid(), playerId: me.id, arenaId: a.id, balls: [score], ts: Date.now(), by: player };
+        if (slot.kind === 'bonus' && slot.left === 1) g.oneThrow = true;
         derive(g, a); t.games.push(g);
       }
       ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
@@ -781,7 +791,7 @@ async function route(req, res, url) {
       if (!Array.isArray(g.balls)) fail(409, 'An admin entered this game. Ask an admin to fix it.');
       const a = t.arenas.find(x => x.id === g.arenaId);
       const b = await readBody(req);
-      const trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
+      const trial = { balls: cleanBalls(b.balls, a), oneThrow: g.oneThrow }; derive(trial, a);
       if (trial.status === 'playing' && playing && playing.id !== g.id) fail(409, 'Finish your current game first.');
       Object.assign(g, trial, { editedBy: player, editedAt: Date.now() });
       ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
@@ -973,7 +983,7 @@ async function route(req, res, url) {
       createdAt: Date.now(), frames: 10, tenthBonus: true, allowRepeats: false,
       players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
     };
-    const prev = db.tournaments.filter(x => !x.daily).sort((a, b) => b.createdAt - a.createdAt)[0];
+    const prev = db.tournaments.filter(x => !x.daily && !x.finals).sort((a, b) => b.createdAt - a.createdAt)[0];
     if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats });
     if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
@@ -1185,8 +1195,8 @@ async function route(req, res, url) {
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-    const t = scoringT(tid), g = (bb => Array.isArray(bb.balls) ? adminGameBalls(t, bb) : adminGame(t, bb))(await readBody(req));
-    const old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
+    const t = scoringT(tid), old = t.games.find(x => x.id === mt[1]) || fail(404, 'Game not found.');
+    const g = (bb => Array.isArray(bb.balls) ? adminGameBalls(t, bb, old) : adminGame(t, bb))(await readBody(req));
     Object.assign(old, g, { editedBy: actor, editedAt: Date.now() }); ensureBonus(t); save();
     return send(res, 200, { tournament: publicT(t) });
   }
