@@ -2130,9 +2130,17 @@ function finalsBoardHTML(){
 const gTop=g=>Math.min(...g.players.map(fSeed));
 function gWaitFor(round,g){ return round.groups.filter(x=>x!==g && gTop(x)<gTop(g) && x.machines.length!==3).sort((a,b)=>gTop(a)-gTop(b))[0]||null; }
 function slotTaken(round,g,i){ const m={}; round.groups.forEach(x=>{ if(x!==g && x.machines.length===3) m[x.machines[i]]=x.label; }); return m; }
+// Machines this player picked in earlier finals rounds (they can't pick them again unless the setting is off)
+function fPickedBefore(round,pid){
+  const used={}; if(!pid || T.noRepeatPicks===false) return used;
+  for(const r of T.finals.rounds){ if(r===round) break; r.groups.forEach(x=>{ if(x.machines.length===3 && fPickedBy(x)===pid) x.machines.forEach(id=>{ used[id]=true; }); }); }
+  return used;
+}
 function slotSelect(round,g,i,attrs,cur,first){
   const taken=slotTaken(round,g,i), byCat=c=>T.arenas.filter(a=>(a.cat||'')===c);
-  return `<select ${attrs}><option value="">${first}</option>${[...CATS,['','No category']].map(([k,l])=>{ const list=byCat(k); return list.length?`<optgroup label="${l}">${list.map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''} ${taken[a.id]?'disabled':''}>${esc(a.name)}${a.target?` (${fmt(a.target)})`:''}${taken[a.id]?` – Group ${taken[a.id]} has it as game ${i+1}`:''}</option>`).join('')}</optgroup>`:''; }).join('')}</select>`;
+  const picker = g.machines.length===3 ? fPickedBy(g) : fGamePicker(g), mine=fPickedBefore(round,picker);
+  const why=a=> taken[a.id]?` – Group ${taken[a.id]} has it as game ${i+1}` : mine[a.id]&&cur!==a.id?` – ${esc(fName(picker))} picked it in an earlier round`:'';
+  return `<select ${attrs}><option value="">${first}</option>${[...CATS,['','No category']].map(([k,l])=>{ const list=byCat(k); return list.length?`<optgroup label="${l}">${list.map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''} ${why(a)?'disabled':''}>${esc(a.name)}${a.target?` (${fmt(a.target)})`:''}${why(a)}</option>`).join('')}</optgroup>`:''; }).join('')}</select>`;
 }
 // Game picker: the top seed, or the next seed for each time someone deferred. null = drawn at random.
 const fBySeed = g => g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b));
@@ -2165,7 +2173,7 @@ function myFinalsHTML(mf){
     else if(me===top){
       const sel=i=>`<div class="grow"><label for="mfg${i}">Game ${i+1}</label>${slotSelect(mf.round,g,i,`id="mfg${i}" data-mfg`,'', 'Pick a machine…')}</div>`;
       const others=mf.round.groups.filter(x=>x!==g && x.machines.length===3);
-      h+=`<p><b>${g.defer?`The seed${g.defer>1?'s':''} above you deferred, so you pick the games.`:"You're the top seed, so you pick the games."}</b> Pick one Classic, one Mid and one Modern, in the order your group will play them. If you pick, you choose your playing position last.</p>${others.length?`<p class="note">A machine another group already has in the same game slot can't be picked for that slot (it's greyed out), but you can use it for a different game.</p>`:''}<div class="row">${[0,1,2].map(sel).join('')}</div>
+      h+=`<p><b>${g.defer?`The seed${g.defer>1?'s':''} above you deferred, so you pick the games.`:"You're the top seed, so you pick the games."}</b> Pick one Classic, one Mid and one Modern, in the order your group will play them. If you pick, you choose your playing position last.</p>${others.length?`<p class="note">A machine another group already has in the same game slot can't be picked for that slot (it's greyed out), but you can use it for a different game.</p>`:''}${Object.keys(fPickedBefore(mf.round,me)).length?`<p class="note">Machines you picked in an earlier round are greyed out. You can't pick them again.</p>`:''}<div class="row">${[0,1,2].map(sel).join('')}</div>
         <div class="row" style="margin-top:.7rem"><button class="btn primary" id="mfgSave">Save my picks</button></div>
         <div class="defer"><p><b>Rather not pick?</b> ${nextUp?`Let <b>${esc(fName(nextUp))}</b> (seed ${fSeed(nextUp)}) pick the games instead.`:'You can let the games be drawn at random.'} You'd then pick your playing position <b>${ord(myPlace)}</b>.</p>
           <button class="btn" id="mfDefer">${nextUp?`Defer to ${esc(fName(nextUp))}`:'Draw the games at random'}</button></div>`;
@@ -2317,9 +2325,9 @@ function exampleSheet(games){
 }
 function finalsRulesHTML(){
   return `<h2>Finals</h2>
-  <p><b>Who makes it:</b> after qualifying, the top half of the players (rounded down) make the finals. The cut line shows on the Standings tab.</p>
+  <p><b>Who makes it:</b> after qualifying, the top half of the players (rounded down) make the finals. The cut line shows on the Standings tab. When the finals are set up, finalists get a message in the app telling them they made it and which group they're in.</p>
   <p><b>Groups:</b> finalists play in groups of up to 4, set up like PAPA finals so the top seeds are spread out (for 16 players: 1, 8, 9 and 16 play together, and so on). If the number of finalists isn't 4, 8, 16 or 32, the top seeds get a bye into round 2.</p>
-  <p><b>Picking games:</b> the top seed in each group picks 3 games: one Classic, one Mid and one Modern, and the order they're played. They can defer instead, passing the pick to the next seed, who can defer too. If the last seed defers, the games are drawn at random. Groups take turns, starting with the group that has the highest seed. A group can't put a machine in the same game slot an earlier group already has it in, but it can use it for a different game. (If Group A plays Rush as game 1, Group B can still play Rush as game 2 or 3.)</p>
+  <p><b>Picking games:</b> the top seed in each group picks 3 games: one Classic, one Mid and one Modern, and the order they're played. They can defer instead, passing the pick to the next seed, who can defer too. If the last seed defers, the games are drawn at random. Groups take turns, starting with the group that has the highest seed. A group can't put a machine in the same game slot an earlier group already has it in, but it can use it for a different game. (If Group A plays Rush as game 1, Group B can still play Rush as game 2 or 3.)${T.noRepeatPicks!==false?` <b>No repeat picks:</b> if you picked your group's games in an earlier round, you can't pick any of those same machines again. (If you picked Rush in round 1, you can't pick Rush in round 2. Someone else picking for your group still can.)`:''}</p>
   <p><b>Picking positions:</b> next, each player picks whether they play 1st, 2nd, 3rd or 4th. Picks go from the top seed down, and whoever picked the games picks last. (Normally that's the top seed, so the 2nd seed picks first.) The app tells you when it's your turn.</p>
   <p><b>Playing:</b> the 3 games are scored as a 3-frame pinbowl card. Strikes and spares carry into the next game. Game 3 plays like frame 10: a spare earns one bonus throw, a strike earns a bonus game (and one more throw if that's a strike too). Each group's 2 bonus machines are drawn at random from 2 different categories, and everyone in the group uses the same ones. <b>Enter your score after every ball</b> on the Finals tab, just like qualifying. Everyone in the group finishes a game before anyone starts the next one.</p>
   <p><b>Moving on:</b> the top 2 totals in each group move on to the next round and are regrouped by seed. Ties for a spot are settled with a tiebreaker game. In the last group, the highest total wins the finals.</p>
@@ -2338,6 +2346,7 @@ function renderRules(){
   <h3>Entering your scores</h3>
   <p>You can play by yourself or with other people in a group of 2, 3 or 4. Everyone enters their own score on their own phone.</p>
   <p>Open Enter score, pick the machine, and type your total score after each ball, before you plunge the next one. The app tells you right away if you got a strike or spare. Made a typo? Use Fix my scores on your card.</p>
+  <p class="note">Commas are added for you as you type. You can also use shortcuts: 45k means 45,000 and 150m means 150,000,000.</p>
 
   <h3>Strike, spare, or pins</h3>
   <p><b class="mk">Strike (X):</b> reach the target score on ball 1.</p>
@@ -2568,11 +2577,14 @@ async function renderTournaments(){
     ${readOnly()?`<p>This tournament is archived. Players can still view it, but nobody can change scores.</p>
       <div class="row" style="margin-top:.8rem"><button class="btn" id="reopen">Reopen tournament</button><button class="btn danger" id="tdel">Delete tournament</button></div>`:`
     <label for="tname">Name</label><input type="text" id="tname" value="${esc(cur.name)}">
-    ${cur.finals?`<p class="note" style="margin-top:.6rem">This is a finals event. Run it on the Finals tab.</p>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
+    ${cur.finals?`<p class="note" style="margin-top:.6rem">This is a finals event. Run it on the Finals tab.</p>
+    <label class="check"><input type="checkbox" id="tnrp" ${cur.noRepeatPicks!==false?'checked':''}> Whoever picks the games can't pick a machine they already picked in an earlier round</label>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
     <label for="tfr">Frames per card</label><input type="number" id="tfr" min="1" max="20" value="${cur.frames}" style="max-width:7rem">
     <p class="note" style="margin-top:.3rem">How many frames are on each player's card. This is also the number of machine slots on the Machines tab.</p>
     <label class="check"><input type="checkbox" id="ttb" ${cur.tenthBonus?'checked':''}> A strike or spare in the last frame earns bonus games</label>
-    <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>`}
+    <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>
+    ${cur.daily?'':`<label class="check"><input type="checkbox" id="tnrp" ${cur.noRepeatPicks!==false?'checked':''}> Finals: whoever picks the games can't pick a machine they already picked in an earlier round</label>
+    <p class="note" style="margin-top:.3rem">Copied to the finals when you create them. You can change it on the finals too.</p>`}`}
     <div class="row" style="margin-top:.8rem"><button class="btn" id="tsave">Save settings</button><button class="btn danger" id="tarch">Archive tournament</button></div>
     <p class="note" style="margin-top:.5rem">Archive when the event ends. It stays viewable, scores lock, and Matchplay checks stop.</p>`}
     ${cur.mpId?`<details style="margin-top:1rem"><summary class="note">Matchplay data check</summary><p class="note">Shows what Matchplay sent last time, which helps if target scores aren't coming through.</p><pre id="raw">Loading…</pre></details>`:''}
@@ -2608,7 +2620,7 @@ async function renderTournaments(){
     $('#reopen').onclick=async()=>{ if(confirm('Reopen this tournament so scores can be changed?')){ await change('','PATCH',{status:'active'},'Reopened'); await refreshList(); render(); } };
     $('#tdel').onclick=async()=>{ if(prompt('Type DELETE to permanently delete this tournament and all its scores.')==='DELETE'){ try{ await api(`/api/admin/t/${cur.id}`,'DELETE'); store.del('pb-tid'); await boot(); toast('Deleted'); }catch(e){ toast(e.message); } } };
   } else {
-    $('#tsave').onclick=async()=>{ await change('','PATCH', cur.finals ? {name:$('#tname').value} : {name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked},'Settings saved'); await refreshList(); render(); };
+    $('#tsave').onclick=async()=>{ await change('','PATCH', cur.finals ? {name:$('#tname').value, noRepeatPicks:$('#tnrp').checked} : {name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked, ...($('#tnrp')?{noRepeatPicks:$('#tnrp').checked}:{})},'Settings saved'); await refreshList(); render(); };
     $('#tarch').onclick=async()=>{ if(confirm('Archive this tournament? Scores will be locked.')){ await change('','PATCH',{status:'archived'},'Archived'); await refreshList(); render(); } };
   }
   if($('#raw')) api(`/api/admin/t/${cur.id}/raw`).then(j=>{ const el=$('#raw'); if(el) el.textContent=Object.keys(j).length?JSON.stringify(j,null,2):'Nothing fetched yet.'; }).catch(()=>{});
