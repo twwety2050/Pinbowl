@@ -452,6 +452,22 @@ function checkSlots(F, round, g, ms) {
     ms.forEach((id, i) => { if (x.machines[i] === id) fail(400, `Group ${x.label} already has ${(F.arenas.find(a => a.id === id) || {}).name || 'that machine'} as game ${i + 1}. Pick it for a different game, or pick another machine.`); });
   }
 }
+// Optional rule (on unless turned off): whoever picks the games can't pick a machine they picked in an earlier round
+const noRepeatPicks = F => F.noRepeatPicks !== false;
+function pickedBefore(F, round, pid) {
+  const used = new Map();
+  if (!pid) return used;
+  for (const r of F.finals.rounds) {
+    if (r === round) break;
+    r.groups.forEach(x => { if (x.machines.length === 3 && pickedBy(F, x) === pid) x.machines.forEach(id => used.set(id, true)); });
+  }
+  return used;
+}
+function checkRepeatPicks(F, round, pid, ms) {
+  if (!noRepeatPicks(F)) return;
+  const used = pickedBefore(F, round, pid), bad = ms.filter(id => used.has(id));
+  if (bad.length) fail(400, `${(F.players.find(x => x.id === pid) || {}).name || 'The picker'} already picked ${bad.map(id => (F.arenas.find(a => a.id === id) || {}).name || 'that machine').join(' and ')} in an earlier round. Pick a different machine.`);
+}
 // Position picks go 2nd seed, 3rd, 4th, then the top seed
 // Seeds best first. The game picker starts as the top seed; each "defer" passes it to the next seed.
 // If every player defers, the games are drawn at random.
@@ -482,7 +498,7 @@ function createFinals(t) {
   const keep = new Set([...t.arenas.filter(a => a.active && !a.bonusOnly).map(a => a.id), ...(t.bonusArenas || [])]);
   const F = {
     id: uid(), name: `${t.name} Finals`, mpId: null, status: 'active', createdAt: Date.now(),
-    frames: 3, tenthBonus: false, allowRepeats: true, players: [], games: [],
+    frames: 3, tenthBonus: false, allowRepeats: true, noRepeatPicks: t.noRepeatPicks !== false, players: [], games: [],
     arenas: t.arenas.filter(a => keep.has(a.id) && a.target).map(a => ({ ...a, active: true })),
     finals: { parentId: t.id, seeds: [], byes: 0, rounds: [], champion: null, places: null },
   };
@@ -741,7 +757,7 @@ async function route(req, res, url) {
           // the last seed deferred too: draw the games at random
           if (!gamePicker(F, g)) { g.machines = randomPicks(F, round, g); g.pickedBy = null; }
         } else {
-          const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); g.machines = ms; g.pickedBy = me.id;
+          const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); checkRepeatPicks(F, round, me.id, ms); g.machines = ms; g.pickedBy = me.id;
         }
       } else {
         if (g.machines.length !== 3) fail(409, 'The games get picked first.');
@@ -1021,7 +1037,7 @@ async function route(req, res, url) {
       players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
     };
     const prev = db.tournaments.filter(x => !x.daily && !x.finals).sort((a, b) => b.createdAt - a.createdAt)[0];
-    if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats });
+    if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats, noRepeatPicks: prev.noRepeatPicks !== false });
     if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
     let note = '';
@@ -1040,6 +1056,7 @@ async function route(req, res, url) {
     if (b.frames != null) { t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10)); ensureSlots(t); }
     if (typeof b.tenthBonus === 'boolean') t.tenthBonus = b.tenthBonus;
     if (typeof b.allowRepeats === 'boolean') t.allowRepeats = b.allowRepeats;
+    if (typeof b.noRepeatPicks === 'boolean') t.noRepeatPicks = b.noRepeatPicks;
     if (b.mp !== undefined) t.mpId = toInt(String(b.mp).match(/tournaments\/(\d+)/)?.[1] ?? b.mp) || null;
     if (typeof b.done === 'boolean') t.done = b.done;
     if (b.finalsCount !== undefined) t.finalsCount = b.finalsCount ? Math.max(2, Math.min(64, parseInt(b.finalsCount, 10) || 0)) : null;
@@ -1088,7 +1105,7 @@ async function route(req, res, url) {
       else if (Array.isArray(b.machines)) {
         const ms = b.machines.map(String);
         if (g.machines.length !== 3 && g.pickedBy === undefined) g.pickedBy = gamePicker(F, g);
-        checkPicks(F, ms); checkSlots(F, round, g, ms);
+        checkPicks(F, ms); checkSlots(F, round, g, ms); checkRepeatPicks(F, round, g.pickedBy, ms);
         // changing a game wipes the scores already entered for that game slot (the app asks first)
         const changed = [0, 1, 2].filter(i => g.machines[i] !== ms[i]);
         const hasScores = changed.some(i => Object.values(g.scores).some(r => r && r[i]));
