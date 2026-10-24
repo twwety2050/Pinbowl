@@ -378,16 +378,51 @@ function makeGroups(F, seedNums, groupCount) {
   }));
 }
 // One player's 3 games as a mini bowling card: strikes and spares carry into the next game, game 3 counts flat
+// Finals game slots: 0-2 are the group's 3 games; 3 and 4 are bonus games after a strike or spare
+// in game 3 (it plays like frame 10). Each group draws its 2 bonus machines at random, from 2 different categories.
+const fMachine = (g, i) => i < 3 ? g.machines[i] : (g.bonus || [])[i - 3];
+function fBonusState(F, g, pid) {
+  const res = g.scores[pid] || [], r3 = res[2];
+  if (!r3 || r3.status === 'playing') return { need: 0, have: 0, rolls: [], next: null, left: 0 };
+  const f3 = rollsOf(F, { arenaId: g.machines[2], ...r3 }), need = f3.type === 'strike' ? 2 : f3.type === 'spare' ? 1 : 0;
+  let have = 0, rolls = [], k = 0;
+  for (; k < 2; k++) {
+    const r = res[3 + k]; if (!r) break;
+    if (r.status === 'playing') return { need, have, rolls, next: 3 + k, left: need - have, playing: true };
+    const f = rollsOf(F, { arenaId: fMachine(g, 3 + k), ...r }); rolls = rolls.concat(f.rolls); have = rolls.length;
+  }
+  return { need, have, rolls: rolls.slice(0, need), next: have < need ? 3 + k : null, left: Math.max(0, need - have) };
+}
+function drawFinalsBonus(F, g, k) {
+  g.bonus = g.bonus || [];
+  if (g.bonus[k]) return g.bonus[k];
+  const used = new Set([...g.machines, ...g.bonus.filter(Boolean)]);
+  let pool = F.arenas.filter(a => a.target && !used.has(a.id));
+  if (k === 1 && g.bonus[0]) { const c0 = (F.arenas.find(a => a.id === g.bonus[0]) || {}).cat; const other = pool.filter(a => a.cat && a.cat !== c0); if (other.length) pool = other; }
+  if (!pool.length) fail(409, 'No machine is left to draw for the bonus game. Ask an admin.');
+  g.bonus[k] = pool[Math.floor(Math.random() * pool.length)].id;
+  return g.bonus[k];
+}
+// Draw a group's bonus machine as soon as anyone in it needs that bonus game
+function ensureGroupBonus(F, g) { for (const pid of g.players) { const st = fBonusState(F, g, pid); if (st.next != null) drawFinalsBonus(F, g, st.next - 3); } }
+// The next game a finals player should play: one in progress, the next of the 3, or a bonus game
+function fNextGame(F, g, pid) {
+  const list = g.scores[pid] || [];
+  const p = list.findIndex(r => r && r.status === 'playing'); if (p >= 0) return p;
+  const e = [0, 1, 2].find(i => !list[i]); if (e != null) return e;
+  const st = fBonusState(F, g, pid); return st.next != null ? st.next : -1;
+}
 function groupCard(F, g, pid) {
   const res = (g.scores[pid] || []), frames = g.machines.map((aid, i) => res[i] && res[i].status !== 'playing' ? rollsOf(F, { arenaId: aid, ...res[i] }) : null);
+  const bs = fBonusState(F, g, pid);
   let total = 0;
   frames.forEach((f, k) => {
     if (!f) return;
-    const need = k === frames.length - 1 ? 0 : (f.type === 'strike' ? 2 : f.type === 'spare' ? 1 : 0);
-    const next = frames.slice(k + 1).filter(Boolean).flatMap(x => x.rolls).slice(0, need);
+    const need = f.type === 'strike' ? 2 : f.type === 'spare' ? 1 : 0;
+    const next = (k === frames.length - 1 ? bs.rolls : frames.slice(k + 1).filter(Boolean).flatMap(x => x.rolls).concat(bs.rolls)).slice(0, need);
     total += (f.type === 'open' ? f.rolls[0] + f.rolls[1] : 10) + next.reduce((a, b) => a + b, 0);
   });
-  return { total, complete: g.machines.length === 3 && frames.every(Boolean) };
+  return { total, complete: g.machines.length === 3 && frames.every(Boolean) && bs.next == null };
 }
 function groupResult(F, g, final) {
   const rows = g.players.map(pid => ({ pid, seed: F.finals.seeds.find(s => s.pid === pid).seed, ...groupCard(F, g, pid) }));
@@ -729,14 +764,16 @@ async function route(req, res, url) {
       const score = toInt(b.score); if (score == null) fail(400, 'Enter your score.');
       let i = mine.findIndex(r => r && r.status === 'playing');
       if (i < 0) {
-        i = mine.findIndex(r => !r); if (i < 0) fail(409, 'All 3 of your games are done.');
-        // everyone in the group finishes a game before anyone starts the next one
-        const behind = i > 0 ? g.players.filter(pid => { const x = (g.scores[pid] || [])[i - 1]; return !x || x.status === 'playing'; }) : [];
+        i = fNextGame(F, g, me.id); if (i < 0) fail(409, 'All of your games are done.');
+        // everyone in the group finishes a game before anyone starts the next one (bonus games don't wait)
+        const behind = i > 0 && i < 3 ? g.players.filter(pid => { const x = (g.scores[pid] || [])[i - 1]; return !x || x.status === 'playing'; }) : [];
         if (behind.length) { if (!mine.some(Boolean)) delete g.scores[me.id]; } 
         if (behind.length) fail(409, `Wait until everyone has finished game ${i}. Still to finish: ${behind.map(nameOf).join(', ')}.`);
+        const left = i >= 3 ? fBonusState(F, g, me.id).left : 0;
         mine[i] = { balls: [], by: player };
+        if (i >= 3) { drawFinalsBonus(F, g, i - 3); if (left === 1) mine[i].oneThrow = true; }
       }
-      const r = mine[i], a = F.arenas.find(x => x.id === g.machines[i]);
+      const r = mine[i], a = F.arenas.find(x => x.id === fMachine(g, i));
       const last = r.balls[r.balls.length - 1];
       if (last != null && score < last) fail(400, `Your score can't be lower than after ball ${r.balls.length} (${last.toLocaleString('en-US')}).`);
       r.balls.push(score); derive(r, a); r.at = Date.now();
@@ -744,13 +781,13 @@ async function route(req, res, url) {
     if (act === 'fix') {
       const i = parseInt(b.game, 10), r = mine[i];
       if (!r || !Array.isArray(r.balls)) fail(409, 'A scorekeeper entered this game. Ask them to fix it.');
-      const a = F.arenas.find(x => x.id === g.machines[i]), trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
+      const a = F.arenas.find(x => x.id === fMachine(g, i)), trial = { balls: cleanBalls(b.balls, a), oneThrow: r.oneThrow }; derive(trial, a);
       if (trial.status === 'playing' && mine.some((x, j) => j !== i && x && x.status === 'playing')) fail(409, 'Finish your current game first.');
       Object.assign(r, trial, { at: Date.now() });
     }
     if (act === 'cancel') { const i = mine.findIndex(r => r && r.status === 'playing'); if (i >= 0) mine[i] = null; }
     if (!mine.some(Boolean)) delete g.scores[me.id];
-    g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
+    ensureGroupBonus(F, g); g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
   }
   if ((mt = p.match(/^\/api\/player\/t\/(\w+)(\/.*)$/))) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
@@ -1095,20 +1132,24 @@ async function route(req, res, url) {
       if (act === 'ball') {
         const score = toInt(b.score); if (score == null) fail(400, 'Enter the score.');
         let i = list.findIndex(r => r && r.status === 'playing');
-        if (i < 0) { i = list.findIndex(r => !r); if (i < 0) { if (!list.some(Boolean)) delete g.scores[pid]; fail(409, `${nm} has finished all 3 games.`); } list[i] = { balls: [], by: actor }; }
-        const r = list[i], a = F.arenas.find(x => x.id === g.machines[i]), last = r.balls[r.balls.length - 1];
+        if (i < 0) { i = fNextGame(F, g, pid); if (i < 0) { if (!list.some(Boolean)) delete g.scores[pid]; fail(409, `${nm} has finished all of their games.`); }
+          const left = i >= 3 ? fBonusState(F, g, pid).left : 0; list[i] = { balls: [], by: actor };
+          if (i >= 3) { drawFinalsBonus(F, g, i - 3); if (left === 1) list[i].oneThrow = true; } }
+        const r = list[i], a = F.arenas.find(x => x.id === fMachine(g, i)), last = r.balls[r.balls.length - 1];
         if (last != null && score < last) fail(400, `The score can't be lower than after ball ${r.balls.length} (${last.toLocaleString('en-US')}).`);
         r.balls.push(score); derive(r, a); r.at = Date.now(); r.by = actor;
       }
       if (act === 'fix') {
-        const i = parseInt(b.game, 10); if (!(i >= 0 && i < 3)) fail(400, 'Pick a game.');
-        const a = F.arenas.find(x => x.id === g.machines[i]), trial = { balls: cleanBalls(b.balls, a) }; derive(trial, a);
+        const i = parseInt(b.game, 10); if (!(i >= 0 && i < 5)) fail(400, 'Pick a game.');
+        let one = list[i] && list[i].oneThrow;
+        if (i >= 3 && !list[i]) { const st = fBonusState(F, g, pid); if (st.next !== i) fail(409, `${nm} doesn't need that bonus game.`); drawFinalsBonus(F, g, i - 3); one = st.left === 1; }
+        const a = F.arenas.find(x => x.id === fMachine(g, i)), trial = { balls: cleanBalls(b.balls, a), oneThrow: one || undefined }; derive(trial, a);
         if (trial.status === 'playing' && list.some((x, j) => j !== i && x && x.status === 'playing')) fail(409, `${nm} has another game in progress. Finish or cancel it first.`);
         list[i] = Object.assign(list[i] || {}, trial, { by: actor, at: Date.now() });
       }
       if (act === 'cancel') { const i = parseInt(b.game, 10); const k = i >= 0 ? i : list.findIndex(r => r && r.status === 'playing'); if (k >= 0) list[k] = null; }
       if (!list.some(Boolean)) delete g.scores[pid];
-      g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
+      ensureGroupBonus(F, g); g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
     }
     if (act === 'order') {
       if (b.order === null) g.order = null;
