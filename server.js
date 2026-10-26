@@ -315,6 +315,30 @@ function totalFor(t, pid) {
   });
   return total;
 }
+/* ---------------- Daily challenge leaderboard (points like IFPA WPPR) ----------------
+   Every player in a challenge is worth 0.5 points, so the challenge is worth 0.5 x (players - 1):
+   the winner gets 0.5 for each player they beat (capped at 32, like IFPA's 64-player cap).
+   That value is split like WPPR: 10% straight-line by place, 90% on IFPA's curve that
+   favors the top half of the field. Last place gets 0. Tied players share the points for their places. */
+function wpprShare(place, n) {
+  if (n < 2) return 0;
+  const linear = (n - place) / (n - 1);
+  const x = (place - 1) / Math.min(n / 2, 64), dyn = x >= 1 ? 0 : Math.pow(1 - Math.pow(x, 0.7), 3);
+  return 0.1 * linear + 0.9 * dyn;
+}
+const dailyValue = n => Math.min(32, 0.5 * Math.max(0, n - 1));
+function dailyResults(t) {
+  const played = t.players.filter(p => t.games.some(g => g.playerId === p.id && g.status !== 'playing'));
+  const rows = played.map(p => ({ name: p.name, total: totalFor(t, p.id) })).sort((a, b) => b.total - a.total);
+  const n = rows.length, value = dailyValue(n);
+  for (let i = 0; i < n;) {
+    let j = i; while (j < n && rows[j].total === rows[i].total) j++;
+    let share = 0; for (let k = i; k < j; k++) share += wpprShare(k + 1, n);
+    for (let k = i; k < j; k++) { rows[k].place = i + 1; rows[k].points = Math.round(value * share / (j - i) * 1000) / 1000; }
+    i = j;
+  }
+  return { id: t.id, name: t.name, when: t.daily.start || t.createdAt, live: t.status === 'active', players: n, value, rows };
+}
 function closeDaily(t) {
   const scores = t.players.map(p => ({ name: p.name, total: totalFor(t, p.id) })).sort((a, b) => b.total - a.total);
   const top = scores.length && scores[0].total > 0 ? scores[0].total : null;
@@ -702,6 +726,11 @@ async function route(req, res, url) {
     });
   }
   if (m === 'GET' && (mt = p.match(/^\/api\/t\/(\w+)$/))) return send(res, 200, publicT(getT(mt[1])));
+  if (m === 'GET' && p === '/api/daily-leaders') {
+    const events = db.tournaments.filter(t => t.daily && (t.status === 'archived' || t.status === 'active'))
+      .map(dailyResults).sort((a, b) => b.when - a.when);
+    return send(res, 200, { events });
+  }
   if (m === 'GET' && p === '/api/players/known') {
     const names = new Map();
     db.tournaments.forEach(t => t.players.forEach(x => names.set(lower(x.name), x.name)));

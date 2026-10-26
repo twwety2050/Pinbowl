@@ -237,6 +237,7 @@ details.prow>.pacts{margin-top:.6rem}
 .tag{font:600 .78rem var(--cond);background:var(--tagbg);border:1px solid var(--grid);border-radius:4px;padding:0 .35rem;white-space:nowrap}
 
 table{border-collapse:collapse;width:100%}
+.lb th,.lb td{padding:.35rem .4rem;text-align:left;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}.lb .num{text-align:right}
 th,td{padding:.4rem .5rem;border-bottom:1px solid var(--grid);text-align:left;vertical-align:middle}
 th{font:600 .9rem var(--cond);color:var(--muted)}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
@@ -811,7 +812,10 @@ function staff(){ return !!ADMIN || isKeeper(); }
 const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules']];
 const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
 const NO_T_TABS=['tournaments','stored','stats','admins'];
-function tabs(){ if(!T && ADMIN) return ADMIN_TABS.filter(x=>NO_T_TABS.includes(x[0])); if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
+// Daily challenges get a Leaderboard tab right after Standings
+function withLeaders(list){ if(!T || !T.daily) return list; const i=list.findIndex(x=>x[0]==='standings'); return [...list.slice(0,i+1),['leaders','Leaderboard'],...list.slice(i+1)]; }
+function tabs(){ return withLeaders(tabs0()); }
+function tabs0(){ if(!T && ADMIN) return ADMIN_TABS.filter(x=>NO_T_TABS.includes(x[0])); if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
 function renderHeader(){
@@ -845,7 +849,7 @@ function render(){
   if(screen==='pin') return renderPin();
   if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders}[tab];
   (fn||renderStandings)();
 }
 
@@ -2339,7 +2343,8 @@ function renderRules(){
   $('#main').innerHTML=`<div class="panel">
   ${T.finals?`${finalsRulesHTML()}<h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
   ${T.finals?'':'<h2>How pinbowl works</h2>'}
-  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins.</p>`:''}
+  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins. Every challenge also earns <b>leaderboard points</b> (see the Leaderboard tab).</p>`:''}
+  ${T.daily?`<h3>Leaderboard points</h3>${leaderRulesHTML()}`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
 
@@ -2376,6 +2381,47 @@ function renderRules(){
   ${bonusLine()?`<p><b>This week:</b> ${bonusLine().replace(/^Bonus frames? for everyone: /,'')}.</p>`:''}`:`<p>Frame ${T.frames} counts as a flat 10 for a strike or spare. There are no bonus games.</p>`}
   ${!T.finals && !T.daily ? `<div style="margin-top:1.4rem">${finalsRulesHTML()}</div>` : ''}
   </div>`;
+}
+
+/* ================= daily challenge leaderboard ================= */
+// Points like IFPA WPPR: each player is worth 0.5, the winner gets 0.5 for every player they beat,
+// and everyone else gets a share of that on IFPA's curve (last place gets 0). The server works out each challenge.
+const LRANGES=[['all','All time'],['year','This year'],['30','Last 30 days']];
+const pts = v => (Math.round(v*100)/100).toFixed(2);
+async function renderLeaders(){
+  const main=$('#main'); main.innerHTML='<div class="panel note">Loading the leaderboard…</div>';
+  let data; try{ data=await api('/api/daily-leaders'); }catch(e){ main.innerHTML=`<div class="panel">${esc(e.message)}</div>`; return; }
+  if(tab!=='leaders') return;
+  const range=store.get('pb-lrange')||'all', now=Date.now(), yr=new Date().getFullYear();
+  const inRange = ev => range==='all' || (range==='year' ? new Date(ev.when).getFullYear()===yr : now-ev.when <= 30*864e5);
+  const closed=data.events.filter(ev=>!ev.live && inRange(ev)), live=data.events.find(ev=>ev.live);
+  const P=new Map();
+  closed.forEach(ev=>ev.rows.forEach(r=>{ const k=r.name.toLowerCase(); const x=P.get(k)||{name:r.name, points:0, played:0, wins:0, list:[]};
+    x.points+=r.points; x.played++; if(r.place===1) x.wins++; x.list.push({ev, r}); P.set(k,x); }));
+  const rows=[...P.values()].sort((a,b)=>b.points-a.points || b.wins-a.wins || a.name.localeCompare(b.name));
+  let rank=0, prev=null; rows.forEach((x,i)=>{ if(prev==null || Math.abs(x.points-prev)>1e-9) rank=i+1; x.rank=rank; prev=x.points; });
+  const me = PLAYER ? PLAYER.name.toLowerCase() : '';
+  const day = ms => new Date(ms).toLocaleDateString('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric'});
+  const liveHTML = live && live.players ? `<div class="panel"><h2>Today's challenge, if it ended now</h2>
+    <p class="note">${live.players} player${live.players>1?'s':''} so far, worth ${pts(live.value)} points to the winner. These points count once the challenge closes.</p>
+    <table class="lb"><tbody>${live.rows.slice(0,5).map(r=>`<tr><td>${r.place}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div>` : '';
+  main.innerHTML=`<div class="panel"><h2>Daily challenge leaderboard</h2>
+    <p class="note">Points from every finished daily challenge. Tap a name to see their results.</p>${chipsHTML(LRANGES,range)}</div>
+    ${liveHTML}
+    ${rows.length ? rows.map(x=>`<details class="panel stand ${x.name.toLowerCase()===me?'me':''}"><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.name)}<small>${x.played} challenge${x.played>1?'s':''}${x.wins?` · ${x.wins} win${x.wins>1?'s':''}`:''}</small></span><span class="ptotal">${pts(x.points)}</span><span class="chev" aria-hidden="true">›</span></summary>
+      <div class="inner"><table class="lb"><thead><tr><th>Day</th><th>Place</th><th class="num">Score</th><th class="num">Points</th></tr></thead><tbody>${x.list.map(({ev,r})=>`<tr><td>${day(ev.when)}</td><td>${ord(r.place)} of ${ev.players}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')
+      : `<div class="panel note">No finished daily challenges ${range==='all'?'yet':'in this time range'}.</div>`}
+    <details class="panel"><summary><b>How points work</b></summary><div class="inner">${leaderRulesHTML()}</div></details>`;
+  $$('[data-chip]').forEach(b=>b.onclick=()=>{ store.set('pb-lrange',b.dataset.chip); renderLeaders(); });
+}
+// Same split as the server (IFPA WPPR, with last place getting 0)
+function wpprShare(place,n){ if(n<2) return 0; const lin=(n-place)/(n-1), x=(place-1)/Math.min(n/2,64), dyn = x>=1 ? 0 : Math.pow(1-Math.pow(x,0.7),3); return 0.1*lin+0.9*dyn; }
+function leaderRulesHTML(){
+  const ns=[2,4,6,10];
+  return `<p>Points work like IFPA's WPPR points. Every player in a daily challenge is worth <b>0.5 points</b>, so the winner earns 0.5 for each player they beat. A challenge with 1 player is worth 0. With 2 players the winner gets 0.5 and 2nd gets 0. With 10 players the winner gets 4.5.</p>
+  <p>Everyone else gets a share of the winner's points: 10% is split evenly down the standings, and 90% follows IFPA's curve, which drops quickly and goes to 0 past the top half. Last place always gets 0. Players who tie share the points for their places. Only players who finished at least one game count.</p>
+  <table class="lb"><thead><tr><th>Players</th>${[1,2,3,4,5].map(p=>`<th class="num">${ord(p)}</th>`).join('')}</tr></thead><tbody>${ns.map(n=>`<tr><td>${n}</td>${[1,2,3,4,5].map(p=>`<td class="num">${p<=n?pts(Math.min(32,0.5*(n-1))*wpprShare(p,n)):''}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  <p class="note">The leaderboard adds up your points from every finished challenge in the time range you pick.</p>`;
 }
 
 /* ================= admin: enter score ================= */

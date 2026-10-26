@@ -145,6 +145,20 @@ name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
 or end one early on the Tournaments tab.
 
+### Daily challenge leaderboard
+
+Daily challenges get a **Leaderboard** tab. Points work like IFPA WPPR points:
+
+- Every player in a challenge is worth 0.5 points, so the winner gets 0.5 for each player
+  they beat (1 player = 0; 2 players = winner 0.5, 2nd 0; 10 players = winner 4.5). Capped at 32.
+- Everyone else gets a share of that: 10% is split evenly down the standings and 90% follows
+  IFPA's curve (`(1 - ((place-1)/(players/2))^0.7)^3`), which goes to 0 past the top half.
+  Last place always gets 0. Tied players share the points for their places.
+- Only players who finished at least one game count. Points are added once a challenge closes;
+  the running challenge shows "if it ended now" points.
+- The board can show all time, this year, or the last 30 days. Tap a name to see each result.
+  Players are matched by name across challenges.
+
 ## Finals (PAPA style)
 
 On the Finals tab of a weekly tournament: pick how many make the finals (top half by
