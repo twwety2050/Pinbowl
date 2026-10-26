@@ -145,6 +145,24 @@ name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
 or end one early on the Tournaments tab.
 
+### IFPA submission
+
+Tournaments tab → **Open IFPA submission** (weekly tournaments only). It builds:
+
+- **Standings to paste into IFPA:** one line per player, `place,name,IFPA #` (unknown numbers
+  show as `????`). Finalists come first in finals order: the final group by finish, then
+  players knocked out in later rounds above earlier ones (within a round: 3rd places before
+  4th places, then by seed). Everyone else follows by qualifying total; equal totals share a
+  place. Players who never finished a game are left off. Copy, download as CSV, or print.
+- **IFPA numbers:** taken from players' Matchplay profiles (the IFPA number they linked), then
+  an IFPA name search for the rest (needs an IFPA API key, saved on that screen or set as the
+  `IFPA_API_KEY` variable; only an exact match to one player is used). You can type numbers
+  in; they're remembered by name for future weeks.
+- **Balls played per game:** for qualifying (frames 1–N, bonus frames separately) and each
+  finals round: games, average balls, share of a full game, and which ball games ended on.
+- **TGP three ways:** IFPA's 1/3 rule, counting each game by the balls actually played, and
+  full games. Plus a ready-to-paste note for the IFPA comments box.
+
 ### Daily challenge leaderboard
 
 Daily challenges get a **Leaderboard** tab. Points work like IFPA WPPR points:

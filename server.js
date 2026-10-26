@@ -549,6 +549,102 @@ function nextRound(F) {
   save();
 }
 
+/* ---------------- IFPA submission ----------------
+   Standings: finalists in finals order (later rounds above earlier; within a round by group finish,
+   then seed), then everyone else by qualifying total (equal totals share a place).
+   Ball data shows how many balls each game really took, to support a higher TGP than the 1/3 rule. */
+function ballsPlayed(g, a) {
+  const max = (a && a.balls) || 3;
+  if (Array.isArray(g.balls) && g.balls.length) return { n: g.balls.length, max };
+  if (g.hitBall) return { n: g.hitBall, max };
+  return { n: g.oneThrow ? strikeLast(a) : max, max };
+}
+function ballStats(list) {
+  const n = list.length, out = { games: n, avg: 0, share: 0, dist: {}, em: 0 };
+  if (!n) return out;
+  list.forEach(b => { out.avg += b.n; out.share += b.n / b.max; if (b.max === 5) out.em++; else out.dist[b.n] = (out.dist[b.n] || 0) + 1; });
+  out.avg = Math.round(out.avg / n * 100) / 100; out.share = Math.round(out.share / n * 1000) / 1000;
+  return out;
+}
+function finalsPlaces(F) {
+  const fin = F.finals, out = [], placed = new Set();
+  for (let ri = fin.rounds.length - 1; ri >= 0; ri--) {
+    const r = fin.rounds[ri], rows = [];
+    r.groups.forEach(g => {
+      const res = groupResult(F, g, r.final);
+      res.ranked.forEach((x, k) => { if (!placed.has(x.pid) && (r.final || k >= 2 || ri === fin.rounds.length - 1)) rows.push({ pid: x.pid, pos: k, seed: x.seed, total: x.total, round: ri, complete: res.complete }); });
+    });
+    rows.sort((a, b) => r.final ? 0 : (a.pos - b.pos || a.seed - b.seed));
+    rows.forEach(x => { placed.add(x.pid); out.push(x); });
+  }
+  return out;
+}
+const IFPA_BASE = process.env.IFPA_BASE || 'https://api.ifpapinball.com'; // IFPA_BASE is only for testing
+const ifpaKey = () => process.env.IFPA_API_KEY || db.settings.ifpaKey || '';
+// Search IFPA by name; only an exact, single match counts
+async function ifpaSearch(name) {
+  const key = ifpaKey(); if (!key) return null;
+  const tries = [
+    [`${IFPA_BASE}/player/search?name=${encodeURIComponent(name)}`, { 'X-API-Key': key }],
+    [`${IFPA_BASE}/v1/player/search?api_key=${encodeURIComponent(key)}&q=${encodeURIComponent(name)}`, {}],
+  ];
+  for (const [url, headers] of tries) {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json', ...headers }, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) continue;
+      const j = await r.json(), list = j.search || j.players || j.results || (Array.isArray(j) ? j : []);
+      if (!Array.isArray(list)) continue;
+      const hits = list.filter(x => lower(`${x.first_name || ''} ${x.last_name || ''}`.trim()) === lower(name) || lower(x.name || x.player_name || '') === lower(name));
+      const ids = [...new Set(hits.map(x => toInt(x.player_id ?? x.id)).filter(Boolean))];
+      return ids.length === 1 ? ids[0] : 0;
+    } catch (e) { /* try the next form */ }
+  }
+  return null;
+}
+function ifpaFor(name) { const x = (db.ifpaIds || {})[lower(name)]; return x && x.id ? x : null; }
+function ifpaReport(t) {
+  const played = t.players.filter(p => t.games.some(g => g.playerId === p.id && g.status !== 'playing'));
+  const { order, tot } = seedOrder(t);
+  const F = t.finalsId ? db.tournaments.find(x => x.id === t.finalsId) : null;
+  const rows = [];
+  if (F) finalsPlaces(F).forEach(x => {
+    const p = t.players.find(q => q.id === x.pid); if (!p) return;
+    const r = F.finals.rounds[x.round];
+    rows.push({ pid: p.id, name: p.name, how: r.final ? (x.pos === 0 ? 'Finals winner' : `Final group, ${['1st', '2nd', '3rd', '4th'][x.pos]}`) : `Out in finals round ${x.round + 1} (${['1st', '2nd', '3rd', '4th'][x.pos]} in group)`, qual: tot.get(p.id) });
+  });
+  const inFinals = new Set(rows.map(r => r.pid));
+  let place = rows.length, prev = null, shown = rows.length;
+  rows.forEach((r, i) => { r.place = i + 1; });
+  order.filter(pid => !inFinals.has(pid) && played.some(p => p.id === pid)).forEach((pid, i) => {
+    const p = t.players.find(q => q.id === pid), q = tot.get(pid);
+    shown++; if (q !== prev || Array.isArray(t.seedOverride) && t.seedOverride.includes(pid)) place = shown; prev = q;
+    rows.push({ pid, name: p.name, place, how: `Qualifying total ${q}`, qual: q });
+  });
+  rows.forEach(r => { const x = ifpaFor(r.name); r.ifpa = x ? x.id : null; r.src = x ? x.src : null; });
+  // ball data: qualifying frames 1..N (bonus frames shown on their own), finals games 1-3 by round
+  const reg = [], bonus = [];
+  t.players.forEach(p => {
+    t.games.filter(g => g.playerId === p.id && g.status !== 'playing').forEach((g, k) => {
+      const a = t.arenas.find(x => x.id === g.arenaId); if (!a) return;
+      (k < t.frames ? reg : bonus).push(ballsPlayed(g, a));
+    });
+  });
+  const rounds = F ? F.finals.rounds.map((r, ri) => {
+    const main = [], extra = [];
+    r.groups.forEach(g => Object.values(g.scores).forEach(list => (list || []).forEach((rec, i) => {
+      if (!rec || rec.status === 'playing') return;
+      const a = F.arenas.find(x => x.id === fMachine(g, i)); (i < 3 ? main : extra).push(ballsPlayed(rec, a));
+    })));
+    return { round: ri + 1, final: !!r.final, groups: r.groups.length, sizes: r.groups.map(g => g.players.length), stats: ballStats(main), bonus: ballStats(extra) };
+  }) : [];
+  const champRounds = F && F.finals.champion ? F.finals.rounds.map((r, ri) => ({ ri, g: r.groups.find(g => g.players.includes(F.finals.champion)) })).filter(x => x.g).map(x => ({ round: x.ri + 1, size: x.g.players.length })) : [];
+  return {
+    id: t.id, name: t.name, date: t.createdAt, mpId: t.mpId, frames: t.frames, players: played.length, registered: t.players.length,
+    finalists: F ? F.finals.seeds.length : 0, finalsDone: !!(F && F.finals.champion), finalsName: F ? F.name : null,
+    rows, qual: ballStats(reg), qualBonus: ballStats(bonus), rounds, champRounds, hasKey: !!ifpaKey(),
+  };
+}
+
 /* ---------------- sessions ---------------- */
 function parseCookies(req) {
   const out = {};
@@ -624,7 +720,11 @@ async function syncTournament(t, opt = { players: true, arenas: false }) {
     const id = x.playerId ?? x.id, name = (x.name || '').trim();
     if (id == null || !name) return;
     const p = t.players.find(q => q.mpId === id) || t.players.find(q => q.mpId == null && lower(q.name) === lower(name));
-    if (p) { p.mpId = id; p.name = name; } else { t.players.push({ id: uid(), name, mpId: id }); addedPlayers++; }
+    const ifpa = toInt(x.ifpaId ?? x.ifpa_id ?? x.ifpaNumber);
+    let q = p;
+    if (p) { p.mpId = id; p.name = name; } else { q = { id: uid(), name, mpId: id }; t.players.push(q); addedPlayers++; }
+    // IFPA numbers players linked in Matchplay are remembered for the IFPA submission
+    if (ifpa && ifpa > 0) { q.ifpaId = ifpa; db.ifpaIds = db.ifpaIds || {}; if (!db.ifpaIds[lower(name)] || db.ifpaIds[lower(name)].src !== 'manual') db.ifpaIds[lower(name)] = { id: ifpa, src: 'matchplay' }; }
   });
   const targets = {}, balls = {};
   for (const v of Object.values(d)) {
@@ -1099,6 +1199,35 @@ async function route(req, res, url) {
     if (t.finals) { const q = db.tournaments.find(x => x.id === t.finals.parentId); if (q && q.finalsId === t.id) q.finalsId = null; }
     db.tournaments = db.tournaments.filter(x => x.id !== tid); save();
     return send(res, 200, { ok: true });
+  }
+  if (m === 'GET' && sub === '/ifpa') {
+    const t = getT(tid); if (t.daily || t.finals) fail(409, 'Open the weekly tournament (not the daily challenge or the finals).');
+    return send(res, 200, ifpaReport(t));
+  }
+  if (m === 'POST' && sub === '/ifpa') {
+    const t = getT(tid), b = await readBody(req); db.ifpaIds = db.ifpaIds || {};
+    if (typeof b.key === 'string') db.settings.ifpaKey = b.key.trim();
+    if (b.set && typeof b.set === 'object') for (const [name, v] of Object.entries(b.set)) {
+      const id = toInt(String(v).replace(/[^0-9]/g, ''));
+      const had = db.ifpaIds[lower(name)];
+      if (id) { if (!had || had.id !== id) db.ifpaIds[lower(name)] = { id, src: 'manual' }; } else delete db.ifpaIds[lower(name)];
+    }
+    const notes = [];
+    if (b.lookup) {
+      if (t.mpId && t.status !== 'archived') { try { await syncTournament(t, { players: true }); } catch (e) { notes.push('Matchplay: ' + e.message); } }
+      else if (t.mpId) { try { const st = t.status; t.status = 'active'; await syncTournament(t, { players: true }); t.status = st; } catch (e) { notes.push('Matchplay: ' + e.message); } }
+      if (!ifpaKey()) notes.push('No IFPA API key is set, so names could not be searched on the IFPA site.');
+      else {
+        let found = 0, miss = 0;
+        for (const r of ifpaReport(t).rows) {
+          if (ifpaFor(r.name)) continue;
+          const id = await ifpaSearch(r.name);
+          if (id) { db.ifpaIds[lower(r.name)] = { id, src: 'ifpa' }; found++; } else miss++;
+        }
+        notes.push(`IFPA search found ${found} more number${found === 1 ? '' : 's'}${miss ? `; ${miss} name${miss === 1 ? '' : 's'} had no single exact match` : ''}.`);
+      }
+    }
+    save(); return send(res, 200, { ...ifpaReport(t), notes });
   }
   if (m === 'POST' && sub === '/sync') {
     const t = openT(tid), b = await readBody(req), machines = b.what === 'machines';

@@ -64,7 +64,23 @@ a{color:inherit}
 .tselwrap{position:relative;flex:1;min-width:0}
 #tsel{width:100%;appearance:none;-webkit-appearance:none;background:color-mix(in srgb,var(--headInk) 8%,transparent);color:var(--headInk);border:1.5px solid var(--lane);border-radius:8px;padding:.5rem 2.2rem .5rem .75rem;font:700 1.05rem/1.25 var(--cond);letter-spacing:.01em;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
 #tsel:focus{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--lane) 35%,transparent)}
-#tsel option{color:#16324F;background:#fff;font-weight:600}
+#tsel{display:block;text-align:left}
+#tsel:disabled{cursor:default;opacity:.8}
+/* tournament menu: open tournaments first, archived ones folded into their own section */
+#tmenu{position:absolute;left:0;right:0;top:calc(100% + .3rem);z-index:30;background:var(--card);color:var(--ink);border:1px solid var(--grid);border-radius:10px;padding:.35rem;box-shadow:0 10px 28px rgba(0,0,0,.3);max-height:min(70vh,32rem);overflow:auto}
+#tmenu .ti{display:flex;align-items:center;gap:.5rem;width:100%;background:none;border:0;border-radius:6px;padding:.55rem .6rem;cursor:pointer;text-align:left;font:600 1rem/1.25 var(--body)}
+#tmenu .ti:hover,#tmenu .ti:focus-visible{background:color-mix(in srgb,var(--lane) 14%,transparent);outline:none}
+#tmenu .ti[aria-selected="true"]{background:var(--me)}
+#tmenu .ti .tn{flex:1;min-width:0}
+#tmenu .ti small{flex:none;font:700 .68rem var(--cond);text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+#tmenu .tmh{font:700 .72rem var(--cond);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:.35rem .6rem .15rem}
+#tmenu details{border-top:1px solid var(--grid);margin-top:.3rem;padding-top:.3rem}
+#tmenu summary{list-style:none;display:flex;align-items:center;gap:.5rem;padding:.55rem .6rem;border-radius:6px;cursor:pointer;font:700 .95rem var(--cond);color:var(--muted)}
+#tmenu summary::-webkit-details-marker{display:none}
+#tmenu summary::before{content:"›";display:inline-block;font-size:1.2rem;line-height:1;transition:transform .15s}
+#tmenu details[open] summary::before{transform:rotate(90deg)}
+#tmenu summary:hover{background:color-mix(in srgb,var(--lane) 10%,transparent)}
+#tmenu details .ti{padding-left:1.6rem}
 .tcaret{position:absolute;right:.6rem;top:50%;transform:translateY(-50%);width:1.1rem;height:1.1rem;color:var(--lane);pointer-events:none}
 .tstate{margin-left:.1rem;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;font:700 .72rem var(--cond);text-transform:uppercase;letter-spacing:.04em;padding:.2rem .5rem;border-radius:999px;white-space:nowrap;background:var(--lane);color:var(--laneInk)}
 .tstate:empty{display:none}
@@ -518,6 +534,9 @@ body.streammode.clear{background:transparent}
 #toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
 body.streammode #toast,body.tvmode #toast{display:none}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
+.lb .n{text-align:right}
+@media print{.top,#banner,.noprint,#toast{display:none!important}body{background:#fff}.panel{box-shadow:none}#ifTxt,#ifNote{display:none}.printonly{display:block!important;white-space:pre-wrap;font:500 .85rem/1.4 ui-monospace,Menlo,Consolas,monospace;margin-top:.5rem}}
+.printonly{display:none}
 </style>
 </head>
 <body>
@@ -530,7 +549,7 @@ body.streammode #toast,body.tvmode #toast{display:none}
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
   </div>
-  <div class="tbar"><label for="tsel" class="tlabel">Tournament</label><div class="tselwrap"><select id="tsel"></select><svg class="tcaret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div></div>
+  <div class="tbar"><span class="tlabel" id="tselLbl">Tournament</span><div class="tselwrap"><button type="button" id="tsel" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="tselLbl tsel"></button><div id="tmenu" role="listbox" aria-labelledby="tselLbl" hidden></div><svg class="tcaret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div></div>
   <div class="navwrap"><button class="navarrow l" id="navL" aria-label="Show tabs to the left" hidden>‹</button><nav id="nav" role="tablist" aria-label="Sections"></nav><button class="navarrow r" id="navR" aria-label="Show tabs to the right" hidden>›</button></div>
 </header>
 <div class="banner" id="banner"></div>
@@ -820,7 +839,8 @@ function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-ta
 
 function renderHeader(){
   const sel=$('#tsel');
-  sel.innerHTML = LIST.length ? LIST.map(t=>`<option value="${t.id}" ${T&&t.id===T.id?'selected':''}>${esc(t.name)}${t.status==='archived'?' (archived)':''}</option>`).join('') : '<option>No tournaments yet</option>';
+  sel.textContent = T ? T.name + (T.status==='archived'?' (archived)':'') : LIST.length ? 'Pick a tournament' : 'No tournaments yet';
+  if(!$('#tmenu').hidden) fillTMenu();
   const st=$('#tstate'); if(st){ const s = !T ? '' : T.status==='archived' ? 'Archived' : T.daily ? 'Daily · live' : T.finals ? (T.finals.champion?'Finals · done':'Finals · live') : T.done ? 'Done' : 'Live';
     st.textContent=s; st.className='tstate'+(T&&T.status==='archived'?' arch':''); }
   document.title = T ? `${T.name} · Pinbowl` : 'Pinbowl';
@@ -833,7 +853,7 @@ function renderHeader(){
   navArrows();
   let bn='';
   if(T && T.daily && T.status==='active') bn=`<div class="bonus">Open until ${ctTime(T.daily.end)}. Join any time and play your 10 frames. The highest total when it closes wins.</div>`;
-  else if(T && T.daily && readOnly()) bn = `<div>${(T.winners||[]).length ? `Winner${T.winners.length>1?'s':''}: ${T.winners.map(w=>`<b>${esc(w.name)}</b>`).join(' and ')} with ${T.winners[0].total}. ` : 'This challenge ended with no scores. '}Scores are locked.</div>`;
+  else if(T && T.daily && readOnly()){ const w=dailyWinners(); bn = `<div>${w.length ? `Winner${w.length>1?'s':''}: ${w.map(x=>`<b>${esc(x.name)}</b>`).join(' and ')} with ${w[0].total}. ` : 'This challenge ended with no scores. '}Scores are locked.</div>`; }
   else if(T && readOnly()) bn='<div>This tournament is archived. Scores are read-only.</div>';
   const fid = T && !T.finals && (LIST.find(t=>t.finals && t.status==='active' && FINALIST[t.id])||{}).id;
   if(fid) bn=`<div class="fin"><span><b>You made the finals!</b> They're in their own tournament.</span><button class="btn small primary" data-openfin="${fid}">Open the finals</button></div>`+bn;
@@ -847,8 +867,9 @@ function render(){
   if(screen==='setup') return renderSetupScreen();
   if(screen==='login') return renderLogin();
   if(screen==='pin') return renderPin();
+  if(screen==='ifpa') return renderIfpa();
   if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
-  if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch')) return renderPicker();
+  if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch') && !(tab==='mine' && dailyDone())) return renderPicker();
   const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders}[tab];
   (fn||renderStandings)();
 }
@@ -860,7 +881,29 @@ window.addEventListener('resize',navArrows);
 $('#navL').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:-n.clientWidth*0.7}); };
 $('#navR').onclick=()=>{ const n=$('#nav'); n.scrollBy({left:n.clientWidth*0.7}); };
 $('#nav').addEventListener('wheel',e=>{ const n=$('#nav'); if(n.scrollWidth>n.clientWidth && Math.abs(e.deltaY)>Math.abs(e.deltaX)){ n.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
-$('#tsel').onchange=async e=>{ store.set('pb-tid-at',Date.now()); await loadT(e.target.value); resetForm(false); resetPF(); KNOWN=null; render(); };
+async function pickT(id){ store.set('pb-tid-at',Date.now()); await loadT(id); resetForm(false); resetPF(); KNOWN=null; render(); }
+// The tournament menu: open ones on top, archived ones in a section that folds open
+function fillTMenu(){
+  const kind=t=>t.daily?'Daily':t.finals?'Finals':'Weekly';
+  const item=t=>`<button type="button" class="ti" role="option" data-tid="${t.id}" aria-selected="${!!(T&&t.id===T.id)}"><span class="tn">${esc(t.name)}</span><small>${kind(t)}</small></button>`;
+  const open=LIST.filter(t=>t.status!=='archived'), arch=LIST.filter(t=>t.status==='archived');
+  const showArch = (T && T.status==='archived') || store.get('pb-archopen')==='1';
+  $('#tmenu').innerHTML = (open.length?`<div class="tmh">Open</div>${open.map(item).join('')}`:'<div class="tmh">No open tournaments</div>')
+    + (arch.length?`<details id="tmArch" ${showArch?'open':''}><summary>Archived (${arch.length})</summary>${arch.map(item).join('')}</details>`:'');
+  $$('#tmenu [data-tid]').forEach(b=>b.onclick=()=>{ closeTMenu(); if(!T || b.dataset.tid!==T.id) pickT(b.dataset.tid); });
+  const d=$('#tmArch'); if(d) d.addEventListener('toggle',()=>store.set('pb-archopen', d.open?'1':'0'));
+}
+function closeTMenu(focus){ $('#tmenu').hidden=true; $('#tsel').setAttribute('aria-expanded','false'); if(focus) $('#tsel').focus(); }
+$('#tsel').onclick=e=>{ e.stopPropagation(); if(!$('#tmenu').hidden) return closeTMenu();
+  fillTMenu(); $('#tmenu').hidden=false; $('#tsel').setAttribute('aria-expanded','true');
+  const on=$('#tmenu [aria-selected="true"]')||$('#tmenu .ti'); if(on){ on.focus(); on.scrollIntoView({block:'nearest'}); } };
+$('#tmenu').addEventListener('click',e=>e.stopPropagation());
+$('#tmenu').addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ e.preventDefault(); return closeTMenu(true); }
+  if(e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+  const list=[...$$('#tmenu .ti, #tmenu summary')].filter(x=>x.offsetParent), i=list.indexOf(document.activeElement);
+  e.preventDefault(); const n=list[Math.max(0,Math.min(list.length-1, i+(e.key==='ArrowDown'?1:-1)))]; if(n) n.focus(); });
+document.addEventListener('click',()=>{ if(!$('#tmenu').hidden) closeTMenu(); });
 $('#acct').onclick=async()=>{
   if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=null; await boot(); }
   else { screen='login'; render(); }
@@ -1140,7 +1183,28 @@ async function renderPin(){
 async function switchPlayer(){ try{ await api('/api/player/logout','POST'); }catch(e){} PLAYER=null; store.del('pb-watch'); resetPF(); tab='mine'; render(); }
 
 /* ================= player: my card ================= */
+// A finished daily challenge: say so at the top of My card
+const dailyDone = () => !!(T && T.daily && T.status==='archived');
+// Winners saved when the challenge closed, or worked out from the scores (a challenge archived by hand has none saved)
+function dailyWinners(){
+  if((T.winners||[]).length) return T.winners;
+  const rows=standings().filter(x=>x.r.total>0); if(!rows.length) return [];
+  const top=rows[0].r.total; return rows.filter(x=>x.r.total===top).map(x=>({name:x.p.name,total:top}));
+}
+function dailyDoneHTML(played){
+  const w=dailyWinners(), live=LIST.find(t=>t.daily && t.status==='active');
+  const when=new Date(T.endedAt||T.daily.end).toLocaleDateString('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric'});
+  return `<div class="panel" style="border:2px solid var(--lane)"><h2>This daily challenge is completed</h2>
+    <p>It closed ${esc(when)}. ${w.length?`Winner${w.length>1?'s':''}: <b>${w.map(x=>esc(x.name)).join('</b> and <b>')}</b> with ${w[0].total}.`:'Nobody finished a game.'} Scores are locked.</p>
+    ${played||!PLAYER?'':`<p class="note">You didn't play in this one.</p>`}
+    <div class="row" style="margin-top:.7rem"><button class="btn" data-dgo="leaders">See the leaderboard</button>${live?`<button class="btn primary" data-dlive="${live.id}">Go to today's challenge</button>`:''}</div></div>`;
+}
+function bindDailyDone(){
+  $$('[data-dgo]').forEach(b=>b.onclick=()=>go(b.dataset.dgo));
+  $$('[data-dlive]').forEach(b=>b.onclick=()=>pickT(b.dataset.dlive));
+}
 function notInTournament(){
+  if(dailyDone()) return dailyDoneHTML(false) + `<div class="panel"><p class="note">${PLAYER?`Signed in as ${esc(PLAYER.name)}.`:'Pick your name to see your cards in other challenges.'}</p><div class="row" style="margin-top:.6rem"><button class="btn" id="chg">${PLAYER?'Switch player':'Choose my name'}</button></div></div>`;
   if(PLAYER && dailyOpen()) return `<div class="panel"><h2>${esc(PLAYER.name)}</h2>
     <p class="note">The challenge is open until ${ctTime(T.daily.end)}. Join to start your card.</p>
     <div class="row" style="margin-top:.8rem"><button class="btn primary" id="joinNow">Join today's challenge</button><button class="btn" id="chg">Switch player</button></div></div>`;
@@ -1150,12 +1214,12 @@ function notInTournament(){
 }
 function renderMine(){
   const p=me();
-  if(!p){ $('#main').innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; if($('#joinNow')) $('#joinNow').onclick=async()=>{ if(await joinDaily()) go('play'); }; return; }
+  if(!p){ $('#main').innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; if($('#joinNow')) $('#joinNow').onclick=async()=>{ if(await joinDaily()) go('play'); }; bindDailyDone(); return; }
   const rows=standings(), mine=rows.find(x=>x.p.id===p.id), r=mine.r;
   const played=playedArenaIds(p.id);
   const left=T.arenas.filter(a=>a.active && !played.has(a.id));
-  const status = r.playing ? `Playing ${A(r.playing.arenaId)?.name||''}` : r.complete ? 'Card complete' : r.stillNeeded ? `Play a bonus game for frame ${T.frames}` : `${r.regCount} of ${T.frames} frames played`;
-  $('#main').innerHTML=`<div class="panel">
+  const status = dailyDone() ? 'Challenge completed' : r.playing ? `Playing ${A(r.playing.arenaId)?.name||''}` : r.complete ? 'Card complete' : r.stillNeeded ? `Play a bonus game for frame ${T.frames}` : `${r.regCount} of ${T.frames} frames played`;
+  $('#main').innerHTML=`${dailyDone()?dailyDoneHTML(true):''}<div class="panel">
     <div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(p.name)}</h2><button class="linkbtn" id="chg" style="color:var(--muted)">Not you?</button></div>
     <p style="margin:.2rem 0 .8rem"><b>Place ${mine.rank} of ${rows.length}</b> <span class="note">${status}</span></p>
     ${sheetHTML(r)}
@@ -1163,7 +1227,7 @@ function renderMine(){
     ${frameListHTML(r,'self')}
     ${!r.complete && !r.stillNeeded && left.length && !readOnly() ? `<h3>Machines you haven't played</h3><p>${left.map(a=>`<span class="tag">${esc(abbr(a))}</span> ${esc(a.name)}`).join('<br>')}</p>`:''}
   </div>`;
-  $('#chg').onclick=switchPlayer;
+  $('#chg').onclick=switchPlayer; bindDailyDone();
   if($('#toPlay')) $('#toPlay').onclick=()=>go('play');
   bindGameActions($('#main')); scrollSheets($('#main'));
 }
@@ -2383,6 +2447,100 @@ function renderRules(){
   </div>`;
 }
 
+/* ================= IFPA submission ================= */
+let IFPA=null;
+const pct1 = v => `${Math.round(v*1000)/10}%`;
+function ifpaLines(d){ return d.rows.map(r=>`${r.place},${r.name.replace(/,/g,' ')},${r.ifpa||'????'}`); }
+// TGP two ways: IFPA's 1/3 rule, and counting each game by the share of its balls actually played
+function ifpaTgp(d){
+  const mult=n=>n>=4?2:n===3?1.5:1, cutOk = d.finalists>0 && d.finalists <= d.players/2;
+  const path = d.champRounds.length ? d.champRounds : (()=>{ // finals not finished: the rounds the winner would play
+    const out=[]; d.rounds.forEach(r=>out.push({round:r.round, size:Math.max(...r.sizes)})); return out; })();
+  const share = rn => { const r=d.rounds.find(x=>x.round===rn); return r && r.stats.games ? r.stats.share : 1; };
+  const third={ qual: cutOk ? d.frames/3 : 0, fin: path.reduce((s,x)=>s+3*mult(x.size)/3,0) };
+  const balls={ qual: cutOk ? d.frames*(d.qual.share||1) : 0, fin: path.reduce((s,x)=>s+3*mult(x.size)*share(x.round),0) };
+  const full={ qual: cutOk ? d.frames : 0, fin: path.reduce((s,x)=>s+3*mult(x.size),0) };
+  const finalsOk = d.finalists >= d.players*0.1 && path.some(x=>x.size<=4), cap = d.finalists ? (finalsOk?200:100) : 100;
+  const tgp = x => Math.min(cap, 4*(x.qual+x.fin));
+  return {cutOk, path, third, balls, full, cap, finalsOk, tgp, mult};
+}
+function ballRow(label, st){
+  if(!st.games) return `<tr><td>${label}</td><td class="n" colspan="6">No games</td></tr>`;
+  const reg = st.games - st.em, p = n => reg ? pct1((st.dist[n]||0)/reg) : '–';
+  return `<tr><td>${label}</td><td class="n">${st.games}</td><td class="n">${st.avg.toFixed(2)}</td><td class="n">${pct1(st.share)}</td><td class="n">${p(1)}</td><td class="n">${p(2)}</td><td class="n">${p(3)}</td></tr>`;
+}
+function ifpaNote(d, x){
+  const mg=v=>Math.round(v*100)/100;
+  const fr = d.rounds.filter(r=>r.stats.games).map(r=>`round ${r.round}${r.final?' (final)':''}: ${r.stats.avg.toFixed(2)} balls per game, ${pct1(r.stats.share)} of a full game, ${pct1((r.stats.dist[1]||0)/Math.max(1,r.stats.games-r.stats.em))} ended on ball 1`).join('; ');
+  return `Pinbowl format: each game is one bowling frame on a 3-ball machine (5 balls on EM machines). A game only ends early if the player reaches the target score before the last ball (a strike on ball 1, or a spare on ball 2). Every ball was recorded in the scoring app, so these are actual counts, not estimates.
+
+Qualifying: ${d.players} players, ${d.frames} frames each, ${d.qual.games} games. Average ${d.qual.avg.toFixed(2)} balls per game, which is ${pct1(d.qual.share)} of a full game. Only ${pct1((d.qual.dist[1]||0)/Math.max(1,d.qual.games-d.qual.em))} of games ended on ball 1.${d.finalists?` ${d.finalists} players advanced to the finals.`:''}
+${fr?`Finals: ${fr}.
+`:''}
+Under the 1/3 rule this event counts ${mg(x.third.qual+x.third.fin)} meaningful games (TGP ${mg(x.tgp(x.third))}%). Counting each game by the share of balls actually played, it is ${mg(x.balls.qual+x.balls.fin)} meaningful games (TGP ${mg(x.tgp(x.balls))}%). We ask that the TGP be based on the balls actually played.`;
+}
+async function renderIfpa(notes){
+  const main=$('#main');
+  if(!IFPA || !IFPA.data){ main.innerHTML='<div class="panel note">Putting the IFPA submission together…</div>';
+    try{ IFPA.data=await api(`/api/admin/t/${IFPA.tid}/ifpa`); }catch(e){ main.innerHTML=`<div class="panel"><p>${esc(e.message)}</p><button class="btn" id="ifBack">Back</button></div>`; $('#ifBack').onclick=()=>{ screen=null; render(); }; return; } }
+  const d=IFPA.data, x=ifpaTgp(d), mg=v=>Math.round(v*100)/100, missing=d.rows.filter(r=>!r.ifpa).length;
+  const day=new Date(d.date).toLocaleDateString('en-US',{timeZone:'America/Chicago',year:'numeric',month:'long',day:'numeric'});
+  const srcName={matchplay:'Matchplay', ifpa:'IFPA search', manual:'Typed in'};
+  main.innerHTML=`<div class="panel noprint"><div class="row" style="justify-content:space-between"><button class="btn" id="ifBack">‹ Back</button><button class="btn" id="ifPrint">Print</button></div></div>
+  ${(notes||[]).length?`<div class="panel noprint">${notes.map(n=>`<p class="note">${esc(n)}</p>`).join('')}</div>`:''}
+  <div class="panel"><h2>IFPA submission: ${esc(d.name)}</h2>
+    <p>${esc(day)} · ${d.players} players${d.registered>d.players?` (${d.registered-d.players} signed up but never played a game and are left off)`:''}${d.finalists?` · ${d.finalists} finalists`:''}${d.mpId?` · Matchplay #${d.mpId}`:''}</p>
+    ${d.finalists && !d.finalsDone?`<p class="note" style="color:var(--warn)"><b>The finals aren't finished.</b> Finalists still playing are listed by their current round. Finish the finals before submitting.</p>`:''}
+    ${!d.finalists?`<p class="note">No finals were made, so everyone is placed by qualifying total.</p>`:''}
+  </div>
+  <div class="panel"><h2>Standings to paste into IFPA</h2>
+    <p class="note">One line per player: place, name, IFPA number. In the IFPA Tournament Manager, click Upload for this event, paste these lines into the results box, then click Review Results.${missing?` <b>${missing} player${missing>1?'s have':' has'} no IFPA number</b> (shown as ????). Delete the ???? before you submit, or the IFPA may reject those lines; the review page then matches them by name.`:''}</p>
+    <textarea id="ifTxt" readonly rows="${Math.min(14,d.rows.length+1)}" style="width:100%;font:500 .9rem/1.4 ui-monospace,Menlo,Consolas,monospace;margin-top:.5rem">${esc(ifpaLines(d).join('\n'))}</textarea><div class="printonly">${esc(ifpaLines(d).join('\n'))}</div>
+    <div class="row noprint" style="margin-top:.5rem"><button class="btn primary" id="ifCopy">Copy</button><button class="btn" id="ifCsv">Download as a spreadsheet (CSV)</button></div></div>
+  <div class="panel"><h2>Players and IFPA numbers</h2>
+    <p class="note noprint">Numbers come from players' Matchplay profiles or an IFPA name search, or you can type them in. Typed numbers are remembered for future weeks. Leave a box blank for ????.</p>
+    <div class="tablewrap"><table class="lb"><thead><tr><th>Place</th><th>Player</th><th>How placed</th><th>IFPA #</th></tr></thead><tbody>
+    ${d.rows.map((r,i)=>`<tr><td>${r.place}</td><td>${esc(r.name)}</td><td class="note">${esc(r.how)}</td><td><input type="text" inputmode="numeric" class="ifnum" data-name="${esc(r.name)}" value="${r.ifpa||''}" placeholder="????" style="width:6.5rem;padding:.25rem .4rem">${r.src?`<small class="note" style="display:block">${srcName[r.src]||''}</small>`:''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="row noprint" style="margin-top:.7rem"><button class="btn primary" id="ifSave">Save numbers</button><button class="btn" id="ifLook">Look up missing numbers</button></div>
+    <details class="noprint" style="margin-top:.7rem"><summary class="note" style="cursor:pointer">IFPA API key ${d.hasKey?'(set)':'(not set)'}</summary>
+      <p class="note" style="margin-top:.4rem">Searching IFPA by name needs a free API key from the IFPA (ifpapinball.com, under your account). Only an exact match to one player is used. Without a key, numbers still come from players who linked their IFPA number in Matchplay.</p>
+      <div class="row" style="margin-top:.4rem"><input type="password" id="ifKey" placeholder="${d.hasKey?'Saved. Type a new key to replace it':'Paste your IFPA API key'}" autocomplete="off" style="flex:1;min-width:12rem"><button class="btn" id="ifKeySave">Save key</button></div></details></div>
+  <div class="panel"><h2>Balls played per game</h2>
+    <p class="note">From the ball-by-ball scores in the app. A full game is 3 balls (5 on EM machines). “Of full” is the balls played divided by the balls the machine allows, averaged over every game. The last 3 columns show which ball games ended on.</p>
+    <div class="tablewrap"><table class="lb"><thead><tr><th></th><th class="n">Games</th><th class="n">Avg balls</th><th class="n">Of full</th><th class="n">Ended ball 1</th><th class="n">2</th><th class="n">3</th></tr></thead><tbody>
+      ${ballRow(`Qualifying (frames 1–${d.frames})`, d.qual)}
+      ${d.qualBonus.games?ballRow('Qualifying bonus frames', d.qualBonus):''}
+      ${d.rounds.map(r=>ballRow(`Finals round ${r.round}${r.final?' (final)':''}`, r.stats)+(r.bonus.games?ballRow(`Round ${r.round} bonus games`, r.bonus):'')).join('')}
+    </tbody></table></div>
+    ${d.qual.em?`<p class="note" style="margin-top:.4rem">Includes ${d.qual.em} qualifying games on 5-ball EM machines (left out of the ball 1/2/3 columns).</p>`:''}</div>
+  <div class="panel"><h2>TGP</h2>
+    <div class="tablewrap"><table class="lb"><thead><tr><th></th><th class="n">1/3 rule</th><th class="n">By balls played</th><th class="n">Full games</th></tr></thead><tbody>
+      <tr><td>Qualifying${x.cutOk?'':' (less than half the field cut, so it counts as seeding)'}</td><td class="n">${mg(x.third.qual)}</td><td class="n">${mg(x.balls.qual)}</td><td class="n">${mg(x.full.qual)}</td></tr>
+      ${x.path.map(p=>`<tr><td>Finals round ${p.round}, ${p.size}-player group${p.size>=4?' (×2)':p.size===3?' (×1.5)':''}</td><td class="n">${mg(3*x.mult(p.size)/3)}</td><td class="n">${mg(3*x.mult(p.size)*((d.rounds.find(r=>r.round===p.round)||{stats:{}}).stats.share||1))}</td><td class="n">${mg(3*x.mult(p.size))}</td></tr>`).join('')}
+      <tr><td><b>Meaningful games</b></td><td class="n"><b>${mg(x.third.qual+x.third.fin)}</b></td><td class="n"><b>${mg(x.balls.qual+x.balls.fin)}</b></td><td class="n"><b>${mg(x.full.qual+x.full.fin)}</b></td></tr>
+      <tr><td><b>TGP</b> (4% per game, cap ${x.cap}%)</td><td class="n"><b>${mg(x.tgp(x.third))}%</b></td><td class="n"><b>${mg(x.tgp(x.balls))}%</b></td><td class="n"><b>${mg(x.tgp(x.full))}%</b></td></tr>
+    </tbody></table></div>
+    <p class="note" style="margin-top:.4rem">${d.finalsDone?'Finals rounds are the ones the champion played.':'The finals aren\'t finished, so this uses the largest group in each round so far.'} Bonus frames aren't counted because not every player plays them.${x.finalsOk||!d.finalists?'':' These finals don\'t meet IFPA\'s finals rules (at least 10% of players and a round of 4 or fewer), so the cap is 100%.'}</p></div>
+  <div class="panel"><h2>Note for the IFPA</h2>
+    <p class="note noprint">Paste this into the comments box when you submit. You can edit it first.</p>
+    <textarea id="ifNote" rows="10" style="width:100%;margin-top:.5rem;font:inherit">${esc(ifpaNote(d,x))}</textarea><div class="printonly" id="ifNoteP" style="font-family:inherit">${esc(ifpaNote(d,x))}</div>
+    <div class="row noprint" style="margin-top:.5rem"><button class="btn" id="ifNoteCopy">Copy note</button></div></div>`;
+  const copy=async(txt,msg)=>{ try{ await navigator.clipboard.writeText(txt); toast(msg); }catch(e){ toast('Select the text and copy it by hand.'); } };
+  $('#ifBack').onclick=()=>{ screen=null; IFPA=null; render(); };
+  $('#ifPrint').onclick=()=>window.print();
+  $('#ifCopy').onclick=()=>copy($('#ifTxt').value,'Standings copied');
+  $('#ifNote').oninput=()=>{ $('#ifNoteP').textContent=$('#ifNote').value; };
+  $('#ifNoteCopy').onclick=()=>copy($('#ifNote').value,'Note copied');
+  $('#ifCsv').onclick=()=>{ const q=v=>/[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v;
+    const csv=['Place,Player Name,IFPA #',...d.rows.map(r=>[r.place,q(r.name),r.ifpa||'????'].join(','))].join('\r\n');
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`${d.name.replace(/[^\w -]+/g,'').trim()||'results'} IFPA.csv`; document.body.appendChild(a); a.click(); a.remove(); };
+  const send=async(body,msg)=>{ try{ const r=await api(`/api/admin/t/${IFPA.tid}/ifpa`,'POST',body); IFPA.data=r; if(msg) toast(msg); renderIfpa(r.notes); }catch(e){ toast(e.message); } };
+  $('#ifSave').onclick=()=>{ const set={}; $$('.ifnum').forEach(i=>{ set[i.dataset.name]=i.value.trim(); }); send({set},'IFPA numbers saved'); };
+  $('#ifLook').onclick=async()=>{ $('#ifLook').disabled=true; $('#ifLook').textContent='Looking up…'; const set={}; $$('.ifnum').forEach(i=>{ set[i.dataset.name]=i.value.trim(); }); await send({set, lookup:true}); };
+  $('#ifKeySave').onclick=()=>{ const k=$('#ifKey').value.trim(); if(!k) return toast('Paste the key first.'); send({key:k},'IFPA API key saved'); };
+}
+
 /* ================= daily challenge leaderboard ================= */
 // Points like IFPA WPPR: each player is worth 0.5, the winner gets 0.5 for every player they beat,
 // and everyone else gets a share of that on IFPA's curve (last place gets 0). The server works out each challenge.
@@ -2635,6 +2793,9 @@ async function renderTournaments(){
     <p class="note" style="margin-top:.5rem">Archive when the event ends. It stays viewable, scores lock, and Matchplay checks stop.</p>`}
     ${cur.mpId?`<details style="margin-top:1rem"><summary class="note">Matchplay data check</summary><p class="note">Shows what Matchplay sent last time, which helps if target scores aren't coming through.</p><pre id="raw">Loading…</pre></details>`:''}
   </div>`:''}
+  ${cur && !cur.daily && !cur.finals ? `<div class="panel"><h2>IFPA submission</h2>
+    <p class="note">Puts this tournament's final standings in the IFPA's paste-in format (place, name, IFPA number), with finalists in finals order and everyone else by qualifying total. Also shows how many balls each game really took, to back up a higher TGP than the 1/3 rule.</p>
+    <div class="row" style="margin-top:.7rem"><button class="btn primary" id="ifpaGo">Open IFPA submission</button></div></div>`:''}
 
   <div class="panel"><h2>All tournaments</h2><div class="plist">
     ${LIST.map(t=>`<div class="prow"><div class="pinfo"><b>${esc(t.name)}</b><small>${t.daily?'Daily challenge':t.finals?'Finals':'Weekly tournament'} · ${t.players} player${t.players===1?'':'s'}</small><span class="mflags">${t.status==='archived'?'<span class="tag">Archived</span>':'<span class="tag" style="background:var(--me)">Open</span>'}${t.done?'<span class="tag">Done</span>':''}</span></div>
@@ -2662,6 +2823,7 @@ async function renderTournaments(){
     try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); if(T && T.id===run.id) T=j.tournament; adminSettings=null; await refreshList(); toast('Challenge ended'); renderTournaments(); }catch(e){ toast(e.message); } };
   $$('[data-open]').forEach(b=>b.onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(b.dataset.open); resetForm(false); render(); });
   if(!cur) return;
+  if($('#ifpaGo')) $('#ifpaGo').onclick=()=>{ IFPA={tid:cur.id, data:null}; screen='ifpa'; render(); scrollTo(0,0); };
   if(readOnly()){
     $('#reopen').onclick=async()=>{ if(confirm('Reopen this tournament so scores can be changed?')){ await change('','PATCH',{status:'active'},'Reopened'); await refreshList(); render(); } };
     $('#tdel').onclick=async()=>{ if(prompt('Type DELETE to permanently delete this tournament and all its scores.')==='DELETE'){ try{ await api(`/api/admin/t/${cur.id}`,'DELETE'); store.del('pb-tid'); await boot(); toast('Deleted'); }catch(e){ toast(e.message); } } };
