@@ -339,7 +339,10 @@ function dailyResults(t) {
   }
   return { id: t.id, name: t.name, when: t.daily.start || t.createdAt, live: t.status === 'active', players: n, value, rows };
 }
+// Past its closing time. A challenge an admin reopened stays open until it's archived again.
+const dailyExpired = t => !!(t.daily && !t.daily.reopened && nowMs() >= t.daily.end);
 function closeDaily(t) {
+  delete t.daily.reopened;
   const scores = t.players.map(p => ({ name: p.name, total: totalFor(t, p.id) })).sort((a, b) => b.total - a.total);
   const top = scores.length && scores[0].total > 0 ? scores[0].total : null;
   t.winners = top == null ? [] : scores.filter(x => x.total === top);
@@ -348,7 +351,7 @@ function closeDaily(t) {
 }
 function dailyTick() {
   const now = nowMs();
-  for (const t of db.tournaments) if (t.daily && t.status === 'active' && now >= t.daily.end) closeDaily(t);
+  for (const t of db.tournaments) if (t.daily && t.status === 'active' && !t.daily.reopened && now >= t.daily.end) closeDaily(t);
   if (db.settings.dailyOn === false) return;
   const w = nextWindow(now);
   if (w && now >= w.start && now < w.end && !db.tournaments.some(t => t.daily && t.daily.key === w.key)) createDaily(w);
@@ -358,7 +361,7 @@ setTimeout(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 2000)
 function getT(id) { return db.tournaments.find(t => t.id === id) || fail(404, 'Tournament not found.'); }
 function openT(id) {
   const t = getT(id);
-  if (t.daily && t.status === 'active' && nowMs() >= t.daily.end) closeDaily(t); // a challenge locks the moment it ends
+  if (t.daily && t.status === 'active' && dailyExpired(t)) closeDaily(t); // a challenge locks the moment it ends
   if (t.status === 'archived') fail(409, t.daily ? 'This challenge has closed. Scores are locked.' : 'This tournament is archived. Scores are locked.');
   return t;
 }
@@ -861,7 +864,7 @@ async function route(req, res, url) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
     const t = scoringT(mt[1]);
     if (!t.daily) fail(409, 'Sign up for this tournament in Matchplay.');
-    if (nowMs() >= t.daily.end) fail(409, 'This challenge has closed.');
+    if (dailyExpired(t)) fail(409, 'This challenge has closed.');
     if (!t.players.some(x => lower(x.name) === lower(player))) { t.players.push({ id: uid(), name: player, mpId: null, joinedAt: nowMs() }); save(); }
     return send(res, 200, { tournament: publicT(t) });
   }
@@ -1179,7 +1182,12 @@ async function route(req, res, url) {
 
   if (m === 'PATCH' && sub === '') {
     const t = getT(tid), b = await readBody(req);
-    if (b.status === 'archived' || b.status === 'active') t.status = b.status;
+    if (b.status === 'archived' || b.status === 'active') {
+      // a daily challenge reopened by an admin stays open until archived again; archiving it re-picks the winner
+      if (t.daily && b.status === 'active' && t.status === 'archived') t.daily.reopened = true;
+      if (t.daily && b.status === 'archived' && t.status === 'active') closeDaily(t);
+      t.status = b.status;
+    }
     if (t.status === 'archived' && Object.keys(b).some(k => k !== 'status')) fail(409, 'Reopen the tournament to change its settings.');
     if (typeof b.name === 'string' && b.name.trim()) t.name = b.name.trim();
     if (b.frames != null) { t.frames = Math.max(1, Math.min(20, parseInt(b.frames, 10) || 10)); ensureSlots(t); }

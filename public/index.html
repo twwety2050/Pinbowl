@@ -852,7 +852,7 @@ function renderHeader(){
   if(nv && on && (on.offsetLeft < nv.scrollLeft || on.offsetLeft+on.offsetWidth > nv.scrollLeft+nv.clientWidth)) nv.scrollLeft = on.offsetLeft - 40;
   navArrows();
   let bn='';
-  if(T && T.daily && T.status==='active') bn=`<div class="bonus">Open until ${ctTime(T.daily.end)}. Join any time and play your 10 frames. The highest total when it closes wins.</div>`;
+  if(T && T.daily && T.status==='active') bn = T.daily.reopened ? `<div class="bonus">An admin reopened this challenge. Scores can be entered until it's archived again.</div>` : `<div class="bonus">Open until ${ctTime(T.daily.end)}. Join any time and play your 10 frames. The highest total when it closes wins.</div>`;
   else if(T && T.daily && readOnly()){ const w=dailyWinners(); bn = `<div>${w.length ? `Winner${w.length>1?'s':''}: ${w.map(x=>`<b>${esc(x.name)}</b>`).join(' and ')} with ${w[0].total}. ` : 'This challenge ended with no scores. '}Scores are locked.</div>`; }
   else if(T && readOnly()) bn='<div>This tournament is archived. Scores are read-only.</div>';
   const fid = T && !T.finals && (LIST.find(t=>t.finals && t.status==='active' && FINALIST[t.id])||{}).id;
@@ -1206,7 +1206,7 @@ function bindDailyDone(){
 function notInTournament(){
   if(dailyDone()) return dailyDoneHTML(false) + `<div class="panel"><p class="note">${PLAYER?`Signed in as ${esc(PLAYER.name)}.`:'Pick your name to see your cards in other challenges.'}</p><div class="row" style="margin-top:.6rem"><button class="btn" id="chg">${PLAYER?'Switch player':'Choose my name'}</button></div></div>`;
   if(PLAYER && dailyOpen()) return `<div class="panel"><h2>${esc(PLAYER.name)}</h2>
-    <p class="note">The challenge is open until ${ctTime(T.daily.end)}. Join to start your card.</p>
+    <p class="note">${T.daily.reopened?'An admin reopened this challenge.':`The challenge is open until ${ctTime(T.daily.end)}.`} Join to start your card.</p>
     <div class="row" style="margin-top:.8rem"><button class="btn primary" id="joinNow">Join today's challenge</button><button class="btn" id="chg">Switch player</button></div></div>`;
   return `<div class="panel"><h2>${PLAYER?esc(PLAYER.name):'My card'}</h2>
     <p class="note">${PLAYER?'You are not in this tournament yet. If you just signed up in Matchplay, your name will appear within a minute.':'Pick your name to see your card.'}</p>
