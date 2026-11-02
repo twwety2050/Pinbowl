@@ -192,6 +192,7 @@ function pickBonus(t, idx, machineId) {
   }
   if (!m.target) fail(400, `${m.name} has no target score. Set one on the Stored machines tab first.`);
   const a = arenaForStored(t, m);
+  if (t.daily && a.balls === 5) a.em = true;
   t.bonusArenas[idx] = a.id; t.bonusDrawnAt = Date.now();
   return a;
 }
@@ -249,7 +250,8 @@ function summary(t) { return { id: t.id, name: t.name, status: t.status, created
 // Runs by itself: Friday 5 pm to midnight, Saturday and Sunday 11 am to 7 pm, Central time.
 const TZ = 'America/Chicago';
 const nowMs = () => Date.now() + Number(process.env.TIME_SHIFT_MS || 0); // TIME_SHIFT_MS is only for testing
-const DAILY_HOURS = { Fri: [17, 24], Sat: [11, 19], Sun: [11, 19] };
+// Every day, all day (midnight to midnight, Central)
+const DAILY_HOURS = { Sun: [0, 24], Mon: [0, 24], Tue: [0, 24], Wed: [0, 24], Thu: [0, 24], Fri: [0, 24], Sat: [0, 24] };
 function zoned(ms) {
   const o = {};
   new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' })
@@ -298,6 +300,8 @@ function createDaily(w, manual) {
     daily: { key: manual ? 'manual-' + nowMs() : w.key, start: w.start, end: w.end },
   };
   t.arenas = pickDailyMachines().map(m => { const a = newArena(m.name, m.mpId); a.mid = m.id; a.cat = m.cat || ''; remember(a, t.createdAt); return a; });
+  // daily challenges use the 5-ball rule on every 5-ball machine: strike on ball 1 or 2, spare on 3, 4 or 5
+  t.arenas.forEach(a => { if (a.balls === 5) a.em = true; });
   t.slots = t.arenas.map(a => a.id); ensureSlots(t);
   db.tournaments.push(t); save();
   console.log(`Started ${t.name} with ${t.arenas.length} machines.`);
@@ -343,6 +347,13 @@ function dailyResults(t) {
 const dailyExpired = t => !!(t.daily && !t.daily.reopened && nowMs() >= t.daily.end);
 function closeDaily(t) {
   delete t.daily.reopened;
+  // nobody played (not even a practice game): remove it instead of archiving it
+  if (!t.games.some(g => g.status !== 'playing') && !(t.practice || []).some(r => r.games.some(g => g.status !== 'playing'))) {
+    t.status = 'archived';
+    db.tournaments = db.tournaments.filter(x => x !== t);
+    db.dailySkip = [...(db.dailySkip || []), t.daily.key].slice(-60); // don't start that day's challenge again
+    save(); console.log(`Removed ${t.name}: nobody played.`); return;
+  }
   const scores = t.players.map(p => ({ name: p.name, total: totalFor(t, p.id) })).sort((a, b) => b.total - a.total);
   const top = scores.length && scores[0].total > 0 ? scores[0].total : null;
   t.winners = top == null ? [] : scores.filter(x => x.total === top);
@@ -354,10 +365,13 @@ function dailyTick() {
   for (const t of db.tournaments) if (t.daily && t.status === 'active' && !t.daily.reopened && now >= t.daily.end) closeDaily(t);
   if (db.settings.dailyOn === false) return;
   const w = nextWindow(now);
-  if (w && now >= w.start && now < w.end && !db.tournaments.some(t => t.daily && t.daily.key === w.key)) createDaily(w);
+  if (w && now >= w.start && now < w.end && !db.tournaments.some(t => t.daily && (t.daily.key === w.key || t.status === 'active'))
+    && !(db.dailySkip || []).includes(w.key)) createDaily(w);
 }
 setInterval(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 30000);
 setTimeout(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 2000);
+// dailies made before the 5-ball rule became their default
+db.tournaments.forEach(t => { if (t.daily && t.status === 'active') t.arenas.forEach(a => { if (a.balls === 5 && !a.em) a.em = true; }); });
 function getT(id) { return db.tournaments.find(t => t.id === id) || fail(404, 'Tournament not found.'); }
 function openT(id) {
   const t = getT(id);
@@ -814,6 +828,62 @@ function playerInT(t, name) {
   return t.players.find(p => lower(p.name) === lower(name)) || fail(403, "Your name isn't in this tournament yet. Sign up in Matchplay, then try again in a minute.");
 }
 
+// A practice run seen as its own little tournament: same machines and rules, its own games and bonus draws
+function practiceView(t, run) {
+  const v = Object.create(t);
+  v.players = [{ id: run.pid, name: run.name }]; v.games = run.games; v.bonusArenas = run.bonusArenas || [];
+  return v;
+}
+// Ball-by-ball entry, fixes and cancels for one player's card. Returns false if sub isn't one of these.
+function playerGameAction(t, pid, player, m, sub, b) {
+  const mine = t.games.filter(g => g.playerId === pid);
+  const playing = mine.find(g => g.status === 'playing');
+  let mt;
+  if (m === 'POST' && sub === '/ball') {
+    const score = toInt(b.score);
+    if (score == null) fail(400, 'Enter your score.');
+    if (playing) {
+      const a = t.arenas.find(x => x.id === playing.arenaId);
+      const last = playing.balls[playing.balls.length - 1];
+      if (score < last) fail(400, `Your score can't be lower than after ball ${playing.balls.length} (${last.toLocaleString('en-US')}).`);
+      playing.balls.push(score); derive(playing, a); playing.editedAt = Date.now();
+    } else {
+      const slot = slotFor(t, pid);
+      if (slot.kind === 'done') fail(409, 'Your card is complete.');
+      let a;
+      if (slot.kind === 'bonus') {
+        ensureBonus(t);
+        a = t.arenas.find(x => x.id === t.bonusArenas[slot.idx]) || fail(409, 'The bonus machine has not been picked yet. Ask an admin.');
+      } else {
+        a = t.arenas.find(x => x.id === String(b.arenaId || '')) || fail(400, 'Pick a machine.');
+        if (!a.active) fail(400, `${a.name} is closed right now.`);
+      }
+      if (!a.target) fail(400, `${a.name} has no target score yet. Ask an admin.`);
+      if (slot.kind === 'frame' && !t.allowRepeats && slot.regular.some(g => g.arenaId === a.id)) fail(409, `You already played ${a.name}.`);
+      const g = { id: uid(), playerId: pid, arenaId: a.id, balls: [score], ts: Date.now(), by: player };
+      if (slot.kind === 'bonus' && slot.left === 1) g.oneThrow = true;
+      derive(g, a); t.games.push(g);
+    }
+    ensureBonus(t); return true;
+  }
+  if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
+    const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
+    if (!Array.isArray(g.balls)) fail(409, 'An admin entered this game. Ask an admin to fix it.');
+    const a = t.arenas.find(x => x.id === g.arenaId);
+    const trial = { balls: cleanBalls(b.balls, a), oneThrow: g.oneThrow }; derive(trial, a);
+    if (trial.status === 'playing' && playing && playing.id !== g.id) fail(409, 'Finish your current game first.');
+    Object.assign(g, trial, { editedBy: player, editedAt: Date.now() });
+    ensureBonus(t); return true;
+  }
+  if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
+    const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
+    if (g.status !== 'playing') fail(409, 'Only a game in progress can be cancelled. Ask an admin to remove a finished game.');
+    const i = t.games.indexOf(g); t.games.splice(i, 1); // in place, so a practice run's own list changes too
+    return true;
+  }
+  return false;
+}
+
 async function route(req, res, url) {
   const m = req.method, p = url.pathname;
   const admin = currentAdmin(req), player = currentPlayer(req);
@@ -937,59 +1007,43 @@ async function route(req, res, url) {
     if (!mine.some(Boolean)) delete g.scores[me.id];
     ensureGroupBonus(F, g); g.order = null; save(); return send(res, 200, { tournament: publicT(F) });
   }
+  // ----- practice runs in the daily challenge: a separate card that never counts -----
+  if ((mt = p.match(/^\/api\/player\/t\/(\w+)\/practice(\/.*)?$/))) {
+    if (!player) fail(401, 'Pick your name and enter your PIN first.');
+    const t = openT(mt[1]), sub = mt[2] || '';
+    if (!t.daily) fail(409, 'Practice runs are for the daily challenge.');
+    t.practice = t.practice || [];
+    const acct = db.playerAccounts[lower(player)] || {}, name = acct.name || player;
+    const inT = t.players.find(q => lower(q.name) === lower(player));
+    const pid = inT ? inT.id : 'guest-' + lower(player).replace(/[^a-z0-9]+/g, '-');
+    let run = t.practice.find(r => lower(r.name) === lower(player) && !r.done);
+    if (m === 'POST' && sub === '/start') {
+      if (run) fail(409, 'You already have a practice run going.');
+      run = { id: uid(), pid, name, startedAt: Date.now(), games: [], bonusArenas: [...(t.bonusArenas || [])] };
+      t.practice.push(run); save(); return send(res, 200, { tournament: publicT(t) });
+    }
+    if (!run) fail(409, 'Start a practice run first.');
+    if (m === 'POST' && sub === '/end') {
+      run.games = run.games.filter(g => g.status !== 'playing');
+      if (!run.games.length) t.practice = t.practice.filter(r => r !== run);
+      else { run.done = true; run.endedAt = Date.now(); }
+      save(); return send(res, 200, { tournament: publicT(t) });
+    }
+    // the practice card works exactly like a real one, on its own copy of the card
+    const v = practiceView(t, run);
+    const b = m === 'GET' ? {} : await readBody(req);
+    if (!playerGameAction(v, run.pid, player, m, sub, b)) fail(404, 'Not found.');
+    run.bonusArenas = v.bonusArenas || run.bonusArenas;
+    if (slotFor(v, run.pid).kind === 'done' && !run.games.some(g => g.status === 'playing')) { run.done = true; run.endedAt = Date.now(); }
+    save(); return send(res, 200, { tournament: publicT(t) });
+  }
   if ((mt = p.match(/^\/api\/player\/t\/(\w+)(\/.*)$/))) {
     if (!player) fail(401, 'Pick your name and enter your PIN first.');
     const t = scoringT(mt[1]), sub = mt[2], me = playerInT(t, player);
-    const mine = t.games.filter(g => g.playerId === me.id);
-    const playing = mine.find(g => g.status === 'playing');
-
-    if (m === 'POST' && sub === '/ball') {
-      const b = await readBody(req), score = toInt(b.score);
-      if (score == null) fail(400, 'Enter your score.');
-      if (playing) {
-        const a = t.arenas.find(x => x.id === playing.arenaId);
-        const last = playing.balls[playing.balls.length - 1];
-        if (score < last) fail(400, `Your score can't be lower than after ball ${playing.balls.length} (${last.toLocaleString('en-US')}).`);
-        playing.balls.push(score); derive(playing, a); playing.editedAt = Date.now();
-      } else {
-        const slot = slotFor(t, me.id);
-        if (slot.kind === 'done') fail(409, 'Your card is complete.');
-        let a;
-        if (slot.kind === 'bonus') {
-          // everyone plays the same drawn machine for frames 11 and 12
-          ensureBonus(t);
-          a = t.arenas.find(x => x.id === t.bonusArenas[slot.idx]) || fail(409, 'The bonus machine has not been picked yet. Ask an admin.');
-        } else {
-          a = t.arenas.find(x => x.id === String(b.arenaId || '')) || fail(400, 'Pick a machine.');
-          if (!a.active) fail(400, `${a.name} is closed right now.`);
-        }
-        if (!a.target) fail(400, `${a.name} has no target score yet. Ask an admin.`);
-        if (slot.kind === 'frame' && !t.allowRepeats && slot.regular.some(g => g.arenaId === a.id)) fail(409, `You already played ${a.name}.`);
-        const g = { id: uid(), playerId: me.id, arenaId: a.id, balls: [score], ts: Date.now(), by: player };
-        if (slot.kind === 'bonus' && slot.left === 1) g.oneThrow = true;
-        derive(g, a); t.games.push(g);
-      }
-      ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
-    }
-    if (m === 'PUT' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-      const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
-      if (!Array.isArray(g.balls)) fail(409, 'An admin entered this game. Ask an admin to fix it.');
-      const a = t.arenas.find(x => x.id === g.arenaId);
-      const b = await readBody(req);
-      const trial = { balls: cleanBalls(b.balls, a), oneThrow: g.oneThrow }; derive(trial, a);
-      if (trial.status === 'playing' && playing && playing.id !== g.id) fail(409, 'Finish your current game first.');
-      Object.assign(g, trial, { editedBy: player, editedAt: Date.now() });
-      ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
-    }
-    if (m === 'DELETE' && (mt = sub.match(/^\/games\/(\w+)$/))) {
-      const g = mine.find(x => x.id === mt[1]) || fail(404, 'That is not one of your games.');
-      if (g.status !== 'playing') fail(409, 'Only a game in progress can be cancelled. Ask an admin to remove a finished game.');
-      t.games = t.games.filter(x => x.id !== g.id);
-      save(); return send(res, 200, { tournament: publicT(t) });
-    }
-    fail(404, 'Not found.');
+    const b = m === 'GET' || m === 'DELETE' ? {} : await readBody(req);
+    if (!playerGameAction(t, me.id, player, m, sub, b)) fail(404, 'Not found.');
+    ensureBonus(t); save(); return send(res, 200, { tournament: publicT(t) });
   }
-
   // ----- admin login -----
   if (m === 'POST' && p === '/api/setup') {
     if (db.admins.length) fail(409, 'Setup is already done. Log in instead.');
@@ -1039,6 +1093,7 @@ async function route(req, res, url) {
     const b = await readBody(req), t = getT(String(b.id || ''));
     if (!t.daily || t.status !== 'active') fail(409, 'That challenge is not running.');
     t.daily.end = Math.min(t.daily.end, nowMs()); closeDaily(t);
+    if (!db.tournaments.includes(t)) return send(res, 200, { deleted: true });
     return send(res, 200, { tournament: publicT(t) });
   }
   if (m === 'POST' && p === '/api/admin/stream-machine') {
@@ -1095,11 +1150,13 @@ async function route(req, res, url) {
     const games = [];
     for (const t of db.tournaments) {
       if (t.status !== 'active' && t.status !== 'archived') continue;
-      for (const g of t.games) {
+      const pname = pid => (t.players.find(x => x.id === pid) || {}).name || '';
+      const all = [...t.games.map(g => ({ g, who: pname(g.playerId) })), ...(t.practice || []).flatMap(r => r.games.map(g => ({ g, who: r.name, practice: true })))];
+      for (const { g, who, practice } of all) {
         if (g.status === 'playing') continue;
         const a = t.arenas.find(x => x.id === g.arenaId);
         if (!a || !a.target) continue;
-        games.push({
+        games.push({ who, at: g.editedAt || g.ts || t.createdAt, practice: !!practice,
           key: a.mid || 'name:' + lower(a.name), name: a.name, cat: a.cat || '', target: a.target, nb: a.balls || 3,
           balls: Array.isArray(g.balls) ? g.balls : null, b1: g.b1, final: g.final, hit: g.hitBall, em: !!a.em,
           tid: t.id, tname: t.name, daily: !!t.daily, when: t.createdAt,

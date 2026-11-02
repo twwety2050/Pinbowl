@@ -136,14 +136,23 @@ boxes. After a strike in frame 10, frame 11 is a full game (both throws count).
 
 ## NPC Daily Pinbowl Challenge
 
-Runs by itself Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM,
-Central time. Each one is named "NPC Daily Pinbowl Challenge" plus the date and gets
+Runs by itself every day, midnight to midnight, Central time. If nobody plays a game
+(not even a practice game), that day's challenge is deleted instead of archived. 5-ball
+machines in a daily challenge use the 5-ball rule by default (strike on ball 1 or 2,
+spare on ball 3, 4 or 5). Each one is named "NPC Daily Pinbowl Challenge" plus the date and gets
 10 machines picked at random from Stored machines that have a target and are
 marked "Can be picked at random": 3 Classic, 3 Mid, 3 Modern and 1 more from any
 category. Players join by picking their name from past players or adding a new
 name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
 or end one early on the Tournaments tab.
+
+**Practice runs:** on the Practice tab, any signed-in player can play a practice card on
+that day's machines. It works exactly like a real card (same machines, rules and bonus
+frames, drawn separately) but never counts toward standings, the winner or leaderboard
+points. Practice screens have a striped "Practice run" banner and every practice score card
+has a repeating PRACTICE watermark. Each player's finished practice runs are listed with
+their totals. Practice games do show up on the Stats page (marked as practice).
 
 ### IFPA submission
 

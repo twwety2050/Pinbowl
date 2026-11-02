@@ -150,6 +150,13 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .cum{font:700 1.15rem/1.9rem var(--cond);text-align:center;min-height:1.9rem}
 .cum.pend{color:var(--muted);font-weight:500}
 .tot .big{font:400 1.4rem/3.4rem var(--display);text-align:center}
+/* practice: a repeating PRACTICE watermark over the card, and a striped banner */
+.sheet.practice{position:relative}
+.sheet.practice::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='64'%3E%3Ctext x='8' y='42' transform='rotate(-12 85 32)' font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='22' letter-spacing='2' fill='%23DE7A22' fill-opacity='.3'%3EPRACTICE%3C/text%3E%3C/svg%3E");background-repeat:repeat}
+.pbanner{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lane) 22%,var(--card)) 0 14px,var(--card) 14px 28px);border:2px solid var(--lane);border-radius:10px;padding:.8rem 1rem;margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:.6rem 1rem;align-items:center;justify-content:space-between}
+.pbanner b.pt{font:400 1.25rem/1.1 var(--display);color:var(--lane);letter-spacing:.04em}
+.pbanner p{margin:.15rem 0 0;font-weight:600}
+.pchip{display:inline-block;font:700 .7rem var(--cond);text-transform:uppercase;letter-spacing:.06em;background:var(--lane);color:var(--laneInk);border-radius:999px;padding:.1rem .5rem;vertical-align:middle}
 
 /* frame list */
 .flist{list-style:none;padding:0;margin:.8rem 0 0}
@@ -535,6 +542,14 @@ body.streammode.clear{background:transparent}
 body.streammode #toast,body.tvmode #toast{display:none}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
 .lb .n{text-align:right}
+#chartTip{position:fixed;z-index:40;max-width:min(20rem,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--grid);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.28);padding:.6rem .75rem;font-size:.88rem;pointer-events:auto}
+#chartTip ul{list-style:none;margin:.4rem 0 0;padding:0;max-height:16rem;overflow:auto}
+#chartTip li{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0;border-top:1px solid var(--grid)}
+#chartTip li small{color:var(--muted);white-space:nowrap}
+#chartTip em{font:700 .65rem var(--cond);text-transform:uppercase;letter-spacing:.05em;font-style:normal;background:var(--lane);color:var(--laneInk);border-radius:999px;padding:0 .35rem;margin-left:.2rem}
+#chartTip p{margin:.3rem 0 0;color:var(--muted)}
+.chart g.b{cursor:pointer;outline:none}
+.chart g.b.on .bar,.chart g.b:focus-visible .bar{filter:brightness(1.15);stroke:var(--ink);stroke-width:1}
 @media print{.top,#banner,.noprint,#toast{display:none!important}body{background:#fff}.panel{box-shadow:none}#ifTxt,#ifNote{display:none}.printonly{display:block!important;white-space:pre-wrap;font:500 .85rem/1.4 ui-monospace,Menlo,Consolas,monospace;margin-top:.5rem}}
 .printonly{display:none}
 </style>
@@ -554,6 +569,7 @@ body.streammode #toast,body.tvmode #toast{display:none}
 </header>
 <div class="banner" id="banner"></div>
 <main id="main"><div class="panel">Loading…</div></main>
+<div id="chartTip" role="tooltip" hidden></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="shareBox" hidden></div>
 <div id="invite" hidden></div>
@@ -577,7 +593,7 @@ async function api(path, method='GET', body){
   let r; try{ r = await fetch(path, {method, headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined, credentials:'same-origin'}); }
   catch(e){ throw new Error("Can't reach the server. Check your connection and try again."); }
   let j=null; try{ j=await r.json(); }catch(e){}
-  if(!r.ok) throw new Error((j&&j.error) || `Error ${r.status}`);
+  if(!r.ok){ const e=new Error((j&&j.error) || `Error ${r.status}`); e.status=r.status; throw e; }
   return j;
 }
 // admin change: the server sends back the updated tournament
@@ -626,6 +642,15 @@ const A = id => T.arenas.find(a=>a.id===id);
 const readOnly = () => T && T.status==='archived';
 const me = () => PLAYER && T ? T.players.find(p=>p.name.toLowerCase()===PLAYER.name.toLowerCase()) : null;
 const abbr = a => a ? (a.abbr || a.name.slice(0,3).toUpperCase()) : '?';
+/* ----- practice runs (daily challenge): a separate card that never counts ----- */
+// The signed-in player's practice run in progress, if any
+function practiceRun(t=T){ if(!t || !t.daily || !PLAYER) return null; return (t.practice||[]).find(r=>!r.done && r.name.toLowerCase()===PLAYER.name.toLowerCase()) || null; }
+// A practice run seen as its own tournament: same machines and rules, its own games and bonus draws
+function practiceView(real, run){ const v=Object.create(real); v.players=[{id:run.pid, name:run.name}]; v.games=run.games; v.bonusArenas=run.bonusArenas||[]; v.isPractice=true; v.practiceRunId=run.id; return v; }
+function curView(){ if(tab!=='practice' || !T || T.isPractice) return T; const run=practiceRun(); return run ? practiceView(T, run) : T; }
+// Run fn with T switched to the practice card (render code reads T everywhere)
+function withView(v, fn){ const real=T; if(!v || v===real) return fn(); T=v; try{ return fn(); } finally{ T=real; } }
+const pPath = path => (tab==='practice' ? '/practice' : '') + path;
 const playingGame = pid => T.games.find(g=>g.playerId===pid && g.status==='playing');
 // Machines in their slot order (slots are 1 per frame; blank slots are skipped)
 const slotArenas = () => Array.isArray(T.slots) ? T.slots.map(id=>id&&A(id)).filter(Boolean) : T.arenas.filter(a=>a.active);
@@ -725,7 +750,7 @@ function playedArenaIds(pid, exceptId){ return new Set(T.games.filter(g=>g.playe
 
 /* ================= shared pieces ================= */
 function sheetHTML(r){
-  const N=T.frames; let h=`<div class="card-scroll"><div class="sheet" style="--n:${N}">`;
+  const N=T.frames; let h=`<div class="card-scroll"><div class="sheet${T.isPractice?' practice':''}" style="--n:${N}"${T.isPractice?' aria-label="Practice card"':''}>`;
   for(let k=0;k<N;k++){
     const f=r.frames[k], last=k===N-1; let cells=[];
     if(f) cells = last ? symbols(f.rolls.concat(r.bonusRolls)) : (f.type==='strike' ? ['','X'] : symbols(f.rolls));
@@ -832,7 +857,10 @@ const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules
 const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
 const NO_T_TABS=['tournaments','stored','stats','admins'];
 // Daily challenges get a Leaderboard tab right after Standings
-function withLeaders(list){ if(!T || !T.daily) return list; const i=list.findIndex(x=>x[0]==='standings'); return [...list.slice(0,i+1),['leaders','Leaderboard'],...list.slice(i+1)]; }
+function withLeaders(list){ if(!T || !T.daily) return list; const i=list.findIndex(x=>x[0]==='standings'); let out=[...list.slice(0,i+1),['leaders','Leaderboard'],...list.slice(i+1)];
+  // daily challenges also get a Practice tab, next to Enter score
+  let j=out.findIndex(x=>x[0]==='play'); if(j<0) j=out.findIndex(x=>x[0]==='leaders'); out=[...out.slice(0,j+1),['practice','Practice'],...out.slice(j+1)];
+  return out; }
 function tabs(){ return withLeaders(tabs0()); }
 function tabs0(){ if(!T && ADMIN) return ADMIN_TABS.filter(x=>NO_T_TABS.includes(x[0])); if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
@@ -841,7 +869,7 @@ function renderHeader(){
   const sel=$('#tsel');
   sel.textContent = T ? T.name + (T.status==='archived'?' (archived)':'') : LIST.length ? 'Pick a tournament' : 'No tournaments yet';
   if(!$('#tmenu').hidden) fillTMenu();
-  const st=$('#tstate'); if(st){ const s = !T ? '' : T.status==='archived' ? 'Archived' : T.daily ? 'Daily · live' : T.finals ? (T.finals.champion?'Finals · done':'Finals · live') : T.done ? 'Done' : 'Live';
+  const st=$('#tstate'); if(st){ const s = !T ? '' : (tab==='practice' && practiceRun()) ? 'Practice run' : T.status==='archived' ? 'Archived' : T.daily ? 'Daily · live' : T.finals ? (T.finals.champion?'Finals · done':'Finals · live') : T.done ? 'Done' : 'Live';
     st.textContent=s; st.className='tstate'+(T&&T.status==='archived'?' arch':''); }
   document.title = T ? `${T.name} · Pinbowl` : 'Pinbowl';
   sel.disabled=!LIST.length;
@@ -870,7 +898,7 @@ function render(){
   if(screen==='ifpa') return renderIfpa();
   if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch') && !(tab==='mine' && dailyDone())) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders, practice:renderPractice}[tab];
   (fn||renderStandings)();
 }
 
@@ -1039,7 +1067,7 @@ function renderSheet(){
   </style>
   <button class="sh-print" onclick="window.print()">Print this page</button>
   <div class="sheet">
-    ${daily?`<div class="sh-head"><h1>Daily Pinbowl Challenge</h1><p>Northstar Pinball Collective · Fridays 5 PM to midnight · Saturdays and Sundays 11 AM to 7 PM</p></div>`:`<div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>`}
+    ${daily?`<div class="sh-head"><h1>Daily Pinbowl Challenge</h1><p>Northstar Pinball Collective · Every day, all day (a new challenge starts at midnight)</p></div>`:`<div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>`}
     <div class="sh-body">
       <div class="sh-top">
         <div class="sh-qr">${svg}<b>Scan with your phone camera</b><small>${esc(url)}</small></div>
@@ -1219,7 +1247,8 @@ function renderMine(){
   const played=playedArenaIds(p.id);
   const left=T.arenas.filter(a=>a.active && !played.has(a.id));
   const status = dailyDone() ? 'Challenge completed' : r.playing ? `Playing ${A(r.playing.arenaId)?.name||''}` : r.complete ? 'Card complete' : r.stillNeeded ? `Play a bonus game for frame ${T.frames}` : `${r.regCount} of ${T.frames} frames played`;
-  $('#main').innerHTML=`${dailyDone()?dailyDoneHTML(true):''}<div class="panel">
+  const prun=practiceRun();
+  $('#main').innerHTML=`${dailyDone()?dailyDoneHTML(true):''}${prun?`<div class="panel note" style="border-left:4px solid var(--lane)">You have a practice run going. It's on the <a href="#" id="toPractice">Practice tab</a>; this is your real card.</div>`:''}<div class="panel">
     <div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(p.name)}</h2><button class="linkbtn" id="chg" style="color:var(--muted)">Not you?</button></div>
     <p style="margin:.2rem 0 .8rem"><b>Place ${mine.rank} of ${rows.length}</b> <span class="note">${status}</span></p>
     ${sheetHTML(r)}
@@ -1228,6 +1257,7 @@ function renderMine(){
     ${!r.complete && !r.stillNeeded && left.length && !readOnly() ? `<h3>Machines you haven't played</h3><p>${left.map(a=>`<span class="tag">${esc(abbr(a))}</span> ${esc(a.name)}`).join('<br>')}</p>`:''}
   </div>`;
   $('#chg').onclick=switchPlayer; bindDailyDone();
+  if($('#toPractice')) $('#toPractice').onclick=e=>{ e.preventDefault(); go('practice'); };
   if($('#toPlay')) $('#toPlay').onclick=()=>go('play');
   bindGameActions($('#main')); scrollSheets($('#main'));
 }
@@ -1249,7 +1279,8 @@ function ballHint(a, ballNo, score){
   return `${pct}% of the target: <b>${pins(score,t)} pin${pins(score,t)===1?'':'s'}</b>${last?' final.':' so far.'}`;
 }
 function renderPlay(){
-  const m=$('#main'), p=me();
+  if(tab==='practice' && !T.isPractice) return renderPractice();
+  const m=$('#main'), p=me(), P=!!T.isPractice;
   if(!p){ m.innerHTML=notInTournament(); $('#chg').onclick=switchPlayer; if($('#joinNow')) $('#joinNow').onclick=async()=>{ if(await joinDaily()) renderPlay(); }; return; }
   if(readOnly()){ m.innerHTML='<div class="panel">This tournament is archived, so scores are locked.</div>'; return; }
   if(PF.fixId) return renderFix(p);
@@ -1257,19 +1288,19 @@ function renderPlay(){
   let body='';
   if(g){
     const a=A(g.arenaId), n=g.balls.length+1;
-    body=`<h2><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h2>
+    body=`${P?'<span class="pchip">Practice run</span>':''}<h2><span class="tag big-tag">${esc(abbr(a))}</span> ${esc(a.name)}</h2>
       <p class="note">${a.balls} balls, target ${fmt(a.target)}</p>
       <ul class="balllist">${g.balls.map((s,i)=>`<li><span>Ball ${i+1}</span><b>${fmt(s)}</b><small>${pins(s,a.target)} pins so far</small></li>`).join('')}</ul>
       <label for="bs">Score after ball ${n}</label>
       <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off" enterkeyhint="done">
       <div class="preview" id="bhint"></div>
-      <div class="row"><button class="btn primary" id="bgo">Save ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
+      <div class="row"><button class="btn primary" id="bgo">Save ${P?'practice ':''}ball ${n}</button><button class="btn" id="fixCur">Fix an earlier ball</button><button class="btn danger" id="cancelG">Cancel this game</button></div>
       ${g.oneThrow?`<p style="margin-top:.6rem"><b>One-throw bonus game:</b> only your first throw counts${a.em?' (balls 1 and 2 on this EM machine)':' (ball 1)'}, then the game ends.</p>`:''}
       <p class="note" style="margin-top:.6rem">Enter your total score on the machine after each ball ends, before you plunge the next one.</p>
       ${rangesBox(a)}`;
   } else {
     const slot=nextSlot(p.id);
-    if(slot.kind==='done'){ m.innerHTML=`<div class="panel"><h2>Your card is complete</h2><p>Final score: <b>${r.total}</b>. Check the Standings tab to see where you finished.</p></div>`; return; }
+    if(slot.kind==='done'){ m.innerHTML=`<div class="panel"><h2>Your ${P?'practice ':''}card is complete</h2><p>Final score: <b>${r.total}</b>. ${P?'':'Check the Standings tab to see where you finished.'}</p></div>`; return; }
     const isBonus = slot.kind==='bonus', ba = isBonus ? bonusArena(slot.idx) : null;
     if(isBonus && !ba){ m.innerHTML=`<div class="panel"><h2>Frame ${T.frames+1+slot.idx}</h2><p>The machine for this bonus frame hasn't been drawn yet. Ask an organizer.</p></div>`; return; }
     if(isBonus) PF.arenaId=ba.id;
@@ -1277,16 +1308,16 @@ function renderPlay(){
     const arenas=isBonus ? [ba] : slotArenas();
     const a=A(PF.arenaId);
     const spare10 = r.frames[T.frames-1] && r.frames[T.frames-1].type==='spare';
-    body=`<h2>${!isBonus?`Frame ${slot.n} of ${T.frames}`:`Frame ${T.frames+1+slot.idx}: bonus frame`}</h2>
+    body=`${P?'<span class="pchip">Practice run</span>':''}<h2>${!isBonus?`Frame ${slot.n} of ${T.frames}`:`Frame ${T.frames+1+slot.idx}: bonus frame`}</h2>
       <p class="note">${isBonus?`Everyone plays the same machine for this frame. It was drawn at random.${r.stillNeeded===1?` <b>Only your first throw counts${ba&&ba.em?' (balls 1 and 2 on this EM machine)':' (ball 1)'}, and the game ends after it.</b>`:''}`:'Pick the machine you are about to play.'}</p>
       <div class="choices" style="margin-top:.6rem">${arenas.map(x=>({x, blocked:!isBonus && ((!repeatOK && played.has(x.id)) || !x.target)})).sort((a,b)=>a.blocked-b.blocked).map(({x,blocked})=>
         `<button class="choice" data-parena="${x.id}" aria-pressed="${x.id===PF.arenaId}" ${blocked?'disabled':''}><b><span class="tag">${esc(abbr(x))}</span> ${esc(x.name)}</b><small>${!x.target?'no target yet':played.has(x.id)&&!repeatOK?'already played':`${x.balls} balls · target ${fmtShort(x.target)}`}</small></button>`).join('')}</div>
       ${a?`<label for="bs">Score after ball 1 on ${esc(a.name)} <span class="note">(${a.balls} balls, target ${fmt(a.target)})</span></label>
       <input type="text" inputmode="numeric" id="bs" value="${esc(PF.score)}" placeholder="Your score on the machine now" autocomplete="off" enterkeyhint="done">
       <div class="preview" id="bhint"></div>
-      <div class="row"><button class="btn primary" id="bgo">Save ball 1</button></div>${rangesBox(a)}`:''}`;
+      <div class="row"><button class="btn primary" id="bgo">Save ${P?'practice ':''}ball 1</button></div>${rangesBox(a)}`:''}`;
   }
-  m.innerHTML=`<div class="two"><div class="panel">${body}</div><div class="panel"><h2>My card</h2>${sheetHTML(r)}</div></div>`;
+  m.innerHTML=`<div class="two"><div class="panel" id="entryPanel">${body}</div><div class="panel"><h2>${P?'Practice card <span class="pchip">Practice</span>':'My card'}</h2>${sheetHTML(r)}</div></div>`;
   bindRanges(); scrollSheets(m);
 
   $$('[data-parena]').forEach(b=>b.onclick=()=>{ PF.arenaId=b.dataset.parena; renderPlay(); const i=$('#bs'); if(i) i.focus(); });
@@ -1301,18 +1332,59 @@ function renderPlay(){
     upd();
     $('#bgo').onclick=async()=>{
       const s=num(inp.value); if(s==null){ toast('Enter your score.'); return; }
-      $('#bgo').disabled=true;
-      const j=await pchange('/ball','POST', g?{score:s}:{arenaId:PF.arenaId, score:s});
+      $('#bgo').disabled=true; inp.blur(); // closes the phone keyboard so the page doesn't jump
+      const runId=T.practiceRunId;
+      const j=await pchange(pPath('/ball'),'POST', g?{score:s}:{arenaId:PF.arenaId, score:s});
       if(!j){ $('#bgo').disabled=false; return; }
       PF.score='';
-      const cur=T.games.find(x=>x.id===(g?g.id:null)) || T.games.filter(x=>x.playerId===p.id).slice(-1)[0];
-      if(cur && cur.status==='done'){ PF.arenaId=''; const rr=gameRolls(cur); toast(rr.type==='strike'?'Strike!':rr.type==='spare'?'Spare!':`Game saved: ${rr.rolls[0]+rr.rolls[1]} pins`); go('mine'); }
+      // the game just saved, from the real card or the practice run
+      const run = P ? (T.practice||[]).find(x=>x.id===runId) : null, games = run ? run.games : T.games;
+      const cur=games.find(x=>x.id===(g?g.id:null)) || games.filter(x=>x.playerId===p.id).slice(-1)[0];
+      if(cur && cur.status==='done'){ PF.arenaId=''; const rr=withView(run?practiceView(T,run):null, ()=>gameRolls(cur)); toast(`${P?'Practice: ':''}${rr.type==='strike'?'Strike!':rr.type==='spare'?'Spare!':`Game saved: ${rr.rolls[0]+rr.rolls[1]} pins`}`); if(P) renderPractice(); else go('mine'); }
       else { toast(`Ball ${ballNo} saved. Good luck on ball ${ballNo+1}!`); renderPlay(); }
+      toEntry();
     };
   }
   if($('#fixCur')) $('#fixCur').onclick=()=>{ PF.fixId=g.id; renderPlay(); };
-  if($('#cancelG')) $('#cancelG').onclick=async()=>{ if(!confirm('Cancel this game? Its scores will be removed.')) return; const j=await pchange(`/games/${g.id}`,'DELETE',null,'Game cancelled'); if(j){ resetPF(); renderPlay(); } };
+  if($('#cancelG')) $('#cancelG').onclick=async()=>{ if(!confirm('Cancel this game? Its scores will be removed.')) return; const j=await pchange(pPath(`/games/${g.id}`),'DELETE',null,'Game cancelled'); if(j){ resetPF(); renderPlay(); } };
 }
+// After saving a ball: put the score box back at the top of the screen (the phone keyboard closing moves the page)
+function toEntry(){
+  const f=()=>{ const el=$('.pbanner')||$('#entryPanel'), head=($('.top')||{}).offsetHeight||0;
+    const y = el ? el.getBoundingClientRect().top + window.scrollY - head - 10 : 0; window.scrollTo({top:Math.max(0,y)}); };
+  f(); setTimeout(f,350);
+}
+/* ================= practice runs ================= */
+function practiceCardHTML(run, open){
+  const v=practiceView(T, run);
+  return withView(v, ()=>{ const r=scorePlayer(run.pid), when=new Date(run.endedAt||run.startedAt).toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit'});
+    return `<details class="panel stand" ${open?'open':''}><summary><span class="rank">${run.n}</span><span class="pname">Practice run ${run.n} <span class="pchip">Practice</span><small>${when} · ${r.complete?'card complete':`${r.regCount} of ${T.frames} frames`}</small></span><span class="ptotal">${r.total}</span><span class="chev" aria-hidden="true">›</span></summary>
+      <div class="inner">${sheetHTML(r)}${frameListHTML(r,'view')}</div></details>`; });
+}
+function renderPractice(){
+  const m=$('#main'); renderHeader();
+  if(!PLAYER){ m.innerHTML=`<div class="pbanner"><div><b class="pt">Practice run</b><p>Play a practice card on today's machines. It never counts.</p></div></div>
+    <div class="panel"><p>Pick your name first to start a practice run.</p><div class="row" style="margin-top:.7rem"><button class="btn primary" id="chg">Choose my name</button></div></div>`; $('#chg').onclick=switchPlayer; return; }
+  const run=practiceRun(), open=T.status==='active';
+  const mineRuns=(T.practice||[]).filter(r=>r.name.toLowerCase()===PLAYER.name.toLowerCase()).map((r,i)=>({...r, n:i+1}));
+  const done=mineRuns.filter(r=>r.done).reverse();
+  const history = done.length ? `<h2 style="font:700 1.3rem var(--cond);margin:1.2rem 0 .5rem">Your practice runs today</h2>${done.map((r,i)=>practiceCardHTML(r, i===0 && !run)).join('')}` : '';
+  if(run){
+    withView(practiceView(T, run), ()=>renderPlay());
+    m.insertAdjacentHTML('afterbegin', `<div class="pbanner" role="status"><div><b class="pt">Practice run ${mineRuns.length}</b><p>These scores don't count toward the standings, the winner or leaderboard points.</p></div><button class="btn" id="pEnd">End practice run</button></div>`);
+    m.insertAdjacentHTML('beforeend', history);
+    $('#pEnd').onclick=async()=>{ if(!confirm('End this practice run? A game in progress is dropped; finished games are kept in your practice history.')) return; const j=await pchange('/practice/end','POST',null,'Practice run ended'); if(j){ resetPF(); renderPractice(); } };
+    return;
+  }
+  const real=me();
+  m.innerHTML=`<div class="pbanner"><div><b class="pt">Practice run</b><p>Play a practice card on today's machines, as many times as you like. It never counts toward the standings, the winner or leaderboard points.</p></div></div>
+    <div class="panel">${open?`<p>A practice run works exactly like a real card: same machines, same rules, ball by ball. Every practice card is marked <b>PRACTICE</b>.${real?'':' You don\'t have to join the challenge to practice.'}</p>
+      <div class="row" style="margin-top:.8rem"><button class="btn primary" id="pStart">Start a practice run</button>${real?'':'<button class="btn" id="pJoin">Join the real challenge</button>'}</div>`
+      :`<p>This challenge has closed, so practice runs are over for it.</p>`}</div>${history}`;
+  if($('#pStart')) $('#pStart').onclick=async()=>{ const j=await pchange('/practice/start','POST',null,'Practice run started'); if(j){ resetPF(); renderPractice(); window.scrollTo(0,0); } };
+  if($('#pJoin')) $('#pJoin').onclick=async()=>{ if(await joinDaily()) go('play'); };
+}
+
 function renderFix(p){
   const g=T.games.find(x=>x.id===PF.fixId && x.playerId===p.id);
   if(!g || !Array.isArray(g.balls)){ PF.fixId=null; return renderPlay(); }
@@ -1324,8 +1396,10 @@ function renderFix(p){
   $('#fxBack').onclick=()=>{ PF.fixId=null; renderPlay(); };
   $('#fxSave').onclick=async()=>{
     const balls=$$('[data-fx]').map(i=>num(i.value));
-    const j=await pchange(`/games/${g.id}`,'PUT',{balls},'Scores fixed');
-    if(j){ PF.fixId=null; const now=T.games.find(x=>x.id===g.id); go(now&&now.status==='playing'?'play':'mine'); }
+    const P=!!T.isPractice, runId=T.practiceRunId;
+    const j=await pchange(pPath(`/games/${g.id}`),'PUT',{balls},'Scores fixed');
+    if(j){ PF.fixId=null; if(P) return renderPractice();
+      const now=T.games.find(x=>x.id===g.id); go(now&&now.status==='playing'?'play':'mine'); }
   };
 }
 
@@ -1744,12 +1818,15 @@ function readGame(r){
   return {per,type:'open',total:Math.max(f, fin==='T'?9:(fin||0))};
 }
 function machineStats(list){
-  const st={n:list.length, strikes:0, spares:0, pins:0, end:Array(12).fill(0), balls:[], b1:[], b1Unknown:0, nb:3, byT:new Map()};
+  const st={n:list.length, strikes:0, spares:0, pins:0, end:Array(12).fill(0), endWho:Array.from({length:12},()=>[]), balls:[], ballWho:[], b1:[], b1Unknown:0, nb:3, byT:new Map()};
   list.forEach(r=>{
     const g=readGame(r); st.nb=Math.max(st.nb,r.nb);
-    if(g.type==='strike'){ st.strikes++; st.end[11]++; } else if(g.type==='spare'){ st.spares++; st.end[10]++; } else st.end[g.total]++;
+    const who={who:r.who||'', at:r.at||r.when, practice:!!r.practice, daily:!!r.daily}; // for the hover pop-up
+    const e = g.type==='strike' ? 11 : g.type==='spare' ? 10 : g.total;
+    if(g.type==='strike') st.strikes++; else if(g.type==='spare') st.spares++;
+    st.end[e]++; st.endWho[e].push(who);
     st.pins+=g.total;
-    g.per.forEach((v,i)=>{ if(v==null) return; st.balls[i]=st.balls[i]||Array(11).fill(0); st.balls[i][v==='T'?10:v]++; });
+    g.per.forEach((v,i)=>{ if(v==null) return; st.balls[i]=st.balls[i]||Array(11).fill(0); st.ballWho[i]=st.ballWho[i]||Array.from({length:11},()=>[]); const k=v==='T'?10:v; st.balls[i][k]++; st.ballWho[i][k].push(who); });
     if(r.b1!=null || (r.balls&&r.balls.length)) st.b1.push(r.balls?r.balls[0]:r.b1); else if(r.hit===1) st.b1Unknown++;
     const k=r.tid, row=st.byT.get(k)||{tname:r.tname,daily:r.daily,when:r.when,target:r.target,n:0,strikes:0,spares:0,pins:0};
     row.n++; if(g.type==='strike') row.strikes++; if(g.type==='spare') row.spares++; row.pins+=g.total; st.byT.set(k,row);
@@ -1759,6 +1836,26 @@ function machineStats(list){
 const pct=(a,b)=> b ? Math.round(a*100/b)+'%' : '–';
 const niceRound=s=>{ if(s<100) return Math.round(s); const p=10**(Math.floor(Math.log10(s))-1); return Math.round(s/p)*p; };
 const shortNum=n=> n>=1e9 ? (n/1e9).toFixed(n>=1e10?0:1).replace(/\.0$/,'')+'B' : n>=1e6 ? (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M' : n>=1e3 ? Math.round(n/1e3)+'K' : String(n);
+// Hover (or tap) a column: a pop-up with the count and who scored it, and when
+let TIPS={}, TIPN=0;
+function tipHTML(t){
+  const list=t.who.slice().sort((a,b)=>b.at-a.at), max=12;
+  const day=ms=>new Date(ms).toLocaleDateString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric'});
+  return `<b>${esc(t.tip)}</b>${list.length?`<ul>${list.slice(0,max).map(w=>`<li><span>${esc(w.who||'Unknown player')}${w.practice?' <em>practice</em>':''}</span><small>${day(w.at)} · ${w.daily?'Daily':'Weekly'}</small></li>`).join('')}</ul>${list.length>max?`<p>and ${list.length-max} more</p>`:''}`:''}`;
+}
+function showTip(g, x, y){
+  const t=TIPS[g.dataset.tip]; if(!t) return; const el=$('#chartTip'); el.innerHTML=tipHTML(t); el.hidden=false;
+  const r=el.getBoundingClientRect(), W=window.innerWidth, H=window.innerHeight;
+  let left=x+14, top=y+14; if(left+r.width>W-8) left=Math.max(8,x-r.width-14); if(top+r.height>H-8) top=Math.max(8,y-r.height-14);
+  el.style.left=left+'px'; el.style.top=top+'px';
+  $$('.chart g.b.on').forEach(b=>b.classList.remove('on')); g.classList.add('on');
+}
+function hideTip(){ const el=$('#chartTip'); if(el) el.hidden=true; $$('.chart g.b.on').forEach(b=>b.classList.remove('on')); }
+document.addEventListener('mousemove',e=>{ const g=e.target.closest && e.target.closest('.chart g.b'); if(g) showTip(g,e.clientX,e.clientY); else if(!$('#chartTip').hidden && !e.target.closest('#chartTip')) hideTip(); });
+document.addEventListener('click',e=>{ const g=e.target.closest && e.target.closest('.chart g.b'); if(g){ const r=g.getBoundingClientRect(); showTip(g, r.left+r.width/2, r.top+r.height/3); e.stopPropagation(); } else if(!e.target.closest('#chartTip')) hideTip(); });
+document.addEventListener('focusin',e=>{ const g=e.target.closest && e.target.closest('.chart g.b'); if(g){ const r=g.getBoundingClientRect(); showTip(g, r.right, r.top); } });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideTip(); });
+window.addEventListener('scroll',()=>{ const el=$('#chartTip'); if(el && !el.hidden) hideTip(); },{passive:true});
 // Column chart: one series, value on each non-empty column, hover shows the detail
 function colChart(items, aria){
   const n=items.length, padL=24, padR=4, padT=14, padB=18, W=Math.max(200, padL+padR+n*26), H=130, pw=W-padL-padR, ph=H-padT-padB;
@@ -1769,7 +1866,8 @@ function colChart(items, aria){
   ticks.forEach(t=>{ s+=`<line class="gl" x1="${padL}" x2="${W-padR}" y1="${y(t)}" y2="${y(t)}"/><text x="${padL-4}" y="${y(t)+3}" text-anchor="end">${t}</text>`; });
   items.forEach((it,i)=>{
     const x=padL+slot*i+(slot-bw)/2, bh=(it.value/max)*ph, top=padT+ph-bh, r=Math.min(4,bh);
-    s+=`<g class="b"><title>${esc(it.tip)}</title><rect class="hit" x="${padL+slot*i}" y="${padT}" width="${slot}" height="${ph+padB}"/>`;
+    const tid='t'+(TIPN++); TIPS[tid]={tip:it.tip, who:it.who||[]};
+    s+=`<g class="b" data-tip="${tid}" tabindex="0" role="button" aria-label="${esc(it.tip)}"><rect class="hit" x="${padL+slot*i}" y="${padT}" width="${slot}" height="${ph+padB}"/>`;
     if(bh>0) s+=`<path class="bar" d="M${x},${top+bh}V${top+r}Q${x},${top} ${x+r},${top}H${x+bw-r}Q${x+bw},${top} ${x+bw},${top+r}V${top+bh}Z"/><text class="v" x="${x+bw/2}" y="${top-3}" text-anchor="middle">${it.value}</text>`;
     s+=`<text x="${x+bw/2}" y="${H-5}" text-anchor="middle">${esc(it.label)}</text></g>`;
   });
@@ -1801,9 +1899,9 @@ async function renderStats(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   const card=r=>{
     const st=r.st, endLabels=['0','1','2','3','4','5','6','7','8','9','Spare','Strike'];
-    const endItems=st.end.map((v,i)=>({label:i===10?'/':i===11?'X':String(i), value:v, tip:`${endLabels[i]}${i<10?` pins`:''}: ${v} game${v===1?'':'s'} (${pct(v,st.n)})`}));
+    const endItems=st.end.map((v,i)=>({label:i===10?'/':i===11?'X':String(i), value:v, who:st.endWho[i], tip:`${endLabels[i]}${i<10?` pins`:''}: ${v} game${v===1?'':'s'} (${pct(v,st.n)})`}));
     const ballCharts=[]; for(let i=0;i<Math.min(st.nb,st.balls.length);i++){ const d=st.balls[i]; if(!d) continue; const tot=d.reduce((a,b)=>a+b,0);
-      ballCharts.push(`<div><p class="chcap">Ball ${i+1} <small>${tot} game${tot===1?'':'s'}</small></p>${colChart(d.map((v,j)=>({label:j===10?'T':String(j), value:v, tip:`Ball ${i+1}, ${j===10?'reached the target':j+' pins'}: ${v} (${pct(v,tot)})`})), `Pins after ball ${i+1}`)}</div>`); }
+      ballCharts.push(`<div><p class="chcap">Ball ${i+1} <small>${tot} game${tot===1?'':'s'}</small></p>${colChart(d.map((v,j)=>({label:j===10?'T':String(j), value:v, who:(st.ballWho[i]||[])[j]||[], tip:`Ball ${i+1}, ${j===10?'reached the target':j+' pins'}: ${v} (${pct(v,tot)})`})), `Pins after ball ${i+1}`)}</div>`); }
     const b1s=st.b1.slice().sort((a,b)=>a-b), med=quant(b1s,.5), q75=quant(b1s,.75), q90=quant(b1s,.9);
     const trs=[...st.byT.values()].sort((a,b)=>b.when-a.when).slice(0,12);
     return `<details class="panel stat" data-key="${esc(r.key)}" ${open.has(r.key)?'open':''}><summary>
@@ -1812,7 +1910,7 @@ async function renderStats(){
       <div class="inner">
         <div class="mstats" style="grid-template-columns:repeat(4,1fr)"><div><small>Games</small><b>${st.n}</b></div><div><small>Strikes</small><b>${pct(st.strikes,st.n)}</b></div><div><small>Spares</small><b>${pct(st.spares,st.n)}</b></div><div><small>Avg pins</small><b>${(st.pins/st.n).toFixed(1)}</b></div></div>
         <h3>How games ended</h3>
-        <p class="note">Pins for open games, then spares (/) and strikes (X). Hover a column for the share.</p>
+        <p class="note">Pins for open games, then spares (/) and strikes (X). Hover over (or tap) a column to see who scored it and when.</p>
         ${colChart(endItems,'How games ended')}
         ${ballCharts.length?`<h3>Pins after each ball</h3><p class="note">Only games still going at that ball. T means the target was reached on that ball. Scores entered by an admin in one step skip the middle balls.</p><div class="charts">${ballCharts.join('')}</div>`:''}
         <h3>Target check</h3>
@@ -1826,6 +1924,7 @@ async function renderStats(){
         </tbody></table></div>
       </div></details>`;
   };
+  TIPS={}; TIPN=0; hideTip();
   $('#main').innerHTML=`<div class="panel"><h2>Stats</h2>
     <p class="note">Every finished game from open and archived tournaments and daily challenges, grouped by machine. Deleted tournaments aren't included. Use it to see which targets are too easy or too hard.</p>
     <div class="tvctl" style="margin-top:.8rem">
@@ -2407,7 +2506,7 @@ function renderRules(){
   $('#main').innerHTML=`<div class="panel">
   ${T.finals?`${finalsRulesHTML()}<h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
   ${T.finals?'':'<h2>How pinbowl works</h2>'}
-  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> open Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM. Join any time it's open and play your card. When it closes, the highest total wins. Every challenge also earns <b>leaderboard points</b> (see the Leaderboard tab).</p>`:''}
+  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> a new one runs every day, all day, from midnight to midnight. Join any time and play your card. At midnight it closes and the highest total wins. On 5-ball machines, reaching the target on ball 1 or 2 is a strike and on ball 3, 4 or 5 is a spare. Want to warm up first? Start a <b>practice run</b> on the Practice tab: it's a separate card that never counts. Every challenge also earns <b>leaderboard points</b> (see the Leaderboard tab).</p>`:''}
   ${T.daily?`<h3>Leaderboard points</h3>${leaderRulesHTML()}`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
@@ -2695,12 +2794,12 @@ function updatePreview(){ const v=validate(); $('#preview').innerHTML = v.err ? 
 async function saveGame(){
   const v=validate(); if(v.err){ updatePreview(); toast(v.err); return; }
   const name=P(F.playerId).name, pid=F.playerId, editing=F.editingId;
-  $('#saveBtn').disabled=true;
+  $('#saveBtn').disabled=true; if(document.activeElement) document.activeElement.blur(); // close the phone keyboard
   const j = editing ? await change(`/games/${editing}`,'PUT',v.g,`Updated ${name}'s game`) : await change('/games','POST',v.g,`Saved ${name} on ${A(F.arenaId).name}`);
   if(!j){ $('#saveBtn').disabled=false; return; }
   resetForm(true);
   if(editing){ go('standings'); return; }
-  renderEnter(); renderSide(pid);
+  renderEnter(); renderSide(pid); window.scrollTo({top:0}); setTimeout(()=>window.scrollTo({top:0}),350);
 }
 function renderSide(pid){
   const id=pid||F.playerId, el=$('#side'); if(!el) return;
@@ -2765,7 +2864,7 @@ async function renderTournaments(){
   if(!adminSettings || adminSettings.hasToken===undefined){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[],pins:[]}; } }
   const cur=T, dl=adminSettings.daily||{on:true}, run=LIST.find(t=>t.id===dl.running);
   const dailyPanel=`<div class="panel"><h2>NPC Daily Pinbowl Challenge</h2>
-    <p class="note">Runs by itself Friday 5 PM to midnight, and Saturday and Sunday 11 AM to 7 PM (Central). Each one gets 10 machines picked from Stored machines: 3 Classic, 3 Mid, 3 Modern and 1 more from any category. Players join from the list of past players or add themselves. When it closes, scores lock and the highest total wins.</p>
+    <p class="note">Runs by itself every day, midnight to midnight (Central). If nobody plays, that day's challenge is deleted instead of archived. 5-ball machines use the 5-ball rule (strike on ball 1 or 2, spare on 3 to 5). Each one gets 10 machines picked from Stored machines: 3 Classic, 3 Mid, 3 Modern and 1 more from any category. Players join from the list of past players or add themselves. When it closes, scores lock and the highest total wins.</p>
     <label class="check"><input type="checkbox" id="dOn" ${dl.on!==false?'checked':''}> Run the daily challenge automatically</label>
     <p style="margin-top:.6rem">${run?`<b>Running now:</b> ${esc(run.name)}, until ${ctTime(run.end)}.`:(dl.on!==false && dl.next?`<b>Next:</b> ${ctDay(dl.next.start)}, ${ctTime(dl.next.start)} to ${ctTime(dl.next.end)}.`:'Not scheduled.')}</p>
     <div class="row" style="margin-top:.6rem">${run?`<button class="btn" id="dOpen">Show it</button><button class="btn danger" id="dEnd">End now and pick the winner</button>`:`<button class="btn" id="dStart">Start one now</button>`}</div></div>`;
@@ -2820,7 +2919,10 @@ async function renderTournaments(){
     try{ const j=await api('/api/admin/daily/start','POST'); T=j.tournament; store.set('pb-tid',T.id); store.set('pb-tid-at',Date.now()); adminSettings=null; await refreshList(); toast('Challenge started'); go('machines'); }catch(e){ toast(e.message); } };
   if($('#dOpen')) $('#dOpen').onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(run.id); go('standings'); };
   if($('#dEnd')) $('#dEnd').onclick=async()=>{ if(!confirm('End the challenge now? Scores lock and the highest total wins.')) return;
-    try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); if(T && T.id===run.id) T=j.tournament; adminSettings=null; await refreshList(); toast('Challenge ended'); renderTournaments(); }catch(e){ toast(e.message); } };
+    try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); adminSettings=null; await refreshList();
+      if(j.deleted){ toast('Nobody played, so the challenge was deleted'); if(T && T.id===run.id){ const nx=LIST.find(t=>t.status==='active')||LIST[0]; if(nx) await loadT(nx.id); else T=null; render(); return; } }
+      else { if(T && T.id===run.id) T=j.tournament; toast('Challenge ended'); }
+      renderTournaments(); }catch(e){ toast(e.message); } };
   $$('[data-open]').forEach(b=>b.onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(b.dataset.open); resetForm(false); render(); });
   if(!cur) return;
   if($('#ifpaGo')) $('#ifpaGo').onclick=()=>{ IFPA={tid:cur.id, data:null}; screen='ifpa'; render(); scrollTo(0,0); };
@@ -2944,11 +3046,14 @@ setInterval(async()=>{
     if(ADMIN || PLAYER){ const was=isKeeper(); await refreshList(); if(was!==isKeeper()){ if(!tabs().some(x=>x[0]===tab)) tab='mine'; render(); return; } }
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
-    const busy = typing || ((tab==='enter'||tab==='play') && formDirty()) || ['tournaments','admins','players','stored','stats','finals'].includes(tab) || !$('#shareBox').hidden;
+    const busy = typing || ((tab==='enter'||tab==='play'||tab==='practice') && formDirty()) || ['tournaments','admins','players','stored','stats','finals'].includes(tab) || !$('#shareBox').hidden;
     if(changed && !busy){
       const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); $$('details[data-mid]').forEach(d=>{ d.open=openIds.includes(d.dataset.mid); }); window.scrollTo(0,y);
     }
-  }catch(e){}
+  }catch(e){
+    // the tournament is gone (a daily challenge nobody played is deleted at midnight): move to another one
+    if(e.status===404){ await refreshList(); const nx=LIST.find(t=>t.status==='active')||LIST[0]; if(nx) await pickT(nx.id); else { T=null; render(); } }
+  }
 }, 20000);
 if(QS.get('sheet')==='cards') renderCards(); else if(QS.has('sheet')) renderSheet(); else if(STREAMMODE && QS.get('view')==='machine') machineWindow(); else boot();
 </script>
