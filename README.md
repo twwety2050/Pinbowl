@@ -286,6 +286,12 @@ Each machine opens to show strike and spare rates, how games ended, pins after e
 ball, ball 1 score levels, a results row per event, and a suggested target for the
 strike rate you pick. "Use" applies the suggestion to Stored machines.
 
+**Split graphs by target score** (checkbox at the top of Stats): each machine then lists every
+target it has been played at (e.g. 120M, then 60M after you lower it), each with a checkbox and
+a color. Ticked targets are overlaid on the same charts in their colors, as a share of that
+target's games, so you can compare how a target change played out. Choices and colors are
+remembered on that device.
+
 ## Colors
 
 The circle button at the top switches between NPC Fancy (default: Northstar colors with

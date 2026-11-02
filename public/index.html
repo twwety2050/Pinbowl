@@ -542,6 +542,12 @@ body.streammode.clear{background:transparent}
 body.streammode #toast,body.tvmode #toast{display:none}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
 .lb .n{text-align:right}
+.tsplit{margin:.6rem 0 .2rem;padding:.6rem .7rem;border:1px solid var(--grid);border-radius:8px;background:var(--paper)}
+.tchk{display:flex;align-items:center;gap:.5rem;padding:.25rem 0}
+.tchk input[type=checkbox]{width:1.15rem;height:1.15rem;flex:none}
+.tchk input[type=color]{width:2rem;height:1.6rem;padding:0;border:1px solid var(--grid);border-radius:5px;background:none;flex:none;cursor:pointer}
+.tchk label{margin:0;cursor:pointer;font-weight:400}
+.tchk small{color:var(--muted)}
 #chartTip{position:fixed;z-index:40;max-width:min(20rem,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--grid);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.28);padding:.6rem .75rem;font-size:.88rem;pointer-events:auto}
 #chartTip ul{list-style:none;margin:.4rem 0 0;padding:0;max-height:16rem;overflow:auto}
 #chartTip li{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0;border-top:1px solid var(--grid)}
@@ -1800,7 +1806,12 @@ function bonusPanel(){
 /* ================= admin: stats ================= */
 // Every finished game from open and archived tournaments, weekly and daily, grouped by machine.
 let STATS=null;
-const SF={ weekly:true, daily:true, goal:Number(store.get('pb-goal'))||10, sort:store.get('pb-ssort')||'played', q:'' };
+const SF={ weekly:true, daily:true, goal:Number(store.get('pb-goal'))||10, sort:store.get('pb-ssort')||'played', q:'', byTarget:store.get('pb-bytarget')==='1' };
+// Per machine + target: hidden targets and chosen colors (remembered on this device)
+const TPAL=['#DE7A22','#2B6CB0','#2F855A','#B83280','#6B46C1','#C53030','#319795','#975A16'];
+let TOFF=new Set(), TCOL={};
+try{ TOFF=new Set(JSON.parse(store.get('pb-toff')||'[]')); TCOL=JSON.parse(store.get('pb-tcol')||'{}'); }catch(e){}
+const saveTargetPrefs=()=>{ store.set('pb-toff',JSON.stringify([...TOFF])); store.set('pb-tcol',JSON.stringify(TCOL)); };
 const pinsAt=(s,t)=> s==null ? null : (s>=t ? 'T' : Math.max(0,Math.min(9,Math.floor(s*10/t))));
 // What each ball of a game reached (0-9 pins, or 'T' for the target), and how the game ended
 function readGame(r){
@@ -1873,6 +1884,22 @@ function colChart(items, aria){
   });
   return s+'</svg>';
 }
+// Several targets on one chart: grouped columns, each target its own color, as a share of that target's games
+function multiChart(labels, series, aria){
+  const n=labels.length, k=series.length, padL=30, padR=4, padT=14, padB=18;
+  const slot=Math.max(14, k*9+8), W=Math.max(220, padL+padR+n*slot), H=140, pw=W-padL-padR, ph=H-padT-padB, sw=pw/n;
+  const max=Math.max(1,...series.flatMap(x=>x.values)), y=v=>padT+ph-(v/max)*ph, bw=Math.min(14,(sw*0.8)/k);
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">`;
+  [0,Math.round(max/2),Math.round(max)].forEach(t=>{ s+=`<line class="gl" x1="${padL}" x2="${W-padR}" y1="${y(t)}" y2="${y(t)}"/><text x="${padL-4}" y="${y(t)+3}" text-anchor="end">${t}%</text>`; });
+  for(let i=0;i<n;i++){
+    const x0=padL+sw*i+(sw-bw*k)/2;
+    series.forEach((se,j)=>{ const v=se.values[i], bh=(v/max)*ph, x=x0+j*bw, top=padT+ph-bh;
+      const tid='t'+(TIPN++); TIPS[tid]={tip:se.tips[i], who:se.whos[i]||[]};
+      s+=`<g class="b" data-tip="${tid}" tabindex="0" role="button" aria-label="${esc(se.tips[i])}"><rect class="hit" x="${x}" y="${padT}" width="${bw}" height="${ph}"/>${bh>0?`<rect class="bar" x="${x+0.5}" y="${top}" width="${Math.max(1,bw-1)}" height="${bh}" rx="1.5" style="fill:${se.color}"/>`:''}</g>`; });
+    s+=`<text x="${padL+sw*i+sw/2}" y="${H-5}" text-anchor="middle">${esc(labels[i])}</text>`;
+  }
+  return s+'</svg>';
+}
 function suggestTarget(st, goal, current){
   const known=st.b1.slice().sort((a,b)=>b-a), unk=st.b1Unknown, n=known.length+unk;
   if(n<8) return `<p class="note">A target suggestion needs at least 8 games with a ball 1 score (this machine has ${n}).</p>`;
@@ -1883,13 +1910,14 @@ function suggestTarget(st, goal, current){
     (current && Math.abs(diff)>=3 ? `<button class="btn small" data-usetarget="${s}">Use ${fmt(s)}</button>` : '');
 }
 function quant(sorted,q){ if(!sorted.length) return null; const i=Math.min(sorted.length-1,Math.floor(q*(sorted.length-1)+0.5)); return sorted[i]; }
+const keepY = fn => { const y=window.scrollY; fn(); window.scrollTo(0,y); };
 async function renderStats(){
   if(!STATS){ $('#main').innerHTML='<div class="panel">Loading stats…</div>'; try{ STATS=await api('/api/admin/stats'); }catch(e){ $('#main').innerHTML=`<div class="panel err">${esc(e.message)}</div>`; return; } if(tab!=='stats') return; }
   const games=STATS.games.filter(r=> r.daily ? SF.daily : SF.weekly);
   const groups=new Map(); games.forEach(r=>{ const g=groups.get(r.key)||[]; g.push(r); groups.set(r.key,g); });
   const stored=new Map(STATS.machines.map(m=>[m.id,m]));
   let rows=[...groups.entries()].map(([key,list])=>{ const last=list.reduce((a,b)=>b.when>a.when?b:a); const sm=stored.get(key); const st=machineStats(list);
-    return {key, name:sm?sm.name:last.name, abbr:sm?sm.abbr:'', cat:sm?sm.cat:last.cat, target:sm&&sm.target?sm.target:last.target, stored:!!sm, st}; });
+    return {key, name:sm?sm.name:last.name, abbr:sm?sm.abbr:'', cat:sm?sm.cat:last.cat, target:sm&&sm.target?sm.target:last.target, stored:!!sm, st, list}; });
   const q=SF.q.trim().toLowerCase();
   if(q) rows=rows.filter(r=>(r.name+' '+r.abbr+' '+catName(r.cat)).toLowerCase().includes(q));
   const sr=r=>r.st.strikes/r.st.n;
@@ -1899,6 +1927,12 @@ async function renderStats(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   const card=r=>{
     const st=r.st, endLabels=['0','1','2','3','4','5','6','7','8','9','Spare','Strike'];
+    // split by target: one series per target this machine was played at (newest target first)
+    const tg=new Map(); r.list.forEach(g=>{ const x=tg.get(g.target)||{target:g.target, list:[], last:0}; x.list.push(g); x.last=Math.max(x.last,g.when); tg.set(g.target,x); });
+    const targets=[...tg.values()].sort((a,b)=>b.last-a.last).map((x,i)=>{ const id=r.key+'|'+x.target; return {...x, id, st:machineStats(x.list), on:!TOFF.has(id), color:TCOL[id]||TPAL[i%TPAL.length]}; });
+    const split=SF.byTarget, shown=targets.filter(x=>x.on);
+    const tControls = split ? `<div class="tsplit"><p class="note">Targets this machine has been played at. Tick the ones to show; pick a color for each to overlay them.</p>${targets.map(x=>`<div class="tchk"><input type="checkbox" id="tc_${esc(x.id)}" data-tsel="${esc(x.id)}" ${x.on?'checked':''}><input type="color" data-tcol="${esc(x.id)}" value="${x.color}" aria-label="Color for ${shortNum(x.target)}"><label for="tc_${esc(x.id)}"><b>${shortNum(x.target)}</b> <small>${x.st.n} game${x.st.n===1?'':'s'} · strike ${pct(x.st.strikes,x.st.n)} · spare ${pct(x.st.spares,x.st.n)} · avg ${(x.st.pins/x.st.n).toFixed(1)}</small></label></div>`).join('')}</div>` : '';
+    const series=(get, tipf)=>shown.map(x=>{ const d=get(x.st); return {color:x.color, values:d.vals, whos:d.whos, tips:d.vals.map((v,i)=>`${shortNum(x.target)} · ${tipf(i)}: ${d.cnt[i]} of ${d.tot} (${Math.round(v)}%)`)}; });
     const endItems=st.end.map((v,i)=>({label:i===10?'/':i===11?'X':String(i), value:v, who:st.endWho[i], tip:`${endLabels[i]}${i<10?` pins`:''}: ${v} game${v===1?'':'s'} (${pct(v,st.n)})`}));
     const ballCharts=[]; for(let i=0;i<Math.min(st.nb,st.balls.length);i++){ const d=st.balls[i]; if(!d) continue; const tot=d.reduce((a,b)=>a+b,0);
       ballCharts.push(`<div><p class="chcap">Ball ${i+1} <small>${tot} game${tot===1?'':'s'}</small></p>${colChart(d.map((v,j)=>({label:j===10?'T':String(j), value:v, who:(st.ballWho[i]||[])[j]||[], tip:`Ball ${i+1}, ${j===10?'reached the target':j+' pins'}: ${v} (${pct(v,tot)})`})), `Pins after ball ${i+1}`)}</div>`); }
@@ -1909,10 +1943,15 @@ async function renderStats(){
       <span class="sline">${st.n} game${st.n===1?'':'s'} · strike ${pct(st.strikes,st.n)} · spare ${pct(st.spares,st.n)} · avg ${(st.pins/st.n).toFixed(1)}</span></summary>
       <div class="inner">
         <div class="mstats" style="grid-template-columns:repeat(4,1fr)"><div><small>Games</small><b>${st.n}</b></div><div><small>Strikes</small><b>${pct(st.strikes,st.n)}</b></div><div><small>Spares</small><b>${pct(st.spares,st.n)}</b></div><div><small>Avg pins</small><b>${(st.pins/st.n).toFixed(1)}</b></div></div>
+        ${tControls}
         <h3>How games ended</h3>
-        <p class="note">Pins for open games, then spares (/) and strikes (X). Hover over (or tap) a column to see who scored it and when.</p>
-        ${colChart(endItems,'How games ended')}
-        ${ballCharts.length?`<h3>Pins after each ball</h3><p class="note">Only games still going at that ball. T means the target was reached on that ball. Scores entered by an admin in one step skip the middle balls.</p><div class="charts">${ballCharts.join('')}</div>`:''}
+        <p class="note">Pins for open games, then spares (/) and strikes (X). ${split?'Each target is shown as a share of its own games, so targets with more games don\'t look bigger. ':''}Hover over (or tap) a column to see who scored it and when.</p>
+        ${split ? (shown.length ? multiChart(endLabels.map((l,i)=>i===10?'/':i===11?'X':l), series(st=>({vals:st.end.map(v=>v*100/st.n), cnt:st.end, tot:st.n, whos:st.endWho}), i=>endLabels[i]+(i<10?' pins':'')), 'How games ended, by target') : '<p class="note">Tick a target to see its chart.</p>') : colChart(endItems,'How games ended')}
+        ${split && shown.length ? (()=>{ const nb=Math.max(...shown.map(x=>Math.min(x.st.nb,x.st.balls.length))); const out=[];
+            for(let i=0;i<nb;i++){ const ser=series(st=>{ const d=st.balls[i]||Array(11).fill(0), t=d.reduce((a,b)=>a+b,0); return {vals:d.map(v=>t?v*100/t:0), cnt:d, tot:t, whos:(st.ballWho[i]||[])}; }, j=>`ball ${i+1}, ${j===10?'target':j+' pins'}`);
+              out.push(`<div><p class="chcap">Ball ${i+1}</p>${multiChart(['0','1','2','3','4','5','6','7','8','9','T'], ser, `Pins after ball ${i+1}, by target`)}</div>`); }
+            return `<h3>Pins after each ball</h3><p class="note">Share of each target's games still going at that ball. T means the target was reached on that ball.</p><div class="charts">${out.join('')}</div>`; })()
+          : split ? '' : ballCharts.length?`<h3>Pins after each ball</h3><p class="note">Only games still going at that ball. T means the target was reached on that ball. Scores entered by an admin in one step skip the middle balls.</p><div class="charts">${ballCharts.join('')}</div>`:''}
         <h3>Target check</h3>
         <div class="suggest">
           <p>Target now: <b>${fmt(r.target)}</b>.${med!=null?` Ball 1 scores: half are under <b>${shortNum(med)}</b> (${Math.round(med*100/r.target)}% of target), a quarter reach <b>${shortNum(q75)}</b>, the top 10% reach <b>${shortNum(q90)}</b>.`:''}</p>
@@ -1930,6 +1969,7 @@ async function renderStats(){
     <div class="tvctl" style="margin-top:.8rem">
       <label><input type="checkbox" id="sfW" ${SF.weekly?'checked':''}> Weekly tournaments</label>
       <label><input type="checkbox" id="sfD" ${SF.daily?'checked':''}> Daily challenges</label>
+      <label><input type="checkbox" id="sfT" ${SF.byTarget?'checked':''}> Split graphs by target score</label>
       <label>Strike goal <select id="sfGoal">${opt([[5,'5%'],[10,'10%'],[15,'15%'],[20,'20%'],[25,'25%']],SF.goal)}</select></label>
       <label>Sort <select id="sfSort">${opt([['played','Most played'],['name','Name'],['hi','Most strikes'],['lo','Fewest strikes']],SF.sort)}</select></label>
     </div>
@@ -1938,6 +1978,9 @@ async function renderStats(){
     ${rows.length?rows.map(card).join(''):'<div class="panel note">No games to show yet. Stats fill in as people play.</div>'}`;
   $('#sfW').onchange=e=>{ SF.weekly=e.target.checked; renderStats(); };
   $('#sfD').onchange=e=>{ SF.daily=e.target.checked; renderStats(); };
+  $('#sfT').onchange=e=>{ SF.byTarget=e.target.checked; store.set('pb-bytarget',SF.byTarget?'1':'0'); renderStats(); };
+  $$('[data-tsel]').forEach(c=>c.onchange=()=>{ const id=c.dataset.tsel; if(c.checked) TOFF.delete(id); else TOFF.add(id); saveTargetPrefs(); keepY(renderStats); });
+  $$('[data-tcol]').forEach(c=>c.onchange=()=>{ TCOL[c.dataset.tcol]=c.value; saveTargetPrefs(); keepY(renderStats); });
   $('#sfGoal').onchange=e=>{ SF.goal=Number(e.target.value); store.set('pb-goal',SF.goal); renderStats(); };
   $('#sfSort').onchange=e=>{ SF.sort=e.target.value; store.set('pb-ssort',SF.sort); renderStats(); };
   $('#sfQ').oninput=e=>{ SF.q=e.target.value; const pos=e.target.selectionStart; renderStats(); const i=$('#sfQ'); i.focus(); i.setSelectionRange(pos,pos); };
