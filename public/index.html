@@ -2003,7 +2003,7 @@ async function renderStored(){
     const issues=[!m.target?'No target':'', !m.cat?'No category':''].filter(Boolean); if(issues.length) attn++;
     const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), m.target&&m.inDraw===false?'<span class="tag">Not in random draw</span>':''].filter(Boolean).join('');
     const use = inT(m) ? 'in this tournament' : m.tournaments ? `${m.tournaments} tournament${m.tournaments===1?'':'s'}, last ${new Date(m.lastUsed||0).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'never used';
-    const line=machineLine([m.em?'EM':'', m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use]);
+    const line=machineLine([m.em?'EM':'', m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use, m.drawWeight?`${m.drawChance}% next daily`:'']);
     const inner=`<div class="mform">
         <div><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div>
         <div><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
@@ -2012,6 +2012,7 @@ async function renderStored(){
       <p class="note" style="margin-top:.3rem">${m.games} game${m.games===1?'':'s'} played in ${m.tournaments} tournament${m.tournaments===1?'':'s'}. Changes save by themselves${inT(m)?' and update this tournament too':''}. You can type 150m for 150,000,000.</p>
       <label class="check" style="margin-top:.6rem"><input type="checkbox" data-sem="${m.id}" ${m.em?'checked':''}> EM (electromechanical): 5 balls, strike on ball 1 or 2, spare on ball 3, 4 or 5. The first throw counts after ball 2.</label>
       <label class="check" style="margin-top:.4rem"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random for bonus frames and the daily challenge${m.target?'':' (needs a target first)'}</label>
+      ${m.drawWeight?`<p class="note" style="margin-top:.3rem">Daily draw: ${m.dailyGap==null?'not in a daily challenge yet':m.dailyGap===0?'in the latest daily challenge':`last in a daily challenge ${m.dailyGap} challenge${m.dailyGap===1?'':'s'} ago`}. Weight ${m.drawWeight} of 11, about <b>${m.drawChance}%</b> chance of being in the next one.</p>`:''}
       <div class="row" style="margin-top:.6rem"><button class="btn small danger" data-srm="${m.id}">Remove from stored machines</button></div>`;
     return machineRow(m.id, m, {line, flags, inner, cat:m.cat||'none', attn:issues.length, find:(m.name+' '+(m.abbr||'')+' '+catName(m.cat)).toLowerCase()});
   }).join('');
@@ -2019,6 +2020,7 @@ async function renderStored(){
   if(SCAT==='attn' && !attn) SCAT='all';
   $('#main').innerHTML=`<div class="panel"><h2>Stored machines</h2>
     <p class="note">Every machine that has ever been in a tournament, with its saved target, ball count and short name. These fill in by themselves when a machine comes back, and a change here also updates any open tournament that has the machine. Tap a machine to change it.</p>
+    <p class="note" style="margin-top:.5rem">The daily challenge draws 3 Classic, 3 Mid, 3 Modern and 1 more. It's weighted: the longer a machine has gone without being in a daily challenge, the more likely it is to be picked (up to 11 times as likely as one from the latest challenge), but nothing is guaranteed.</p>
     <p style="margin-top:.5rem"><b>${STORED.length}</b> machines · <b>${withT}</b> with targets · <b>${inDraw}</b> in the random draw${attn?` · <span class="err">${attn} need${attn===1?'s':''} attention</span>`:''}</p>
     <details class="addbox"><summary>Add a machine</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn" style="margin-top:0">Machine name</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 9rem"><label for="snt" style="margin-top:0">Target score</label><input type="text" inputmode="numeric" id="snt" placeholder="e.g. 50m"></div><div style="flex:0 0 7rem"><label for="sncat" style="margin-top:0">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></details></div>
     ${STORED.length>1?`<div class="toolbar">${searchHTML('ssearch','Search stored machines',SSEARCH)}<label class="sortlab">Sort <select id="ssort">${[['name','Name'],['used','Last used'],['played','Most played'],['cat','Category']].map(([k,l])=>`<option value="${k}" ${SSORT===k?'selected':''}>${l}</option>`).join('')}</select></label>${expandAllBtn()}</div>${chipsHTML(chips,SCAT)}`:''}

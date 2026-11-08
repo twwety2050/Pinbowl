@@ -188,7 +188,8 @@ function pickBonus(t, idx, machineId) {
     for (const c of order) { pool = base.filter(x => x.cat === c); if (pool.length) break; }
     if (!pool.length) pool = base;
     if (!pool.length) return null;
-    m = pool[crypto.randomInt(pool.length)];
+    // dailies: machines missing from recent challenges are likelier for the bonus frames too
+    m = t.daily ? weightedPick(pool, 1, x => drawWeight(x, dailyHistory()))[0] : pool[crypto.randomInt(pool.length)];
   }
   if (!m.target) fail(400, `${m.name} has no target score. Set one on the Stored machines tab first.`);
   const a = arenaForStored(t, m);
@@ -284,13 +285,36 @@ function nextWindow(from = nowMs()) {
 }
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 // 3 Classic, 3 Mid, 3 Modern, then 1 more from any category, from stored machines with a target
-function pickDailyMachines() {
-  const pool = shuffle(db.machines.filter(m => m.target > 0 && m.inDraw !== false));
+/* Daily draw weights: the longer a machine has gone without being in a daily challenge, the
+   likelier it is to be picked, but nothing is guaranteed. Weight = 1 + the number of daily
+   challenges since it was last in one (in the most recent one = 1, missed the last 4 = 5),
+   up to 11 for a machine missing 10 or more (or never drawn). */
+const DRAW_CAP = 10;
+function dailyHistory() { return db.tournaments.filter(t => t.daily).sort((a, b) => b.createdAt - a.createdAt); }
+function dailyGap(m, hist) {
+  const i = hist.findIndex(t => t.arenas.some(a => a.mid === m.id && (t.slots || []).includes(a.id)));
+  return i < 0 ? null : i; // null = not in any daily yet
+}
+const drawWeight = (m, hist) => { const g = dailyGap(m, hist); return 1 + (g == null ? DRAW_CAP : Math.min(g, DRAW_CAP)); };
+// k items picked without repeats, each draw in proportion to its weight (Efraimidis-Spirakis)
+function weightedPick(list, k, w) {
+  return list.map(x => ({ x, key: Math.log((crypto.randomInt(1, 2 ** 31)) / 2 ** 31) / w(x) }))
+    .sort((a, b) => b.key - a.key).slice(0, k).map(y => y.x);
+}
+// 3 Classic, 3 Mid, 3 Modern, then 1 more from anything (all weighted)
+function pickDailyMachines(hist = dailyHistory()) {
+  const pool = db.machines.filter(m => m.target > 0 && m.inDraw !== false), W = m => drawWeight(m, hist);
   const picked = [];
-  for (const c of CATS) picked.push(...pool.filter(m => m.cat === c).slice(0, 3));
+  for (const c of CATS) picked.push(...weightedPick(pool.filter(m => m.cat === c), 3, W));
   const rest = pool.filter(m => !picked.includes(m));
-  while (picked.length < 10 && rest.length) picked.push(rest.shift());
+  picked.push(...weightedPick(rest, 10 - picked.length, W));
   return picked;
+}
+// Each machine's chance of being in the next daily challenge, from many practice draws
+function drawChances(n = 3000) {
+  const hist = dailyHistory(), hits = {};
+  for (let i = 0; i < n; i++) pickDailyMachines(hist).forEach(m => { hits[m.id] = (hits[m.id] || 0) + 1; });
+  return { hist, hits, n };
 }
 function createDaily(w, manual) {
   const t = {
@@ -1168,7 +1192,7 @@ async function route(req, res, url) {
 
   // ----- stored machines -----
   if (m === 'GET' && p === '/api/admin/machines') {
-    const list = db.machines.map(x => {
+    const ch = drawChances(), list = db.machines.map(x => {
       let tournaments = 0, games = 0, current = false;
       for (const t of db.tournaments) {
         const ids = t.arenas.filter(a => a.mid === x.id).map(a => a.id);
@@ -1176,7 +1200,8 @@ async function route(req, res, url) {
         tournaments++; games += t.games.filter(g => ids.includes(g.arenaId) && g.status !== 'playing').length;
         if (t.status === 'active') current = true;
       }
-      return { ...x, tournaments, games, current };
+      const inDraw = x.target > 0 && x.inDraw !== false;
+      return { ...x, tournaments, games, current, dailyGap: dailyGap(x, ch.hist), drawWeight: inDraw ? drawWeight(x, ch.hist) : 0, drawChance: inDraw ? Math.round(100 * (ch.hits[x.id] || 0) / ch.n) : 0 };
     }).sort((a, b) => a.name.localeCompare(b.name));
     return send(res, 200, { machines: list });
   }

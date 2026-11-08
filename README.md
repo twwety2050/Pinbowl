@@ -147,6 +147,13 @@ name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
 or end one early on the Tournaments tab.
 
+**Weighted draw:** the daily challenge still draws 3 Classic, 3 Mid, 3 Modern and 1 more, but
+each machine's odds grow the longer it has gone without being in a daily challenge. Weight =
+1 + the number of daily challenges since it was last in one, up to 11 (missed 10 or more, or
+never drawn). A machine in yesterday's challenge can still come up; nothing is guaranteed. Bonus
+frames in a daily challenge use the same weights. Each stored machine shows its weight and its
+chance of being in the next daily challenge (from 3,000 simulated draws).
+
 **Practice runs:** on the Practice tab, any signed-in player can play a practice card on
 that day's machines. It works exactly like a real card (same machines, rules and bonus
 frames, drawn separately) but never counts toward standings, the winner or leaderboard
