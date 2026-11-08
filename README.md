@@ -183,6 +183,8 @@ Daily challenges get a **Leaderboard** tab. Points work like IFPA WPPR points:
   Last place always gets 0. Tied players share the points for their places.
 - Only players who finished at least one game count. Points are added once a challenge closes;
   the running challenge shows "if it ended now" points.
+- **Top scores:** the 3 highest single card totals from any daily challenge (any size, even one
+  player; today's open challenge included). Practice runs never count. Ties share a place.
 - The board can show all time, this year, or the last 30 days. Tap a name to see each result.
   Players are matched by name across challenges.
 

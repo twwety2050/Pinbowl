@@ -2701,12 +2701,20 @@ async function renderLeaders(){
   const rows=[...P.values()].sort((a,b)=>b.points-a.points || b.wins-a.wins || a.name.localeCompare(b.name));
   let rank=0, prev=null; rows.forEach((x,i)=>{ if(prev==null || Math.abs(x.points-prev)>1e-9) rank=i+1; x.rank=rank; prev=x.points; });
   const me = PLAYER ? PLAYER.name.toLowerCase() : '';
+  // Top single scores: the best card totals from any daily challenge (any size, today's included), never practice
+  const scores=data.events.filter(inRange).flatMap(ev=>ev.rows.filter(r=>r.total>0).map(r=>({name:r.name, total:r.total, ev})))
+    .sort((a,b)=>b.total-a.total || a.ev.when-b.ev.when);
+  scores.forEach((x,i)=>{ x.rank = i && x.total===scores[i-1].total ? scores[i-1].rank : i+1; });
+  const top=scores.filter(x=>x.rank<=3);
   const day = ms => new Date(ms).toLocaleDateString('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric'});
   const liveHTML = live && live.players ? `<div class="panel"><h2>Today's challenge, if it ended now</h2>
     <p class="note">${live.players} player${live.players>1?'s':''} so far, worth ${pts(live.value)} points to the winner. These points count once the challenge closes.</p>
     <table class="lb"><tbody>${live.rows.slice(0,5).map(r=>`<tr><td>${r.place}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div>` : '';
   main.innerHTML=`<div class="panel"><h2>Daily challenge leaderboard</h2>
     <p class="note">Points from every finished daily challenge. Tap a name to see their results.</p>${chipsHTML(LRANGES,range)}</div>
+    <div class="panel"><h2>Top scores</h2>
+      <p class="note">The highest single card totals from any daily challenge${range==='all'?'':' in this time range'}. Practice runs don't count.</p>
+      ${top.length?`<table class="lb" style="margin-top:.5rem"><thead><tr><th>#</th><th>Player</th><th>Day</th><th class="num">Score</th></tr></thead><tbody>${top.map(x=>`<tr${x.name.toLowerCase()===me?' style="background:var(--me)"':''}><td>${x.rank}</td><td>${esc(x.name)}</td><td>${day(x.ev.when)}${x.ev.live?' (today, still open)':''}</td><td class="num"><b>${x.total}</b></td></tr>`).join('')}</tbody></table>`:'<p class="note">No scores yet.</p>'}</div>
     ${liveHTML}
     ${rows.length ? rows.map(x=>`<details class="panel stand ${x.name.toLowerCase()===me?'me':''}"><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.name)}<small>${x.played} challenge${x.played>1?'s':''}${x.wins?` · ${x.wins} win${x.wins>1?'s':''}`:''}</small></span><span class="ptotal">${pts(x.points)}</span><span class="chev" aria-hidden="true">›</span></summary>
       <div class="inner"><table class="lb"><thead><tr><th>Day</th><th>Place</th><th class="num">Score</th><th class="num">Points</th></tr></thead><tbody>${x.list.map(({ev,r})=>`<tr><td>${day(ev.when)}</td><td>${ord(r.place)} of ${ev.players}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')
