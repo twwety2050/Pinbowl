@@ -147,6 +147,14 @@ name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
 or end one early on the Tournaments tab.
 
+**Stored machine targets:** each machine has a **Quick pick** dropdown of targets in short form
+(past targets with their game counts, the 10% strike recommendation, and ±10/20/30% of the
+current target), plus a line with the target that would give about 10% strikes (needs 8+ games
+with a ball 1 score) and a button to use it.
+
+Daily challenges don't show the Finals or Matchplay totals tabs. On the Leaderboard, each day in
+a player's results (and in Top scores) links to that challenge's Standings.
+
 **Weighted draw:** the daily challenge still draws 3 Classic, 3 Mid, 3 Modern and 1 more, but
 each machine's odds grow the longer it has gone without being in a daily challenge. Weight =
 1 + the number of daily challenges since it was last in one, up to 11 (missed 10 or more, or

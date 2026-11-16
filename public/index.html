@@ -867,7 +867,7 @@ function withLeaders(list){ if(!T || !T.daily) return list; const i=list.findInd
   // daily challenges also get a Practice tab, next to Enter score
   let j=out.findIndex(x=>x[0]==='play'); if(j<0) j=out.findIndex(x=>x[0]==='leaders'); out=[...out.slice(0,j+1),['practice','Practice'],...out.slice(j+1)];
   return out; }
-function tabs(){ return withLeaders(tabs0()); }
+function tabs(){ let l=withLeaders(tabs0()); if(T && T.daily) l=l.filter(x=>x[0]!=='finals' && x[0]!=='totals'); return l; }
 function tabs0(){ if(!T && ADMIN) return ADMIN_TABS.filter(x=>NO_T_TABS.includes(x[0])); if(T && T.finals) return ADMIN ? FINALS_ADMIN_TABS : FINALS_TABS; return ADMIN ? ADMIN_TABS : isKeeper() ? KEEPER_TABS : PLAYER_TABS; }
 function go(t){ if(t==='stats') STATS=null; tab=t; screen=null; store.set('pb-tab-'+(ADMIN?'a':'p'), t); render(); }
 
@@ -1900,6 +1900,13 @@ function multiChart(labels, series, aria){
   }
   return s+'</svg>';
 }
+// The target that would give about goal% strikes, from ball 1 scores (null if there isn't enough data)
+function recTarget(st, goal){
+  const known=st.b1.slice().sort((a,b)=>b-a), unk=st.b1Unknown, n=known.length+unk;
+  if(n<8) return {n};
+  const k=Math.max(1,Math.ceil(goal/100*n)); if(k<=unk) return {n, tooEasy:true};
+  return {n, value:niceRound(known[k-unk-1])};
+}
 function suggestTarget(st, goal, current){
   const known=st.b1.slice().sort((a,b)=>b-a), unk=st.b1Unknown, n=known.length+unk;
   if(n<8) return `<p class="note">A target suggestion needs at least 8 games with a ball 1 score (this machine has ${n}).</p>`;
@@ -1994,6 +2001,23 @@ let STORED=null, SSEARCH='', SCAT='all', SSORT=store.get('pb-ssort2')||'name';
 async function loadStored(){ try{ STORED=(await api('/api/admin/machines')).machines; }catch(e){ STORED=STORED||[]; toast(e.message); } }
 async function renderStored(){
   if(!STORED){ $('#main').innerHTML='<div class="panel">Loading stored machines…</div>'; await loadStored(); if(tab!=='stored') return; }
+  if(!STATS){ try{ STATS=await api('/api/admin/stats'); }catch(e){ STATS={games:[],machines:[]}; } if(tab!=='stored') return; }
+  // per machine: past targets (with game counts) and the target for about 10% strikes
+  const byKey=new Map(); STATS.games.forEach(r=>{ const l=byKey.get(r.key)||[]; l.push(r); byKey.set(r.key,l); });
+  const tinfo=m=>{ const list=byKey.get(m.id)||[], used=new Map(); list.forEach(g=>used.set(g.target,(used.get(g.target)||0)+1));
+    return {rec: list.length ? recTarget(machineStats(list),10) : {n:0}, used:[...used].sort((a,b)=>b[0]-a[0])}; };
+  const quickPick=(m,ti)=>{
+    const opts=new Map(), add=(v,label)=>{ if(v>0 && !opts.has(v)) opts.set(v,label); };
+    if(ti.rec.value) add(ti.rec.value, `${shortNum(ti.rec.value)} – about 10% strikes (recommended)`);
+    ti.used.forEach(([v,n])=>add(v, `${shortNum(v)} – used before (${n} game${n===1?'':'s'})`));
+    if(m.target) [-30,-20,-10,10,20,30].forEach(p=>add(niceRound(m.target*(1+p/100)), `${shortNum(niceRound(m.target*(1+p/100)))} – ${p>0?'+':''}${p}% vs. now`));
+    const list=[...opts].sort((a,b)=>b[0]-a[0]);
+    return `<select id="sq${m.id}" data-squick="${m.id}"><option value="">${m.target?`Now ${shortNum(m.target)}`:'Pick a target'}</option>${list.map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('')}</select>`;
+  };
+  const recLine=(m,ti)=>{ const r=ti.rec;
+    if(r.value) return `For about <b>10% strikes</b>: <b>${shortNum(r.value)}</b> (${fmt(r.value)})${m.target?`, ${Math.round((r.value-m.target)*100/m.target)>0?'+':''}${Math.round((r.value-m.target)*100/m.target)}% vs. now`:''}. Based on ${r.n} games.${m.target!==r.value?` <button class="btn small" data-srec="${m.id}" data-v="${r.value}">Use ${shortNum(r.value)}</button>`:''}`;
+    if(r.tooEasy) return `More than 10% of games on this machine are already strikes. Try raising the target.`;
+    return `The 10% strike recommendation needs at least 8 games with a ball 1 score (this machine has ${r.n}).`; };
   const inT = m => T && T.arenas.some(a=>a.mid===m.id);
   const withT=STORED.filter(m=>m.target>0).length, inDraw=STORED.filter(m=>m.target>0 && m.inDraw!==false).length;
   const sorters={ name:(a,b)=>a.name.localeCompare(b.name), used:(a,b)=>(b.lastUsed||0)-(a.lastUsed||0) || a.name.localeCompare(b.name), played:(a,b)=>b.games-a.games || a.name.localeCompare(b.name), cat:(a,b)=>(CATS.findIndex(c=>c[0]===a.cat)+9)%9-(CATS.findIndex(c=>c[0]===b.cat)+9)%9 || a.name.localeCompare(b.name) };
@@ -2004,11 +2028,14 @@ async function renderStored(){
     const flags=[...issues.map(x=>`<span class="tag warn">${x}</span>`), m.target&&m.inDraw===false?'<span class="tag">Not in random draw</span>':''].filter(Boolean).join('');
     const use = inT(m) ? 'in this tournament' : m.tournaments ? `${m.tournaments} tournament${m.tournaments===1?'':'s'}, last ${new Date(m.lastUsed||0).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'never used';
     const line=machineLine([m.em?'EM':'', m.cat?catName(m.cat):'', `${m.balls} balls`, m.target?`target ${fmtShort(m.target)}`:'', use, m.drawWeight?`${m.drawChance}% next daily`:'']);
+    const ti=tinfo(m);
     const inner=`<div class="mform">
         <div><label for="st${m.id}">Target score</label><input type="text" inputmode="numeric" id="st${m.id}" data-starget="${m.id}" value="${m.target?fmt(m.target):''}" placeholder="Not set"></div>
+        <div><label for="sq${m.id}">Quick pick</label>${quickPick(m,ti)}</div>
         <div><label for="scat${m.id}">Category</label>${catSelect('scat',m.id,m.cat)}</div>
         <div><label for="sb${m.id}">Balls</label><select id="sb${m.id}" data-sballs="${m.id}" ${m.em?'disabled':''}><option ${m.balls===3?'selected':''}>3</option><option ${m.balls===5?'selected':''}>5</option></select></div>
         <div><label for="sa${m.id}">Short name</label><input type="text" id="sa${m.id}" data-sabbr="${m.id}" value="${esc(m.abbr||'')}" maxlength="5" style="text-transform:uppercase"></div></div>
+      <p class="note" style="margin-top:.4rem">${recLine(m,ti)}</p>
       <p class="note" style="margin-top:.3rem">${m.games} game${m.games===1?'':'s'} played in ${m.tournaments} tournament${m.tournaments===1?'':'s'}. Changes save by themselves${inT(m)?' and update this tournament too':''}. You can type 150m for 150,000,000.</p>
       <label class="check" style="margin-top:.6rem"><input type="checkbox" data-sem="${m.id}" ${m.em?'checked':''}> EM (electromechanical): 5 balls, strike on ball 1 or 2, spare on ball 3, 4 or 5. The first throw counts after ball 2.</label>
       <label class="check" style="margin-top:.4rem"><input type="checkbox" data-sdraw="${m.id}" ${m.inDraw!==false?'checked':''} ${m.target?'':'disabled'}> Can be picked at random for bonus frames and the daily challenge${m.target?'':' (needs a target first)'}</label>
@@ -2035,6 +2062,8 @@ async function renderStored(){
   $$('[data-sballs]').forEach(i=>i.onchange=()=>save(i.dataset.sballs,{balls:Number(i.value)},'Saved'));
   $$('[data-scat]').forEach(i=>i.onchange=()=>save(i.dataset.scat,{cat:i.value},'Category saved'));
   $$('[data-starget]').forEach(i=>{ i.onchange=()=>save(i.dataset.starget,{target:num(i.value)||0},'Target saved'); i.onkeydown=e=>{ if(e.key==='Enter') i.blur(); }; });
+  $$('[data-squick]').forEach(sel=>sel.onchange=()=>{ const v=Number(sel.value); if(!v) return; const i=$('#st'+sel.dataset.squick); if(i) i.value=fmt(v); save(sel.dataset.squick,{target:v},`Target set to ${shortNum(v)}`); });
+  $$('[data-srec]').forEach(b=>b.onclick=()=>{ const v=Number(b.dataset.v), i=$('#st'+b.dataset.srec); if(i) i.value=fmt(v); save(b.dataset.srec,{target:v},`Target set to ${shortNum(v)}`); });
   $$('[data-sem]').forEach(i=>i.onchange=()=>save(i.dataset.sem,{em:i.checked},i.checked?'Scored as an EM machine (5 balls)':'Scored as a regular machine'));
   $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the random draw':'Left out of the random draw'));
   $$('[data-srm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this machine from stored machines? Past tournaments keep their scores.')) return; try{ await api(`/api/admin/machines/${b.dataset.srm}`,'DELETE'); STORED=STORED.filter(x=>x.id!==b.dataset.srm); toast('Removed'); renderStored(); }catch(e){ toast(e.message); } });
@@ -2716,13 +2745,15 @@ async function renderLeaders(){
     <p class="note">Points from every finished daily challenge. Tap a name to see their results.</p>${chipsHTML(LRANGES,range)}</div>
     <div class="panel"><h2>Top scores</h2>
       <p class="note">The highest single card totals from any daily challenge${range==='all'?'':' in this time range'}. Practice runs don't count.</p>
-      ${top.length?`<table class="lb" style="margin-top:.5rem"><thead><tr><th>#</th><th>Player</th><th>Day</th><th class="num">Score</th></tr></thead><tbody>${top.map(x=>`<tr${x.name.toLowerCase()===me?' style="background:var(--me)"':''}><td>${x.rank}</td><td>${esc(x.name)}</td><td>${day(x.ev.when)}${x.ev.live?' (today, still open)':''}</td><td class="num"><b>${x.total}</b></td></tr>`).join('')}</tbody></table>`:'<p class="note">No scores yet.</p>'}</div>
+      ${top.length?`<table class="lb" style="margin-top:.5rem"><thead><tr><th>#</th><th>Player</th><th>Day</th><th class="num">Score</th></tr></thead><tbody>${top.map(x=>`<tr${x.name.toLowerCase()===me?' style="background:var(--me)"':''}><td>${x.rank}</td><td>${esc(x.name)}</td><td><a href="#" data-lgo="${x.ev.id}" title="Open ${esc(x.ev.name)}">${day(x.ev.when)}</a>${x.ev.live?' (today, still open)':''}</td><td class="num"><b>${x.total}</b></td></tr>`).join('')}</tbody></table>`:'<p class="note">No scores yet.</p>'}</div>
     ${liveHTML}
     ${rows.length ? rows.map(x=>`<details class="panel stand ${x.name.toLowerCase()===me?'me':''}"><summary><span class="rank">${x.rank}</span><span class="pname">${esc(x.name)}<small>${x.played} challenge${x.played>1?'s':''}${x.wins?` · ${x.wins} win${x.wins>1?'s':''}`:''}</small></span><span class="ptotal">${pts(x.points)}</span><span class="chev" aria-hidden="true">›</span></summary>
-      <div class="inner"><table class="lb"><thead><tr><th>Day</th><th>Place</th><th class="num">Score</th><th class="num">Points</th></tr></thead><tbody>${x.list.map(({ev,r})=>`<tr><td>${day(ev.when)}</td><td>${ord(r.place)} of ${ev.players}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')
+      <div class="inner"><table class="lb"><thead><tr><th>Day</th><th>Place</th><th class="num">Score</th><th class="num">Points</th></tr></thead><tbody>${x.list.map(({ev,r})=>`<tr><td><a href="#" data-lgo="${ev.id}" title="Open ${esc(ev.name)}">${day(ev.when)}</a></td><td>${ord(r.place)} of ${ev.players}</td><td class="num">${r.total}</td><td class="num">${pts(r.points)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')
       : `<div class="panel note">No finished daily challenges ${range==='all'?'yet':'in this time range'}.</div>`}
     <details class="panel"><summary><b>How points work</b></summary><div class="inner">${leaderRulesHTML()}</div></details>`;
   $$('[data-chip]').forEach(b=>b.onclick=()=>{ store.set('pb-lrange',b.dataset.chip); renderLeaders(); });
+  // a day opens that challenge on its Standings tab
+  $$('[data-lgo]').forEach(a=>a.onclick=async e=>{ e.preventDefault(); if(!T || T.id!==a.dataset.lgo) await pickT(a.dataset.lgo); go('standings'); window.scrollTo(0,0); });
 }
 // Same split as the server (IFPA WPPR, with last place getting 0)
 function wpprShare(place,n){ if(n<2) return 0; const lin=(n-place)/(n-1), x=(place-1)/Math.min(n/2,64), dyn = x>=1 ? 0 : Math.pow(1-Math.pow(x,0.7),3); return 0.1*lin+0.9*dyn; }
