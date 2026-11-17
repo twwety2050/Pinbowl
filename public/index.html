@@ -101,6 +101,16 @@ a{color:inherit}
 #lsel{width:100%;background:color-mix(in srgb,var(--headInk) 8%,transparent);color:var(--headInk);border:1.5px solid color-mix(in srgb,var(--headInk) 35%,transparent);border-radius:8px;padding:.35rem .6rem;font:600 .95rem/1.2 var(--cond)}
 #lsel option{color:#16324F;background:#fff}
 .lbar{margin-top:.4rem}
+#lbar[hidden]{display:none}
+.bar .brk{display:none}
+/* phones: the location name and status chip get their own line under "Pinbowl" */
+@media (max-width:560px){
+  .bar{flex-wrap:wrap;row-gap:.3rem}
+  .bar .brk{display:block;flex-basis:100%;height:0;order:5}
+  .bar .locname{order:6;max-width:none;flex:0 1 auto;font-size:.9rem}
+  .bar .tstate{order:7;flex:0 1 auto;max-width:60vw}
+  .bar .locname:empty + .tstate{margin-left:0}
+}
 .bar select option{color:#16324F;background:#fff}
 .linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem .15rem;white-space:nowrap}
 .navwrap{position:relative;display:flex;align-items:stretch;max-width:1100px;margin:.5rem auto 0}
@@ -598,6 +608,7 @@ body.streammode #toast,body.tvmode #toast{display:none}
     <button class="linkbtn iconbtn" id="themeBtn" aria-label="Change colors" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
+    <span class="brk" aria-hidden="true"></span>
   </div>
   <div class="tbar lbar" id="lbar" hidden><label class="tlabel" for="lsel">Location</label><div class="tselwrap"><select id="lsel"></select></div></div>
   <div class="tbar"><span class="tlabel" id="tselLbl">Tournament</span><div class="tselwrap"><button type="button" id="tsel" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="tselLbl tsel"></button><div id="tmenu" role="listbox" aria-labelledby="tselLbl" hidden></div><svg class="tcaret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div></div>
