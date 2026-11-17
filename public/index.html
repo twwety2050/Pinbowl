@@ -8,9 +8,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Graduate&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <script>
-// Colors: Northstar (default), Classic or Dark. A link can force one with ?theme=
-(function(){var t=new URLSearchParams(location.search).get('theme');try{if(!t)t=localStorage.getItem('pb-theme')}catch(e){}
-if(['fancy','northstar','classic','dark'].indexOf(t)<0)t='fancy';document.documentElement.setAttribute('data-theme',t);})();
+// Colors. The original location (no link name) has its own themes; other locations get the
+// generic theme and generic dark. A link can force one with ?theme=
+(function(){var slug=(location.pathname.split('/').filter(Boolean)[0]||'').toLowerCase();
+var list=slug?['classic','gdark']:['fancy','northstar','classic','dark'],key=slug?slug+':pb-theme':'pb-theme';
+var t=new URLSearchParams(location.search).get('theme');try{if(!t)t=localStorage.getItem(key)}catch(e){}
+if(list.indexOf(t)<0)t=list[0];document.documentElement.setAttribute('data-theme',t);})();
 </script>
 <style>
 :root{
@@ -45,6 +48,14 @@ if(['fancy','northstar','classic','dark'].indexOf(t)<0)t='fancy';document.docume
   --display:"Graduate","Bowlby One","Arial Black",Impact,sans-serif;
   color-scheme:dark;
 }
+:root[data-theme="gdark"]{
+  --paper:#0C141C; --card:#15202B; --ink:#E8EEF3; --muted:#95A7B6; --grid:#2B3C4C;
+  --mark:#FF6B5B; --lane:#D9A441; --laneInk:#1A1205; --ok:#6BD197; --warn:#FF8F66; --me:#33301C;
+  --head:#08111A; --headInk:#E8EEF3; --tagbg:#1F3142; --sky:#86AAC6; --bar:#C9912F;
+  --stripeA:transparent; --stripeB:transparent; --stripeW:0px;
+  --display:"Bowlby One","Arial Black",Impact,sans-serif;
+  color-scheme:dark;
+}
 *,*::before,*::after{box-sizing:border-box} /* set directly: content inside <details> doesn't inherit it in Chrome */
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 var(--body)}
@@ -56,7 +67,7 @@ a{color:inherit}
 .top{position:sticky;top:0;z-index:5;background:var(--head);color:var(--headInk);padding:.6rem 1rem .4rem;border-top:var(--stripeW) solid var(--stripeA);box-shadow:inset 0 3px 0 var(--stripeB)}
 .bar{display:flex;align-items:center;gap:.45rem;max-width:1100px;margin:0 auto}
 .bar h1{font:400 1.7rem/1 var(--display)}
-:root:not([data-theme="classic"]) .bar h1{font-size:1.32rem;letter-spacing:.01em;background:linear-gradient(#fff 55%,var(--sky) 55%);-webkit-background-clip:text;background-clip:text;color:transparent}
+:root:not([data-theme="classic"]):not([data-theme="gdark"]) .bar h1{font-size:1.32rem;letter-spacing:.01em;background:linear-gradient(#fff 55%,var(--sky) 55%);-webkit-background-clip:text;background-clip:text;color:transparent}
 .barspace{flex:1 1 0;min-width:0}
 /* tournament picker: its own full line in the header */
 .tbar{display:flex;align-items:center;gap:.5rem;max-width:1100px;margin:.5rem auto 0}
@@ -86,6 +97,10 @@ a{color:inherit}
 .tstate:empty{display:none}
 .tstate.arch{background:color-mix(in srgb,var(--headInk) 20%,transparent);color:var(--headInk)}
 @media (max-width:420px){.tlabel{display:none}}
+.locname{font:600 .85rem/1.1 var(--cond);letter-spacing:.02em;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw}
+#lsel{width:100%;background:color-mix(in srgb,var(--headInk) 8%,transparent);color:var(--headInk);border:1.5px solid color-mix(in srgb,var(--headInk) 35%,transparent);border-radius:8px;padding:.35rem .6rem;font:600 .95rem/1.2 var(--cond)}
+#lsel option{color:#16324F;background:#fff}
+.lbar{margin-top:.4rem}
 .bar select option{color:#16324F;background:#fff}
 .linkbtn{background:none;border:0;color:var(--lane);font-weight:600;cursor:pointer;padding:.3rem .15rem;white-space:nowrap}
 .navwrap{position:relative;display:flex;align-items:stretch;max-width:1100px;margin:.5rem auto 0}
@@ -542,6 +557,19 @@ body.streammode.clear{background:transparent}
 body.streammode #toast,body.tvmode #toast{display:none}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
 .lb .n{text-align:right}
+.acwrap{position:relative}
+.aclist{position:absolute;left:0;right:0;top:100%;z-index:25;margin-top:2px;background:var(--card);color:var(--ink);border:1px solid var(--grid);border-radius:8px;box-shadow:0 10px 24px -10px rgba(0,0,0,.35);max-height:18rem;overflow:auto}
+.aci{display:flex;align-items:baseline;gap:.5rem;padding:.45rem .65rem;cursor:pointer;border-bottom:1px solid color-mix(in srgb,var(--grid) 60%,transparent)}
+.aci span{font-weight:600}.aci small{color:var(--muted);margin-left:auto;white-space:nowrap}
+.aci em{font:700 .65rem var(--cond);text-transform:uppercase;font-style:normal;background:var(--tagbg);border-radius:999px;padding:0 .4rem}
+.aci.on,.aci:hover{background:color-mix(in srgb,var(--lane) 14%,transparent)}
+.acfoot{font-size:.72rem;color:var(--muted);padding:.3rem .65rem}
+.dsched{display:grid;gap:.4rem;margin-top:.6rem}
+.dday{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.4rem .8rem;padding:.5rem .7rem;border:1px solid var(--grid);border-radius:8px;background:var(--card)}
+.dday.off{opacity:.55}.dday.off .dtimes{display:none}
+.dtimes{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .5rem}
+.dtimes label{margin:0;font-size:.85rem;color:var(--muted)}
+.dtimes select{padding:.3rem .4rem}
 .tsplit{margin:.6rem 0 .2rem;padding:.6rem .7rem;border:1px solid var(--grid);border-radius:8px;background:var(--paper)}
 .tchk{display:flex;align-items:center;gap:.5rem;padding:.25rem 0}
 .tchk input[type=checkbox]{width:1.15rem;height:1.15rem;flex:none}
@@ -564,12 +592,14 @@ body.streammode #toast,body.tvmode #toast{display:none}
 <header class="top">
   <div class="bar">
     <h1>Pinbowl</h1>
+    <span class="locname" id="locName"></span>
     <span class="tstate" id="tstate"></span>
     <span class="barspace"></span>
     <button class="linkbtn iconbtn" id="themeBtn" aria-label="Change colors" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
     <button class="linkbtn" id="acct">Admin</button>
   </div>
+  <div class="tbar lbar" id="lbar" hidden><label class="tlabel" for="lsel">Location</label><div class="tselwrap"><select id="lsel"></select></div></div>
   <div class="tbar"><span class="tlabel" id="tselLbl">Tournament</span><div class="tselwrap"><button type="button" id="tsel" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="tselLbl tsel"></button><div id="tmenu" role="listbox" aria-labelledby="tselLbl" hidden></div><svg class="tcaret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div></div>
   <div class="navwrap"><button class="navarrow l" id="navL" aria-label="Show tabs to the left" hidden>‹</button><nav id="nav" role="tablist" aria-label="Sections"></nav><button class="navarrow r" id="navR" aria-label="Show tabs to the right" hidden>›</button></div>
 </header>
@@ -591,12 +621,32 @@ const num = v => { if(v===null||v===undefined||v==='') return null; const s=Stri
   const m=s.match(/^(\d*\.?\d+)\s*([kmb])$/); if(m) return Math.round(parseFloat(m[1])*{k:1e3,m:1e6,b:1e9}[m[2]]);
   const n=parseInt(s.replace(/[^\d]/g,''),10); return isNaN(n)?null:n; };
 const fmt = n => n==null ? '' : Number(n).toLocaleString('en-US');
-const store = { get:k=>{try{return localStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}, del:k=>{try{localStorage.removeItem(k)}catch(e){}} };
+// Each location has its own link: /<link name>. No link name = the original location.
+const LOCSLUG=(location.pathname.split('/').filter(Boolean)[0]||'').toLowerCase();
+const LP = LOCSLUG ? '/'+LOCSLUG : '';
+const APPURL = location.origin + LP + '/';
+let LOC=null, USER=null, LOCS=[], DPLAN=null;
+const locName = () => LOC ? LOC.name : 'Pinbowl';
+const dailyName = () => `${LOC ? (LOC.short || LOC.name) + ' ' : ''}Daily Pinbowl Challenge`;
+// "every day, all day" / "Fri 5 PM to midnight; Sat and Sun 11 AM to 7 PM" (Central time)
+function scheduleText(plan=DPLAN){
+  if(!plan || !plan.on) return 'not running right now';
+  const D=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], t=v=>{ const [h,m]=v.split(':').map(Number); if(h===24||(h===0&&m===0&&v!=='00:00')) return 'midnight'; if(h===0&&m===0) return 'midnight'; if(h===12&&m===0) return 'noon'; return `${(h%12)||12}${m?':'+String(m).padStart(2,'0'):''} ${h<12?'AM':'PM'}`; };
+  const on=D.filter(d=>plan.days[d]&&plan.days[d].on); if(!on.length) return 'not scheduled on any day';
+  const groups=new Map(); on.forEach(d=>{ const x=plan.days[d], k=x.start+'-'+x.end; (groups.get(k)||groups.set(k,[]).get(k)).push(d); });
+  const parts=[...groups].map(([k,ds])=>{ const [a,b]=k.split('-'); const when = a==='00:00'&&b==='24:00' ? 'all day' : `${t(a)} to ${t(b)}`;
+    const days = ds.length===7 ? 'every day' : ds.length===1 ? ds[0] : ds.slice(0,-1).join(', ')+' and '+ds[ds.length-1]; return `${days}, ${when}`; });
+  return parts.join('; ');
+}
+// saved settings on this device are kept per location
+const sk = k => LOCSLUG ? LOCSLUG+':'+k : k;
+const store = { get:k=>{try{return localStorage.getItem(sk(k))}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(sk(k),v)}catch(e){}}, del:k=>{try{localStorage.removeItem(sk(k))}catch(e){}} };
 let toastTimer;
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3400); }
 
 async function api(path, method='GET', body){
-  let r; try{ r = await fetch(path, {method, headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined, credentials:'same-origin'}); }
+  const headers = body?{'Content-Type':'application/json'}:{}; if(LOCSLUG) headers['X-Loc']=LOCSLUG;
+  let r; try{ r = await fetch(path, {method, headers, body: body?JSON.stringify(body):undefined, credentials:'same-origin'}); }
   catch(e){ throw new Error("Can't reach the server. Check your connection and try again."); }
   let j=null; try{ j=await r.json(); }catch(e){}
   if(!r.ok){ const e=new Error((j&&j.error) || `Error ${r.status}`); e.status=r.status; throw e; }
@@ -715,9 +765,14 @@ function catMix(){
   const c={classic:0,mid:0,modern:0,none:0}; reg.forEach(a=>{ c[a.cat||'none']++; });
   return {reg,c};
 }
+// "4 Classic, 4 Mid, 4 Modern" / "6 Classic, 6 Modern" / "12 from any category"
+function mixText(m){ if(!m) return '12 machines'; const parts=[['classic','Classic'],['mid','Mid'],['modern','Modern']].filter(([k])=>m[k]).map(([k,l])=>`${m[k]} ${l}`); const any=12-(m.classic+m.mid+m.modern);
+  return parts.length ? parts.join(', ')+(any?` and ${any} from any category`:'') : '12 from any category'; }
 function catMixNote(){
   const {reg,c}=catMix();
   const counts=`Classic ${c.classic}, Mid ${c.mid}, Modern ${c.modern}${c.none?`, <span class="err">${c.none} without a category</span>`:''}`;
+  // daily challenges draw all 12 at once (the mix is set on the Daily challenge tab)
+  if(T.daily) return `<p class="note" style="margin-top:.5rem"><b>Today's ${reg.length} machines:</b> ${counts}. The 2 bonus-frame machines were drawn with them and appear when someone earns frame 11 or 12.</p>`;
   const sorted=[c.classic,c.mid,c.modern].sort().join('/');
   const short=CATS.filter(([k])=>c[k]===3).map(x=>x[1]);
   const ok = !c.none && reg.length===T.frames && sorted==='3/3/4';
@@ -854,14 +909,14 @@ function updateRanges(a, score, ballNo){ const el=$('#rngList'); if(el && a) el.
 
 /* ================= header, nav, routing ================= */
 const PLAYER_TABS=[['mine','My card'],['play','Enter score'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
-const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['finals','Finals'],['totals','Matchplay totals'],['admins','Admins'],['tv','Broadcast'],['stored','Stored machines'],['stats','Stats'],['rules','Rules']];
+const ADMIN_TABS=[['enter','Enter score'],['standings','Standings'],['machines','Machines'],['players','Players'],['tournaments','Tournaments'],['finals','Finals'],['totals','Matchplay totals'],['daily','Daily challenge'],['admins','Staff'],['tv','Broadcast'],['stored','Stored machines'],['stats','Stats'],['rules','Rules']];
 // Scorekeepers are players an admin picked: they keep their own card and can also enter anyone's scores.
 const KEEPER_TABS=[['mine','My card'],['play','Enter score'],['enter','Scorekeeper'],['standings','Standings'],['machines','Machines'],['rules','Rules']];
 function isKeeper(){ return !ADMIN && !!(PLAYER && PLAYER.scorekeeper); }
 function staff(){ return !!ADMIN || isKeeper(); }
 const FINALS_TABS=[['finals','Finals'],['standings','Standings'],['rules','Rules']];
-const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['stored','Stored machines'],['stats','Stats'],['admins','Admins'],['rules','Rules']];
-const NO_T_TABS=['tournaments','stored','stats','admins'];
+const FINALS_ADMIN_TABS=[['finals','Finals'],['standings','Standings'],['totals','Matchplay totals'],['tv','Broadcast'],['tournaments','Tournaments'],['daily','Daily challenge'],['stored','Stored machines'],['stats','Stats'],['admins','Staff'],['rules','Rules']];
+const NO_T_TABS=['tournaments','daily','stored','stats','admins'];
 // Daily challenges get a Leaderboard tab right after Standings
 function withLeaders(list){ if(!T || !T.daily) return list; const i=list.findIndex(x=>x[0]==='standings'); let out=[...list.slice(0,i+1),['leaders','Leaderboard'],...list.slice(i+1)];
   // daily challenges also get a Practice tab, next to Enter score
@@ -877,7 +932,13 @@ function renderHeader(){
   if(!$('#tmenu').hidden) fillTMenu();
   const st=$('#tstate'); if(st){ const s = !T ? '' : (tab==='practice' && practiceRun()) ? 'Practice run' : T.status==='archived' ? 'Archived' : T.daily ? 'Daily · live' : T.finals ? (T.finals.champion?'Finals · done':'Finals · live') : T.done ? 'Done' : 'Live';
     st.textContent=s; st.className='tstate'+(T&&T.status==='archived'?' arch':''); }
-  document.title = T ? `${T.name} · Pinbowl` : 'Pinbowl';
+  document.title = T ? `${T.name} · Pinbowl` : `Pinbowl · ${locName()}`;
+  $('#locName').textContent = LOC ? LOC.name : '';
+  // Admins switch locations here (each location has its own link)
+  const lb=$('#lbar'), canSwitch = USER && USER.role==='admin' && LOCS.length>1 && !TVMODE && !STREAMMODE;
+  lb.hidden=!canSwitch;
+  if(canSwitch){ $('#lsel').innerHTML=LOCS.map(l=>`<option value="${l.slug}" ${LOC&&l.id===LOC.id?'selected':''}>${esc(l.name)}</option>`).join('');
+    $('#lsel').onchange=e=>{ const l=LOCS.find(x=>x.slug===e.target.value); location.href = l.isDefault ? '/' : '/'+l.slug; }; }
   sel.disabled=!LIST.length;
   $('#acct').textContent = ADMIN ? 'Log out' : 'Admin';
   $('#nav').innerHTML = screen ? '' : tabs().map(([k,l])=>`<button role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('');
@@ -902,9 +963,9 @@ function render(){
   if(screen==='login') return renderLogin();
   if(screen==='pin') return renderPin();
   if(screen==='ifpa') return renderIfpa();
-  if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
+  if(!T){ if(ADMIN){ if(!NO_T_TABS.includes(tab)) tab='tournaments'; renderHeader(); ({tournaments:renderTournaments, daily:renderDaily, stored:renderStored, stats:renderStats, admins:renderAdmins})[tab](); } else $('#main').innerHTML='<div class="panel"><h2>No tournament yet</h2><p class="note">Check back when the organizer opens this week\'s event.</p></div>'; return; }
   if(!ADMIN && (tab==='mine'||tab==='play') && !PLAYER && !store.get('pb-watch') && !(tab==='mine' && dailyDone())) return renderPicker();
-  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders, practice:renderPractice}[tab];
+  const fn={mine:renderMine, play:renderPlay, standings:renderStandings, machines:renderMachines, rules:renderRules, enter:renderEnter, players:renderPlayers, tournaments:renderTournaments, totals:renderTotals, admins:renderAdmins, tv:renderTv, stored:renderStored, stats:renderStats, finals:renderFinals, leaders:renderLeaders, practice:renderPractice, daily:renderDaily}[tab];
   (fn||renderStandings)();
 }
 
@@ -939,10 +1000,17 @@ $('#tmenu').addEventListener('keydown',e=>{
   e.preventDefault(); const n=list[Math.max(0,Math.min(list.length-1, i+(e.key==='ArrowDown'?1:-1)))]; if(n) n.focus(); });
 document.addEventListener('click',()=>{ if(!$('#tmenu').hidden) closeTMenu(); });
 $('#acct').onclick=async()=>{
+  if(!ADMIN && USER){ // signed in as staff of another location
+    const go2 = await askChoice('Staff login', `You're logged in as ${esc(USER.name)}, ${esc(USER.roleName)} at ${esc(USER.locName||'another location')}.`, [['go','Go to my location','primary'],['out','Log out','']]);
+    if(go2==='go') location.href=USER.locPath; else if(go2==='out'){ await api('/api/logout','POST'); USER=null; await boot(); }
+    return; }
   if(ADMIN){ await api('/api/logout','POST'); ADMIN=null; tab=null; await boot(); }
   else { screen='login'; render(); }
 };
-const THEMES=[['fancy','NPC Fancy',['#17120F','#DE7A22','#A9CFE8','#F4E3CF']],['northstar','Northstar',['#17120F','#DE7A22','#A9CFE8']],['classic','Classic',['#16324F','#C98A2B','#E6F0EA']],['dark','Dark',['#050403','#F0912C','#1B1613']]];
+const ALL_THEMES=[['fancy','NPC Fancy',['#17120F','#DE7A22','#A9CFE8','#F4E3CF']],['northstar','Northstar',['#17120F','#DE7A22','#A9CFE8']],['classic','Classic',['#16324F','#C98A2B','#E6F0EA']],['dark','Dark',['#050403','#F0912C','#1B1613']]];
+// The original location keeps its custom themes; other locations get the generic Light and Dark
+const THEMES = LOCSLUG ? [['classic','Light',['#16324F','#C98A2B','#E6F0EA']],['gdark','Dark',['#08111A','#D9A441','#86AAC6']]] : ALL_THEMES;
+const THEME_OPTS = THEMES.map(([k,l])=>[k,l]);
 function themeNow(){ return document.documentElement.getAttribute('data-theme')||'fancy'; }
 $('#themeBtn').onclick=e=>{
   e.stopPropagation();
@@ -957,7 +1025,7 @@ document.addEventListener('click',e=>{ const m=$('#themeMenu'); if(!m.hidden && 
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('#themeMenu').hidden){ $('#themeMenu').hidden=true; $('#themeBtn').focus(); } });
 // Printable cards for each machine: 6 per letter page, with cut lines. ?sheet=cards&t=<tournament id>
 async function renderCards(){
-  const url=location.origin+'/';
+  const url=APPURL;
   let qr=''; try{ const q=qrcode(0,'M'); q.addData(url); q.make(); qr=q.createSvgTag({cellSize:6, margin:0, scalable:true}); }catch(e){}
   document.title='Pinbowl – machine cards'; document.body.className='sheetmode';
   let t=null, stored=null; const tid=QS.get('t');
@@ -1031,11 +1099,12 @@ async function renderCards(){
   if(opt.src==='t' && !t) opt.src=stored?'stored':'blank';
   draw();
 }
-function renderSheet(){
+async function renderSheet(){
+  try{ await refreshList(); }catch(e){}
   const daily = QS.get('sheet')==='daily';
-  const url=location.origin+'/';
+  const url=APPURL;
   let svg=''; try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:0, scalable:true}); }catch(e){}
-  document.title=daily?'NPC Daily Pinbowl Challenge – how to play':'Pinbowl – how to play';
+  document.title=daily?`${dailyName()} – how to play`:'Pinbowl – how to play';
   document.body.className='sheetmode';
   document.body.innerHTML=`<style>
     @page{size:letter portrait;margin:.45in}
@@ -1073,7 +1142,7 @@ function renderSheet(){
   </style>
   <button class="sh-print" onclick="window.print()">Print this page</button>
   <div class="sheet">
-    ${daily?`<div class="sh-head"><h1>Daily Pinbowl Challenge</h1><p>Northstar Pinball Collective · Every day, all day (a new challenge starts at midnight)</p></div>`:`<div class="sh-head"><h1>Pinbowl</h1><p>Northstar Pinball Collective · How to play and keep score</p></div>`}
+    ${daily?`<div class="sh-head"><h1>Daily Pinbowl Challenge</h1><p>${esc(locName())} · ${esc(scheduleText().replace(/^./,c=>c.toUpperCase()))}</p></div>`:`<div class="sh-head"><h1>Pinbowl</h1><p>${esc(locName())} · How to play and keep score</p></div>`}
     <div class="sh-body">
       <div class="sh-top">
         <div class="sh-qr">${svg}<b>Scan with your phone camera</b><small>${esc(url)}</small></div>
@@ -1093,7 +1162,7 @@ function renderSheet(){
           <p>Everyone keeps their own score on <b>their own phone</b>, after every ball.</p>
           <p>Made a typo? Open <b>My card</b> and use <b>Fix my scores</b>, or ask a scorekeeper.</p>
           ${daily?`<h2 style="margin-top:.1in">How you win</h2>
-          <p>Each challenge has <b>10 machines picked at random</b>: 3 Classic, 3 Mid, 3 Modern and 1 more. Play any time while it's open. When it closes, scores lock and the <b>highest total wins</b>. No finals: just your best card.</p>`:`<h2 style="margin-top:.1in">Finals</h2>
+          <p>Each challenge has <b>10 machines picked at random</b>, plus 2 for the bonus frames (${esc(mixText(DPLAN&&DPLAN.mix))} in all). Play any time while it's open. When it closes, scores lock and the <b>highest total wins</b>. No finals: just your best card.</p>`:`<h2 style="margin-top:.1in">Finals</h2>
           <p>The top half of the field moves on to finals, played in groups of up to 4, PAPA style. The app tells you when it's your turn to pick, and the top 2 in each group move on. Details are on the <b>Rules</b> tab.</p>`}
         </div>
         <div class="sh-box"><h2>How scoring works</h2>
@@ -1112,13 +1181,13 @@ function renderSheet(){
   </div>`;
 }
 $('#share').onclick=()=>{
-  const url=location.origin+'/';
+  const url=APPURL;
   let svg='';
   try{ const q=qrcode(0,'M'); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8, margin:16, scalable:true}); }catch(e){ svg='<p class="note">QR code could not load. Share the link below.</p>'; }
   const d=$('#shareBox');
   d.innerHTML=`<div class="sharecard" role="dialog" aria-modal="true" aria-label="Share this site"><h2>Scan to follow along</h2><div class="qr">${svg}</div><p class="url">${esc(url)}</p>
     <div class="row" style="justify-content:center">${navigator.share?'<button class="btn primary" id="natShare">Share link</button>':''}<button class="btn" id="cpLink">Copy link</button><button class="btn" id="closeShare">Close</button></div>
-    ${ADMIN?`<p style="margin-top:.8rem;font-weight:600">Print</p><p style="margin-top:.3rem;text-align:center;line-height:1.9"><a href="/?sheet=1" target="_blank" rel="noopener">How-to-play sheet</a> · <a href="/?sheet=daily" target="_blank" rel="noopener">Daily challenge sheet</a> · <a href="/?sheet=cards${T?`&t=${T.id}`:''}" target="_blank" rel="noopener">Machine cards (6 per page)</a> · <a href="/?sheet=cards&kind=generic" target="_blank" rel="noopener">Generic "score every ball" cards</a></p>`:''}</div>`;
+    ${ADMIN?`<p style="margin-top:.8rem;font-weight:600">Print</p><p style="margin-top:.3rem;text-align:center;line-height:1.9"><a href="${LP}/?sheet=1" target="_blank" rel="noopener">How-to-play sheet</a> · <a href="${LP}/?sheet=daily" target="_blank" rel="noopener">Daily challenge sheet</a> · <a href="${LP}/?sheet=cards${T?`&t=${T.id}`:''}" target="_blank" rel="noopener">Machine cards (6 per page)</a> · <a href="${LP}/?sheet=cards&kind=generic" target="_blank" rel="noopener">Generic "score every ball" cards</a></p>`:''}</div>`;
   d.hidden=false;
   const close=()=>{ d.hidden=true; d.innerHTML=''; };
   $('#closeShare').onclick=close; d.onclick=e=>{ if(e.target===d) close(); };
@@ -1141,7 +1210,9 @@ function renderLogin(){
     <label for="ln">Name</label><input type="text" id="ln" autocomplete="username">
     <label for="lp">Password</label><input type="password" id="lp" autocomplete="current-password">
     <div class="row" style="margin-top:1rem"><button class="btn primary" id="lgo">Log in</button><button class="btn" id="lback">Back</button></div><p class="err" id="lerr"></p></div>`;
-  const doLogin=async()=>{ try{ await api('/api/login','POST',{name:$('#ln').value,password:$('#lp').value}); screen=null; tab=null; await boot(); }catch(e){ $('#lerr').textContent=e.message; } };
+  const doLogin=async()=>{ try{ const j=await api('/api/login','POST',{name:$('#ln').value,password:$('#lp').value});
+      const u=j.user; if(u && u.role!=='admin' && u.locId && LOC && u.locId!==LOC.id){ location.href = u.locPath; return; }
+      screen=null; tab=null; await boot(); }catch(e){ $('#lerr').textContent=e.message; } };
   $('#lgo').onclick=doLogin; $('#lp').onkeydown=e=>{ if(e.key==='Enter') doLogin(); };
   $('#lback').onclick=()=>{ screen=null; render(); };
   $('#ln').focus();
@@ -1501,7 +1572,7 @@ function renderMachines(){
     ${catMixNote()}${blanks?`<p class="err" style="margin-top:.4rem">${blanks} slot${blanks===1?' is':'s are'} blank.</p>`:''}
     <div class="row" style="margin-top:.7rem">${T.mpId?`<button class="btn" id="mpMach">Refresh machines from Matchplay</button>`:''}</div>
     ${T.mpId?`<p class="note" style="margin-top:.3rem">Machines only come from Matchplay when the tournament is created and when you press this button. New player sign-ups still arrive by themselves.</p>`:''}
-    <details class="addbox"><summary>Add a machine by hand</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="na" style="margin-top:0">Machine name</label><input type="text" id="na" placeholder="Goes into the first blank slot" enterkeyhint="done"></div><button class="btn" id="naGo">Add machine</button></div></details></div>` : '';
+    <details class="addbox"><summary>Add a machine by hand</summary><div class="row" style="margin-top:.4rem"><div class="grow acwrap"><label for="na" style="margin-top:0">Machine name</label><input type="text" id="na" placeholder="Goes into the first blank slot" enterkeyhint="done" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="naList"><div class="aclist" id="naList" role="listbox" hidden></div></div><button class="btn" id="naGo">Add machine</button></div></details></div>` : '';
   const shown=visible.filter(x=>x.a);
   const chips=[['all',`All (${visible.length})`],...CATS.map(([k,l])=>[k,`${l} (${shown.filter(x=>(x.a.cat||'')===k).length})`]), ...(attn?[['attn',`Needs attention (${attn})`]]:[])];
   if(MCAT==='attn' && !attn) MCAT='all';
@@ -1522,7 +1593,8 @@ function renderMachines(){
   $$('[data-swap]').forEach(s=>s.onchange=()=>{ if(s.value) setSlot(Number(s.dataset.swap), s.value); });
   $$('[data-blank]').forEach(b=>b.onclick=()=>{ const i=Number(b.dataset.blank); if(!T.games.some(g=>g.arenaId===T.slots[i]) && !confirm(`Delete ${A(T.slots[i])?.name||'this game'} from slot ${i+1}? The slot stays, blank, until you put a machine in it.`)) return; setSlot(i, null); });
   $('#naGo').onclick=()=>{ const v=$('#na').value.trim(); if(v) change('/arenas','POST',{name:v},`${v} added to slot ${(T.slots||[]).findIndex(x=>!x)+1}`); };
-  $('#na').onkeydown=e=>{ if(e.key==='Enter') $('#naGo').click(); };
+  $('#na').onkeydown=e=>{ if(e.key==='Enter' && !e.defaultPrevented) $('#naGo').click(); };
+  opdbComplete($('#na'), $('#naList'));
   $$('[data-abbr]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.abbr}`,'PATCH',{abbr:i.value},'Short name saved'));
   $$('[data-balls]').forEach(i=>i.onchange=()=>change(`/arenas/${i.dataset.balls}`,'PATCH',{balls:Number(i.value)},'Saved'));
   $$('[data-cat]').forEach(i=>i.onchange=()=>{ STORED=null; change(`/arenas/${i.dataset.cat}`,'PATCH',{cat:i.value},'Category saved'); });
@@ -1576,7 +1648,7 @@ function renderTv(){
   if(STREAMMODE) return renderStream();
   if(!TVMODE && store.get('pb-bc-view')==='stream') return renderStreamAdmin();
   if(!TVMODE && store.get('pb-bc-view')==='machine') return renderMachineAdmin();
-  const N=T.frames, link=location.origin+'/?tv=1';
+  const N=T.frames, link=APPURL+'?tv=1';
   const cols=T.finals ? '' : `<div class="tvgrid tvcols"><div>#</div><div>Player</div>${Array.from({length:N},(_,k)=>`<div>${k+1}</div>`).join('')}<div>Total</div></div>`;
   $('#main').innerHTML=`${TVMODE?'':`${bcSwitch()}<div class="panel tvctl">
       <button class="btn primary" id="tvFull">Full screen</button>
@@ -1639,8 +1711,8 @@ function renderStream(){
     <div class="stbody" id="stbody">${streamRows()}</div></div>`;
   autoScroll(()=>$('#stbody'), ()=>ST.speed*ST.size);
 }
-const SO = { follow: store.get('pb-st-follow')||'this', grp: store.get('pb-st-grp')||'A', back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: store.get('pb-st-theme')||'northstar', clear: store.get('pb-st-clear')==='1' };
-function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); if(T && T.finals) q.set('grp', SO.grp||'A'); if(SO.follow==='this' && T) q.set('t', T.id); return location.origin+'/?'+q.toString(); }
+const SO = { follow: store.get('pb-st-follow')||'this', grp: store.get('pb-st-grp')||'A', back: store.get('pb-st-back')!=null ? Number(store.get('pb-st-back')) : 2, w: Number(store.get('pb-st-w'))||800, h: Number(store.get('pb-st-h'))||600, speed: store.get('pb-st-speed')!=null ? Number(store.get('pb-st-speed')) : 30, size: Number(store.get('pb-st-size'))||1, theme: THEME_OPTS.some(x=>x[0]===store.get('pb-st-theme')) ? store.get('pb-st-theme') : (LOCSLUG?'classic':'northstar'), clear: store.get('pb-st-clear')==='1' };
+function streamUrl(){ const q=new URLSearchParams({stream:'1', back:String(SO.back), speed:String(SO.speed), size:String(SO.size), theme:SO.theme}); if(SO.clear) q.set('bg','clear'); if(T && T.finals) q.set('grp', SO.grp||'A'); if(SO.follow==='this' && T) q.set('t', T.id); return APPURL+'?'+q.toString(); }
 function renderStreamAdmin(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   $('#main').innerHTML=`${bcSwitch()}<div class="panel">
@@ -1651,7 +1723,7 @@ function renderStreamAdmin(){
       <label>Frames behind current <select id="soBack">${opt([[1,'1'],[2,'2'],[3,'3'],[4,'4']],SO.back)}</select></label>
       <label>Auto-scroll <select id="soSpeed">${opt([[0,'Off'],[15,'Slow'],[30,'Medium'],[55,'Fast']],SO.speed)}</select></label>
       <label>Text <select id="soSize">${opt([[.85,'Small'],[1,'Medium'],[1.2,'Large']],SO.size)}</select></label>
-      <label>Colors <select id="soTheme">${opt([['fancy','NPC Fancy'],['northstar','Northstar'],['classic','Classic'],['dark','Dark']],SO.theme)}</select></label>
+      <label>Colors <select id="soTheme">${opt(THEME_OPTS,SO.theme)}</select></label>
       <label><input type="checkbox" id="soClear" ${SO.clear?'checked':''}> See-through background</label>
       ${T && T.finals ? `<label>Finals group <select id="soGrp">${T.finals.rounds[T.finals.rounds.length-1].groups.map(g=>`<option value="${g.label}" ${SO.grp===g.label?'selected':''}>Group ${g.label}</option>`).join('')}</select></label>` : ''}
     </div>
@@ -1715,8 +1787,8 @@ async function machineWindow(){
   };
   await draw(); setInterval(()=>{ if(!document.hidden) draw(); }, 3000);
 }
-const MO = { w: Number(store.get('pb-mw-w'))||480, h: Number(store.get('pb-mw-h'))||800, size: Number(store.get('pb-mw-size'))||1, theme: store.get('pb-mw-theme')||'northstar', clear: store.get('pb-mw-clear')==='1' };
-function machineUrl(){ const q=new URLSearchParams({stream:'1', view:'machine', size:String(MO.size), theme:MO.theme}); if(MO.clear) q.set('bg','clear'); return location.origin+'/?'+q.toString(); }
+const MO = { w: Number(store.get('pb-mw-w'))||480, h: Number(store.get('pb-mw-h'))||800, size: Number(store.get('pb-mw-size'))||1, theme: THEME_OPTS.some(x=>x[0]===store.get('pb-mw-theme')) ? store.get('pb-mw-theme') : (LOCSLUG?'classic':'northstar'), clear: store.get('pb-mw-clear')==='1' };
+function machineUrl(){ const q=new URLSearchParams({stream:'1', view:'machine', size:String(MO.size), theme:MO.theme}); if(MO.clear) q.set('bg','clear'); return APPURL+'?'+q.toString(); }
 async function renderMachineAdmin(){
   const opt=(list,v)=>list.map(([val,l])=>`<option value="${val}" ${String(v)===String(val)?'selected':''}>${l}</option>`).join('');
   let cur={}; try{ cur=await api('/api/stream-machine'); }catch(e){}
@@ -1728,7 +1800,7 @@ async function renderMachineAdmin(){
     <div class="tvctl" style="margin-top:.8rem">
       <label>Machine <select id="moArena"><option value="">None (blank)</option>${list.map(a=>`<option value="${a.id}" ${a.id===curId?'selected':''}>${esc(a.name)} (${fmtShort(a.target)})</option>`).join('')}</select></label>
       <label>Text <select id="moSize">${opt([[.85,'Small'],[1,'Medium'],[1.2,'Large']],MO.size)}</select></label>
-      <label>Colors <select id="moTheme">${opt([['fancy','NPC Fancy'],['northstar','Northstar'],['classic','Classic'],['dark','Dark']],MO.theme)}</select></label>
+      <label>Colors <select id="moTheme">${opt(THEME_OPTS,MO.theme)}</select></label>
       <label><input type="checkbox" id="moClear" ${MO.clear?'checked':''}> See-through background</label>
     </div>
     ${cur.arena && cur.tid!==T.id?`<p class="note">Showing now: ${esc(cur.arena.name)} from ${esc(cur.tournament||'another tournament')}.</p>`:''}
@@ -2047,9 +2119,9 @@ async function renderStored(){
   if(SCAT==='attn' && !attn) SCAT='all';
   $('#main').innerHTML=`<div class="panel"><h2>Stored machines</h2>
     <p class="note">Every machine that has ever been in a tournament, with its saved target, ball count and short name. These fill in by themselves when a machine comes back, and a change here also updates any open tournament that has the machine. Tap a machine to change it.</p>
-    <p class="note" style="margin-top:.5rem">The daily challenge draws 3 Classic, 3 Mid, 3 Modern and 1 more. It's weighted: the longer a machine has gone without being in a daily challenge, the more likely it is to be picked (up to 11 times as likely as one from the latest challenge), but nothing is guaranteed.</p>
+    <p class="note" style="margin-top:.5rem">The daily challenge draws 12 machines in the mix set on the Daily challenge tab. It's weighted: the longer a machine has gone without being in a daily challenge, the more likely it is to be picked (up to 11 times as likely as one from the latest challenge), but nothing is guaranteed.</p>
     <p style="margin-top:.5rem"><b>${STORED.length}</b> machines · <b>${withT}</b> with targets · <b>${inDraw}</b> in the random draw${attn?` · <span class="err">${attn} need${attn===1?'s':''} attention</span>`:''}</p>
-    <details class="addbox"><summary>Add a machine</summary><div class="row" style="margin-top:.4rem"><div class="grow"><label for="sn" style="margin-top:0">Machine name</label><input type="text" id="sn" placeholder="Machine name"></div><div style="flex:0 1 9rem"><label for="snt" style="margin-top:0">Target score</label><input type="text" inputmode="numeric" id="snt" placeholder="e.g. 50m"></div><div style="flex:0 0 7rem"><label for="sncat" style="margin-top:0">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></details></div>
+    <details class="addbox"><summary>Add a machine</summary><div class="row" style="margin-top:.4rem"><div class="grow acwrap"><label for="sn" style="margin-top:0">Machine name</label><input type="text" id="sn" placeholder="Start typing, e.g. Star Wars" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="snList"><div class="aclist" id="snList" role="listbox" hidden></div></div><div style="flex:0 1 9rem"><label for="snt" style="margin-top:0">Target score</label><input type="text" inputmode="numeric" id="snt" placeholder="e.g. 50m"></div><div style="flex:0 0 7rem"><label for="sncat" style="margin-top:0">Category</label><select id="sncat"><option value="">Pick one</option>${CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><button class="btn" id="snGo">Add machine</button></div></details></div>
     ${STORED.length>1?`<div class="toolbar">${searchHTML('ssearch','Search stored machines',SSEARCH)}<label class="sortlab">Sort <select id="ssort">${[['name','Name'],['used','Last used'],['played','Most played'],['cat','Category']].map(([k,l])=>`<option value="${k}" ${SSORT===k?'selected':''}>${l}</option>`).join('')}</select></label>${expandAllBtn()}</div>${chipsHTML(chips,SCAT)}`:''}
     ${STORED.length?`<div class="mlist">${rows}</div><p class="note" id="snone" hidden>No stored machines match.</p>`:'<div class="panel note">No machines stored yet. They are added as tournaments use them, or add one above.</div>'}`;
   const refilter=()=>{ const n=filterRows(SSEARCH, SCAT); if($('#snone')) $('#snone').hidden=n>0; };
@@ -2067,8 +2139,9 @@ async function renderStored(){
   $$('[data-sem]').forEach(i=>i.onchange=()=>save(i.dataset.sem,{em:i.checked},i.checked?'Scored as an EM machine (5 balls)':'Scored as a regular machine'));
   $$('[data-sdraw]').forEach(i=>i.onchange=()=>save(i.dataset.sdraw,{inDraw:i.checked},i.checked?'Added to the random draw':'Left out of the random draw'));
   $$('[data-srm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this machine from stored machines? Past tournaments keep their scores.')) return; try{ await api(`/api/admin/machines/${b.dataset.srm}`,'DELETE'); STORED=STORED.filter(x=>x.id!==b.dataset.srm); toast('Removed'); renderStored(); }catch(e){ toast(e.message); } });
-  const addOne=async()=>{ const name=$('#sn').value.trim(); if(!name){ toast('Type the machine name.'); return; } try{ const j=await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value}); await loadStored(); MOPEN.add(j.machine.id); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
-  $('#snGo').onclick=addOne; ['sn','snt'].forEach(id=>{ $('#'+id).onkeydown=e=>{ if(e.key==='Enter') addOne(); }; });
+  opdbComplete($('#sn'), $('#snList'), STORED.map(m=>m.name.toLowerCase()));
+  const addOne=async()=>{ const name=$('#sn').value.trim(); if(!name){ toast('Type the machine name.'); return; } try{ const j=await api('/api/admin/machines','POST',{name, target:num($('#snt').value)||0, cat:$('#sncat').value, opdbId:$('#sn').dataset.opdb||''}); await loadStored(); MOPEN.add(j.machine.id); toast(`Added ${name}`); renderStored(); }catch(e){ toast(e.message); } };
+  $('#snGo').onclick=addOne; ['sn','snt'].forEach(id=>{ $('#'+id).onkeydown=e=>{ if(e.key==='Enter' && !e.defaultPrevented) addOne(); }; });
 }
 
 /* ================= finals ================= */
@@ -2580,7 +2653,7 @@ function renderRules(){
   $('#main').innerHTML=`<div class="panel">
   ${T.finals?`${finalsRulesHTML()}<h2 style="margin-top:1.2rem">How pinbowl works</h2>`:''}
   ${T.finals?'':'<h2>How pinbowl works</h2>'}
-  ${T.daily?`<p><b>NPC Daily Pinbowl Challenge:</b> a new one runs every day, all day, from midnight to midnight. Join any time and play your card. At midnight it closes and the highest total wins. On 5-ball machines, reaching the target on ball 1 or 2 is a strike and on ball 3, 4 or 5 is a spare. Want to warm up first? Start a <b>practice run</b> on the Practice tab: it's a separate card that never counts. Every challenge also earns <b>leaderboard points</b> (see the Leaderboard tab).</p>`:''}
+  ${T.daily?`<p><b>${esc(dailyName())}:</b> it runs ${esc(scheduleText())} (Central time). Join any time it's open and play your card. When it closes, the highest total wins. On 5-ball machines, reaching the target on ball 1 or 2 is a strike and on ball 3, 4 or 5 is a spare. Want to warm up first? Start a <b>practice run</b> on the Practice tab: it's a separate card that never counts. Every challenge also earns <b>leaderboard points</b> (see the Leaderboard tab).</p>`:''}
   ${T.daily?`<h3>Leaderboard points</h3>${leaderRulesHTML()}`:''}
   <p>Each game you play is one frame of bowling. Your card has ${T.frames} frames, and you can play the machines in any order${T.allowRepeats?'':', one game per machine'}. Your score adds up just like real bowling, so the best possible card is 300.</p>
   <p>Every machine has a target score. The Machines tab shows each target and exactly what score earns each pin count.</p>
@@ -2944,15 +3017,93 @@ function weekStatusHTML(cur){
   ];
   return `<div class="panel"><h2>This week at a glance</h2><ul class="wslist">${items.join('')}</ul></div>`;
 }
+/* ================= machine name autocomplete from the Open Pinball Database (what Matchplay uses) ================= */
+const OPDB_CACHE=new Map();
+async function opdbSearch(q){
+  const k=q.toLowerCase(); if(OPDB_CACHE.has(k)) return OPDB_CACHE.get(k);
+  let list=null;
+  try{ const r=await fetch('https://opdb.org/api/search/typeahead?include_aliases=1&q='+encodeURIComponent(q)); if(r.ok) list=await r.json(); }catch(e){}
+  if(!Array.isArray(list)){ try{ list=(await api('/api/admin/opdb?q='+encodeURIComponent(q))).results; }catch(e){ list=[]; } }
+  list=(list||[]).map(x=>({ id:x.id||'', name:x.name||x.text||'', extra:x.supplementary||'', text:x.text||x.name||'' })).filter(x=>x.name);
+  OPDB_CACHE.set(k,list); return list;
+}
+function opdbComplete(inp, box, have=[]){
+  if(!inp || !box) return;
+  let items=[], on=-1, timer=null, seq=0;
+  const close=()=>{ box.hidden=true; inp.setAttribute('aria-expanded','false'); on=-1; };
+  const draw=()=>{ if(!items.length){ close(); return; }
+    box.innerHTML=items.map((x,i)=>`<div class="aci${i===on?' on':''}" role="option" id="${box.id}_${i}" aria-selected="${i===on}" data-i="${i}"><span>${esc(x.name)}</span>${x.extra?`<small>${esc(x.extra)}</small>`:''}${have.includes(x.name.toLowerCase())?'<em>stored</em>':''}</div>`).join('')
+      +'<div class="acfoot">From the Open Pinball Database</div>';
+    box.hidden=false; inp.setAttribute('aria-expanded','true'); if(on>=0) inp.setAttribute('aria-activedescendant',box.id+'_'+on); else inp.removeAttribute('aria-activedescendant');
+    box.querySelectorAll('[data-i]').forEach(d=>d.onmousedown=e=>{ e.preventDefault(); pick(+d.dataset.i); }); };
+  const pick=i=>{ const x=items[i]; if(!x) return; inp.value=x.name; inp.dataset.opdb=x.id; close(); inp.dispatchEvent(new Event('change')); };
+  inp.addEventListener('input',()=>{ delete inp.dataset.opdb; const q=inp.value.trim(); clearTimeout(timer); if(q.length<2){ items=[]; close(); return; }
+    timer=setTimeout(async()=>{ const my=++seq, r=await opdbSearch(q); if(my!==seq || inp.value.trim()!==q) return; items=r.slice(0,12); on=-1; draw(); },220); });
+  inp.addEventListener('keydown',e=>{ if(box.hidden) return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); on=Math.min(items.length-1,on+1); draw(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); on=Math.max(-1,on-1); draw(); }
+    else if(e.key==='Enter' && on>=0){ e.preventDefault(); pick(on); }
+    else if(e.key==='Escape'){ e.preventDefault(); close(); } });
+  inp.addEventListener('blur',()=>setTimeout(close,120));
+}
+
+/* ================= Daily challenge tab: days, times and the machine mix ================= */
+const DAYS=[['Sun','Sunday'],['Mon','Monday'],['Tue','Tuesday'],['Wed','Wednesday'],['Thu','Thursday'],['Fri','Friday'],['Sat','Saturday']];
+const MIXES=[['444','4 Classic, 4 Mid, 4 Modern',{classic:4,mid:4,modern:4}],['606','6 Classic, 6 Modern',{classic:6,mid:0,modern:6}],['rand','12 at random (no categories)',{classic:0,mid:0,modern:0}],['custom','Custom',null]];
+let DSET=null; // the settings being edited
+async function renderDaily(){
+  try{ adminSettings=await api('/api/admin/settings'); }catch(e){ $('#main').innerHTML=`<div class="panel err">${esc(e.message)}</div>`; return; }
+  if(tab!=='daily') return;
+  const dl=adminSettings.daily, run=LIST.find(t=>t.id===dl.running);
+  DSET=JSON.parse(JSON.stringify(dl.set));
+  const mixKey=()=>{ const m=DSET.mix; const hit=MIXES.find(x=>x[2] && x[2].classic===m.classic && x[2].mid===m.mid && x[2].modern===m.modern); return hit?hit[0]:'custom'; };
+  const tsel=(id,v,end)=>{ const opts=[]; for(let h=0;h<=24;h++) for(const mm of [0,30]){ if(h===24&&mm) continue; if(!end&&h===24) continue; if(end&&h===0&&mm===0) continue;
+      const val=`${String(h).padStart(2,'0')}:${mm?'30':'00'}`, lab = h===24?'Midnight (end of day)':h===0&&!mm?'Midnight':h===12&&!mm?'Noon':`${(h%12)||12}:${mm?'30':'00'} ${h<12?'AM':'PM'}`;
+      opts.push(`<option value="${val}" ${v===val?'selected':''}>${lab}</option>`); }
+    return `<select id="${id}">${opts.join('')}</select>`; };
+  const total=()=>DSET.mix.classic+DSET.mix.mid+DSET.mix.modern;
+  $('#main').innerHTML=`<div class="panel"><h2>${esc(dailyName())}</h2>
+    <p class="note">A new challenge starts by itself on the days and times you pick (Central time). If nobody plays, that day's challenge is deleted instead of archived. 5-ball machines use the 5-ball rule (strike on ball 1 or 2, spare on 3 to 5).</p>
+    <label class="check"><input type="checkbox" id="dOn" ${dl.on?'checked':''}> Run the daily challenge automatically</label>
+    <p style="margin-top:.6rem">${run?`<b>Running now:</b> ${esc(run.name)}, until ${ctTime(run.end)}.`:(dl.on && dl.next?`<b>Next:</b> ${ctDay(dl.next.start)}, ${ctTime(dl.next.start)} to ${ctTime(dl.next.end)}.`:'Not scheduled.')}</p>
+    <div class="row" style="margin-top:.6rem">${run?`<button class="btn" id="dOpen">Show it</button><button class="btn danger" id="dEnd">End now and pick the winner</button>`:`<button class="btn" id="dStart">Start one now</button>`}</div></div>
+  <div class="panel"><h2>Days and times</h2>
+    <p class="note">Tick the days it runs and pick when it opens and closes each day.</p>
+    <div class="dsched">${DAYS.map(([k,l])=>{ const d=DSET.days[k]; return `<div class="dday${d.on?'':' off'}"><label class="check" style="margin:0"><input type="checkbox" data-dday="${k}" ${d.on?'checked':''}> <b>${l}</b></label>
+      <div class="dtimes"><label for="ds_${k}">Opens</label>${tsel('ds_'+k,d.start,false)}<label for="de_${k}">Closes</label>${tsel('de_'+k,d.end,true)}</div></div>`; }).join('')}</div>
+    <div class="row" style="margin-top:.6rem"><button class="btn small" id="dAll">Every day, all day</button></div></div>
+  <div class="panel"><h2>Machine mix</h2>
+    <p class="note">Each challenge draws <b>12 machines</b>: 10 for the frames plus 2 for the bonus frames (11 and 12). Pick how many come from each category. Any left over are picked from every category. Which category a machine is in is up to you, on the Stored machines tab.</p>
+    <label for="dMix">Mix</label><select id="dMix">${MIXES.map(([k,l])=>`<option value="${k}" ${mixKey()===k?'selected':''}>${l}</option>`).join('')}</select>
+    <div class="mform" id="dCustom">${['classic','mid','modern'].map(c=>`<div><label for="dm_${c}">${catName(c)}</label><input type="number" id="dm_${c}" min="0" max="12" value="${DSET.mix[c]}"></div>`).join('')}</div>
+    <p class="note" id="dMixNote" style="margin-top:.4rem"></p></div>
+  <div class="panel"><div class="row"><button class="btn primary" id="dSave">Save daily challenge settings</button></div>
+    <p class="note" style="margin-top:.4rem">Changes apply from the next challenge. The one running now keeps its machines and closing time.</p></div>`;
+  const note=()=>{ const n=total(), any=12-n; $('#dMixNote').innerHTML = n>12 ? `<span class="err">That's ${n} machines. The total can be at most 12.</span>` : `${DSET.mix.classic} Classic, ${DSET.mix.mid} Mid, ${DSET.mix.modern} Modern${any?`, and ${any} from any category`:''}. Total 12.`; };
+  const readMix=()=>{ ['classic','mid','modern'].forEach(c=>{ DSET.mix[c]=Math.max(0,Math.min(12,Number($('#dm_'+c).value)||0)); }); note(); };
+  $('#dMix').onchange=()=>{ const x=MIXES.find(m=>m[0]===$('#dMix').value); if(x && x[2]){ Object.assign(DSET.mix,x[2]); ['classic','mid','modern'].forEach(c=>$('#dm_'+c).value=DSET.mix[c]); } note(); };
+  ['classic','mid','modern'].forEach(c=>$('#dm_'+c).oninput=()=>{ readMix(); $('#dMix').value=mixKey(); });
+  note();
+  $$('[data-dday]').forEach(c=>c.onchange=()=>{ DSET.days[c.dataset.dday].on=c.checked; c.closest('.dday').classList.toggle('off',!c.checked); });
+  DAYS.forEach(([k])=>{ $('#ds_'+k).onchange=e=>DSET.days[k].start=e.target.value; $('#de_'+k).onchange=e=>DSET.days[k].end=e.target.value; });
+  $('#dAll').onclick=()=>{ DAYS.forEach(([k])=>{ DSET.days[k]={on:true,start:'00:00',end:'24:00'}; $('#ds_'+k).value='00:00'; $('#de_'+k).value='24:00'; const c=$(`[data-dday="${k}"]`); c.checked=true; c.closest('.dday').classList.remove('off'); }); };
+  $('#dSave').onclick=async()=>{ readMix(); if(total()>12) return toast('The machine mix can be at most 12.');
+    try{ await api('/api/admin/settings','PUT',{daily:{...DSET, on:$('#dOn').checked}}); await refreshList(); toast('Daily challenge settings saved'); renderDaily(); }catch(e){ toast(e.message); } };
+  // saves right away, without throwing away unsaved day, time or mix changes below
+  $('#dOn').onchange=async e=>{ try{ await api('/api/admin/settings','PUT',{dailyOn:e.target.checked}); DSET.on=e.target.checked; await refreshList(); toast(e.target.checked?'Daily challenge turned on':'Daily challenge turned off'); }catch(err){ e.target.checked=!e.target.checked; toast(err.message); } };
+  if($('#dStart')) $('#dStart').onclick=async()=>{ if(!confirm("Start a daily challenge now? It draws 12 machines and stays open until the end of today's hours, or 8 hours if today has none.")) return;
+    try{ const j=await api('/api/admin/daily/start','POST'); T=j.tournament; store.set('pb-tid',T.id); store.set('pb-tid-at',Date.now()); adminSettings=null; await refreshList(); toast('Challenge started'); go('machines'); }catch(e){ toast(e.message); } };
+  if($('#dOpen')) $('#dOpen').onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(run.id); go('standings'); };
+  if($('#dEnd')) $('#dEnd').onclick=async()=>{ if(!confirm('End the challenge now? Scores lock and the highest total wins.')) return;
+    try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); adminSettings=null; await refreshList();
+      if(j.deleted){ toast('Nobody played, so the challenge was deleted'); if(T && T.id===run.id){ const nx=LIST.find(t=>t.status==='active')||LIST[0]; if(nx) await loadT(nx.id); else T=null; } }
+      else { if(T && T.id===run.id) T=j.tournament; toast('Challenge ended'); }
+      renderDaily(); }catch(e){ toast(e.message); } };
+}
 async function renderTournaments(){
   if(!adminSettings || adminSettings.hasToken===undefined){ try{ adminSettings=await api('/api/admin/settings'); }catch(e){ adminSettings={hasToken:false,admins:[],pins:[]}; } }
   const cur=T, dl=adminSettings.daily||{on:true}, run=LIST.find(t=>t.id===dl.running);
-  const dailyPanel=`<div class="panel"><h2>NPC Daily Pinbowl Challenge</h2>
-    <p class="note">Runs by itself every day, midnight to midnight (Central). If nobody plays, that day's challenge is deleted instead of archived. 5-ball machines use the 5-ball rule (strike on ball 1 or 2, spare on 3 to 5). Each one gets 10 machines picked from Stored machines: 3 Classic, 3 Mid, 3 Modern and 1 more from any category. Players join from the list of past players or add themselves. When it closes, scores lock and the highest total wins.</p>
-    <label class="check"><input type="checkbox" id="dOn" ${dl.on!==false?'checked':''}> Run the daily challenge automatically</label>
-    <p style="margin-top:.6rem">${run?`<b>Running now:</b> ${esc(run.name)}, until ${ctTime(run.end)}.`:(dl.on!==false && dl.next?`<b>Next:</b> ${ctDay(dl.next.start)}, ${ctTime(dl.next.start)} to ${ctTime(dl.next.end)}.`:'Not scheduled.')}</p>
-    <div class="row" style="margin-top:.6rem">${run?`<button class="btn" id="dOpen">Show it</button><button class="btn danger" id="dEnd">End now and pick the winner</button>`:`<button class="btn" id="dStart">Start one now</button>`}</div></div>`;
-  $('#main').innerHTML=`${weekStatusHTML(cur)}${dailyPanel}
+  $('#main').innerHTML=`${weekStatusHTML(cur)}
   <div class="panel"><h2>Start a new tournament</h2>
     <p class="note">Create the tournament in Matchplay first, then paste its link here. Players and machines come over automatically, and saved targets fill in for machines you've used before.</p>
     <label for="nmp">Matchplay tournament link or ID</label><input type="text" id="nmp" placeholder="https://app.matchplay.events/tournaments/123456">
@@ -2998,15 +3149,6 @@ async function renderTournaments(){
       T=j.tournament; store.set('pb-tid',T.id); await refreshList(); toast(j.note?`Created. ${j.note}`:'Tournament created'); go('machines'); }
     catch(e){ toast(e.message); } };
   $('#tokGo').onclick=async()=>{ try{ await api('/api/admin/settings','PUT',{mpToken:$('#tok').value}); adminSettings=null; toast('Token saved'); renderTournaments(); }catch(e){ toast(e.message); } };
-  $('#dOn').onchange=async e=>{ try{ await api('/api/admin/settings','PUT',{dailyOn:e.target.checked}); adminSettings=null; toast(e.target.checked?'Daily challenge turned on':'Daily challenge turned off'); renderTournaments(); }catch(err){ toast(err.message); } };
-  if($('#dStart')) $('#dStart').onclick=async()=>{ if(!confirm('Start a daily challenge now? It picks 10 machines and stays open until the end of today\'s normal hours, or 8 hours if today has none.')) return;
-    try{ const j=await api('/api/admin/daily/start','POST'); T=j.tournament; store.set('pb-tid',T.id); store.set('pb-tid-at',Date.now()); adminSettings=null; await refreshList(); toast('Challenge started'); go('machines'); }catch(e){ toast(e.message); } };
-  if($('#dOpen')) $('#dOpen').onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(run.id); go('standings'); };
-  if($('#dEnd')) $('#dEnd').onclick=async()=>{ if(!confirm('End the challenge now? Scores lock and the highest total wins.')) return;
-    try{ const j=await api('/api/admin/daily/end','POST',{id:run.id}); adminSettings=null; await refreshList();
-      if(j.deleted){ toast('Nobody played, so the challenge was deleted'); if(T && T.id===run.id){ const nx=LIST.find(t=>t.status==='active')||LIST[0]; if(nx) await loadT(nx.id); else T=null; render(); return; } }
-      else { if(T && T.id===run.id) T=j.tournament; toast('Challenge ended'); }
-      renderTournaments(); }catch(e){ toast(e.message); } };
   $$('[data-open]').forEach(b=>b.onclick=async()=>{ store.set('pb-tid-at',Date.now()); await loadT(b.dataset.open); resetForm(false); render(); });
   if(!cur) return;
   if($('#ifpaGo')) $('#ifpaGo').onclick=()=>{ IFPA={tid:cur.id, data:null}; screen='ifpa'; render(); scrollTo(0,0); };
@@ -3043,23 +3185,54 @@ function renderTotals(){
 }
 
 /* ================= admin: admins ================= */
+const ROLE_HELP={admin:'every location; can add locations and Managers', manager:"full control of this location; can add Assistant Managers", assistant:"same as a Manager at this location, but can't add Assistant Managers"};
 async function renderAdmins(){
   try{ adminSettings=await api('/api/admin/settings'); }catch(e){ toast(e.message); return; }
-  $('#main').innerHTML=`<div class="panel"><h2>Admins</h2>
-    <p class="note">Admins can enter and edit anyone's scores, manage machines and players, and run tournaments.</p>
+  if(tab!=='admins') return;
+  const me=adminSettings.me, make=adminSettings.canMake||[], RN={admin:'Admin',manager:'Manager',assistant:'Assistant Manager'};
+  let locs=null; if(me.role==='admin'){ try{ locs=(await api('/api/admin/locations')).locations; }catch(e){} }
+  const roleSel=`<select id="arole">${make.filter(r=>r!=='admin'||true).map(r=>`<option value="${r}" ${r===(make.includes('manager')?'manager':'assistant')?'selected':''}>${RN[r]}${r==='admin'?' (all locations)':''}</option>`).join('')}</select>`;
+  $('#main').innerHTML=`<div class="panel"><h2>Staff at ${esc(locName())}</h2>
+    <p class="note">Admin: ${ROLE_HELP.admin}. Manager: ${ROLE_HELP.manager}. Assistant Manager: ${ROLE_HELP.assistant}. Scorekeepers are players you pick on the Players tab.</p>
     <div class="tablewrap" style="margin-top:.6rem"><table><tbody>
-    ${adminSettings.admins.map(a=>`<tr><td>${esc(a.name)}${a.id===ADMIN.id?' <span class="tag">you</span>':''}</td><td class="n">${a.id===ADMIN.id?'':`<button class="btn small" data-pw="${a.id}">Reset password</button> <button class="btn small danger" data-rmadm="${a.id}">Remove</button>`}</td></tr>`).join('')}
+    ${adminSettings.staff.map(a=>`<tr><td>${esc(a.name)}${a.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${a.roleName}</span>${a.role==='admin'?' <small class="note">all locations</small>':''}</td><td class="n">${a.canManage?`<button class="btn small" data-pw="${a.id}">Reset password</button> <button class="btn small danger" data-rmadm="${a.id}">Remove</button>`:''}</td></tr>`).join('')}
     </tbody></table></div>
-    <h3>Add an admin</h3>
-    <p class="note">Give them the name and password below. They can change the password after logging in.</p>
-    <div class="row"><div class="grow"><label for="an">Name</label><input type="text" id="an" list="pnames"></div><div class="grow"><label for="ap">Temporary password</label><input type="text" id="ap" autocomplete="off"></div><button class="btn" id="aGo">Add admin</button></div>
-    <datalist id="pnames">${(T?T.players:[]).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
+    ${make.length?`<h3>Add staff</h3>
+    <p class="note">Give them the name and password below. They can change the password after logging in. Login names are shared across all locations, so each has to be different.</p>
+    <div class="row"><div class="grow"><label for="an">Login name</label><input type="text" id="an" autocomplete="off"></div><div class="grow"><label for="ap">Temporary password</label><input type="text" id="ap" autocomplete="off"></div><div><label for="arole">Role</label>${roleSel}</div><button class="btn" id="aGo">Add</button></div>`
+    :`<p class="note" style="margin-top:.8rem">Assistant Managers can't add staff. Ask your Manager.</p>`}
     <h3>Change my password</h3>
-    <div class="row"><div class="grow"><input type="password" id="mypw" placeholder="New password" autocomplete="new-password"></div><button class="btn" id="mypwGo">Change password</button></div></div>`;
-  $('#aGo').onclick=async()=>{ try{ await api('/api/admin/admins','POST',{name:$('#an').value,password:$('#ap').value}); toast('Admin added'); renderAdmins(); }catch(e){ toast(e.message); } };
-  $('#mypwGo').onclick=async()=>{ try{ await api(`/api/admin/admins/${ADMIN.id}/password`,'PUT',{password:$('#mypw').value}); toast('Password changed'); $('#mypw').value=''; }catch(e){ toast(e.message); } };
-  $$('[data-rmadm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this admin?')) return; try{ await api(`/api/admin/admins/${b.dataset.rmadm}`,'DELETE'); toast('Admin removed'); renderAdmins(); }catch(e){ toast(e.message); } });
-  $$('[data-pw]').forEach(b=>b.onclick=async()=>{ const pw=prompt('New password for this admin (6 or more characters):'); if(!pw) return; try{ await api(`/api/admin/admins/${b.dataset.pw}/password`,'PUT',{password:pw}); toast('Password reset'); }catch(e){ toast(e.message); } });
+    <div class="row"><div class="grow"><input type="password" id="mypw" placeholder="New password" autocomplete="new-password"></div><button class="btn" id="mypwGo">Change password</button></div></div>
+  ${locs?`<div class="panel"><h2>Locations</h2>
+    <p class="note">Each location is completely separate: its own players, PINs, stored machines, tournaments, stats, Matchplay connection and staff. Only Admins see this.</p>
+    <div class="tablewrap" style="margin-top:.6rem"><table class="lb"><thead><tr><th>Location</th><th>Link</th><th>Managers</th><th class="num">Tournaments</th><th></th></tr></thead><tbody>
+    ${locs.map(l=>`<tr><td><b>${esc(l.name)}</b>${l.short?` <small class="note">(${esc(l.short)})</small>`:''}</td><td><a href="${l.isDefault?'/':'/'+l.slug}">${esc(location.host)}/${l.isDefault?'':esc(l.slug)}</a></td><td>${l.staff.map(u=>esc(u.name)+(u.role==='assistant'?' <small class="note">asst.</small>':'')).join(', ')||'<span class="note">none yet</span>'}</td><td class="num">${l.tournaments}</td><td class="n"><button class="btn small" data-ledit="${l.id}">Edit</button></td></tr>`).join('')}
+    </tbody></table></div>
+    <h3>Add a location</h3>
+    <div class="mform"><div><label for="lname">Name</label><input type="text" id="lname" placeholder="e.g. Lakeside Arcade"></div>
+      <div><label for="lslug">Link name</label><input type="text" id="lslug" placeholder="lakeside" autocomplete="off"></div>
+      <div><label for="lshort">Short name (optional)</label><input type="text" id="lshort" maxlength="12" placeholder="e.g. LSA"></div></div>
+    <p class="note" style="margin-top:.3rem">Players reach it at <b>${esc(location.host)}/<span id="lslugShow">…</span></b>. The short name goes in front of "Daily Pinbowl Challenge".</p>
+    <p style="margin-top:.6rem;font-weight:600">First Manager (optional)</p>
+    <div class="row"><div class="grow"><label for="lmn">Login name</label><input type="text" id="lmn" autocomplete="off"></div><div class="grow"><label for="lmp">Temporary password</label><input type="text" id="lmp" autocomplete="off"></div></div>
+    <div class="row" style="margin-top:.7rem"><button class="btn primary" id="lGo">Add location</button></div>
+    <p class="note" style="margin-top:.4rem">New locations start empty, with the generic Light and Dark colors and the daily challenge turned off.</p></div>`:''}`;
+  if($('#aGo')) $('#aGo').onclick=async()=>{ try{ await api('/api/admin/staff','POST',{name:$('#an').value,password:$('#ap').value,role:$('#arole').value}); toast('Added'); renderAdmins(); }catch(e){ toast(e.message); } };
+  $('#mypwGo').onclick=async()=>{ try{ await api(`/api/admin/staff/${me.id}/password`,'PUT',{password:$('#mypw').value}); toast('Password changed'); $('#mypw').value=''; }catch(e){ toast(e.message); } };
+  $$('[data-rmadm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this person? They will be logged out.')) return; try{ await api(`/api/admin/staff/${b.dataset.rmadm}`,'DELETE'); toast('Removed'); renderAdmins(); }catch(e){ toast(e.message); } });
+  $$('[data-pw]').forEach(b=>b.onclick=async()=>{ const pw=prompt('New password (6 or more characters):'); if(!pw) return; try{ await api(`/api/admin/staff/${b.dataset.pw}/password`,'PUT',{password:pw}); toast('Password reset'); }catch(e){ toast(e.message); } });
+  if(locs){
+    const slugOf=v=>v.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,30);
+    let typed=false; const show=()=>{ $('#lslugShow').textContent=slugOf($('#lslug').value)||'…'; };
+    $('#lname').oninput=()=>{ if(!typed) $('#lslug').value=slugOf($('#lname').value); show(); };
+    $('#lslug').oninput=()=>{ typed=true; show(); };
+    $('#lGo').onclick=async()=>{ try{ const j=await api('/api/admin/locations','POST',{name:$('#lname').value,slug:$('#lslug').value,short:$('#lshort').value,managerName:$('#lmn').value,managerPassword:$('#lmp').value});
+      await refreshList(); toast(`${j.location.name} added`); renderHeader(); renderAdmins(); }catch(e){ toast(e.message); } };
+    $$('[data-ledit]').forEach(b=>b.onclick=async()=>{ const l=locs.find(x=>x.id===b.dataset.ledit);
+      const name=prompt('Location name:', l.name); if(name==null) return; const short=prompt('Short name for the daily challenge title (can be blank):', l.short||''); if(short==null) return;
+      const slug=l.isDefault?l.slug:prompt('Link name (changing it breaks old links and QR codes):', l.slug); if(slug==null) return;
+      try{ await api('/api/admin/locations/'+l.id,'PATCH',{name,short,slug}); await refreshList(); toast('Saved'); if(LOC && LOC.id===l.id && !l.isDefault && slug!==l.slug){ location.href='/'+slugOf(slug); return; } renderHeader(); renderAdmins(); }catch(e){ toast(e.message); } });
+  }
 }
 
 /* ================= small choice dialog ================= */
@@ -3098,10 +3271,11 @@ async function checkFinalsInvite(){
 setInterval(async()=>{ if(document.hidden || !PLAYER || TVMODE || STREAMMODE) return; try{ await refreshList(); await checkFinalsInvite(); }catch(e){} }, 15000);
 
 /* ================= loading and live updates ================= */
-async function refreshList(){ const s=await api('/api/state'); LIST=s.tournaments; ADMIN=s.admin; PLAYER=s.player; NEEDS_SETUP=s.needsSetup; }
+async function refreshList(){ const s=await api('/api/state'); LIST=s.tournaments; ADMIN=s.admin; PLAYER=s.player; NEEDS_SETUP=s.needsSetup;
+  LOC=s.loc; USER=s.user; LOCS=s.locations||[]; DPLAN=s.dailyPlan||null; }
 async function loadT(id){ try{ T=await api('/api/t/'+id); store.set('pb-tid',id); }catch(e){ T=null; } }
 async function boot(){
-  try{ await refreshList(); }catch(e){ $('#main').innerHTML='<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
+  try{ await refreshList(); }catch(e){ $('#main').innerHTML = e.status===404 ? `<div class="panel"><h2>No location here</h2><p>There's no Pinbowl location at this link. Check the address, or <a href="/">go to the main page</a>.</p></div>` : '<div class="panel err">Could not reach the server. Check your connection and reload.</div>'; return; }
   if(TVMODE || STREAMMODE){ document.body.classList.add(STREAMMODE?'streammode':'tvmode'); const id=bcPickId(); T=null; if(id) T=await api('/api/t/'+id).catch(()=>null); return render(); }
   if(NEEDS_SETUP){ screen='setup'; render(); return; }
   const pickId = pickDefaultId();
@@ -3130,7 +3304,7 @@ setInterval(async()=>{
     if(ADMIN || PLAYER){ const was=isKeeper(); await refreshList(); if(was!==isKeeper()){ if(!tabs().some(x=>x[0]===tab)) tab='mine'; render(); return; } }
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const openIds=$$('details[open]').map(d=>d.dataset.pid||d.dataset.mid||'');
-    const busy = typing || ((tab==='enter'||tab==='play'||tab==='practice') && formDirty()) || ['tournaments','admins','players','stored','stats','finals'].includes(tab) || !$('#shareBox').hidden;
+    const busy = typing || ((tab==='enter'||tab==='play'||tab==='practice') && formDirty()) || ['tournaments','daily','admins','players','stored','stats','finals'].includes(tab) || !$('#shareBox').hidden;
     if(changed && !busy){
       const y=window.scrollY; render(); $$('details[data-pid]').forEach(d=>{ d.open=openIds.includes(d.dataset.pid); }); $$('details[data-mid]').forEach(d=>{ d.open=openIds.includes(d.dataset.mid); }); window.scrollTo(0,y);
     }

@@ -30,6 +30,30 @@ Any host that runs Node.js and has a persistent disk works the same way
 (Render, Fly.io, a VPS). Set `DATA_DIR` to the disk's folder. Avoid hosting
 plans without a persistent disk: the scores would be wiped on each restart.
 
+## Locations and staff
+
+The app can run several venues. Each **location** is completely separate: its own players and
+PINs, stored machines, tournaments, stats, leaderboards, daily challenge, Matchplay token and
+staff. Nothing is shared except the staff login list.
+
+- **Links:** the original location (Northstar) stays at the plain address, so old links and QR
+  codes keep working. Every other location has its own link, e.g. `…/lakeside`. Printed sheets,
+  QR codes and broadcast links made at a location point at that location.
+- **Admin** (top level): sees a **Location** dropdown in the header to switch locations, and a
+  **Locations** panel on the **Staff** tab to add a location (name, link name, optional short
+  name for the daily challenge title, optional first Manager) or edit one.
+- **Manager:** full control of their own location only. Can add Assistant Managers.
+- **Assistant Manager:** same as a Manager at their location, except they can't add Assistant
+  Managers (or anyone else).
+- **Scorekeepers:** unchanged (players picked on the Players tab, per location).
+- Login names are shared across locations, so each must be different. Staff who log in on
+  another location's link are sent to their own location.
+- When this version first starts, the old data becomes the Northstar location, Paul stays the
+  only Admin, and the other admins become Northstar Managers. A copy of the old file is kept as
+  `db-before-locations.json` in the data folder.
+- New locations get only the generic **Light** and **Dark** colors; Northstar keeps its custom
+  themes.
+
 ## Running a week
 
 The Tournaments tab starts with "This week at a glance": a checklist showing whether the
@@ -134,18 +158,29 @@ after strikes in 10 and 11) ends after the first throw: ball 1, or balls 1 and 2
 machine. The app stops the game there for players, and staff entry only shows those
 boxes. After a strike in frame 10, frame 11 is a full game (both throws count).
 
-## NPC Daily Pinbowl Challenge
+## Daily Pinbowl Challenge
 
-Runs by itself every day, midnight to midnight, Central time. If nobody plays a game
-(not even a practice game), that day's challenge is deleted instead of archived. 5-ball
-machines in a daily challenge use the 5-ball rule by default (strike on ball 1 or 2,
-spare on ball 3, 4 or 5). Each one is named "NPC Daily Pinbowl Challenge" plus the date and gets
+Set up on the **Daily challenge** tab, per location: turn it on or off, pick the days of the
+week it runs, and the opening and closing time for each day (Central time). Northstar starts
+as every day, all day; new locations start turned off. If nobody plays a game (not even a
+practice game), that day's challenge is deleted instead of archived. 5-ball machines in a daily
+challenge use the 5-ball rule by default (strike on ball 1 or 2, spare on ball 3, 4 or 5).
+
+**Machine mix:** each challenge draws **12 machines** (10 frames + 2 bonus frames) at once.
+Pick 4 Classic / 4 Mid / 4 Modern (the default), 6 Classic / 6 Modern, 12 at random with no
+categories, or any custom split; anything not assigned to a category is drawn from all of them,
+and a category without enough machines is topped up from the rest. 2 of the 12 (from different
+categories when possible) become frames 11 and 12 and appear when someone earns them. Each one is named "NPC Daily Pinbowl Challenge" plus the date and gets
 10 machines picked at random from Stored machines that have a target and are
 marked "Can be picked at random": 3 Classic, 3 Mid, 3 Modern and 1 more from any
 category. Players join by picking their name from past players or adding a new
 name, then play a normal card (bonus frames work the same way). At closing time
 scores lock and the highest total wins. Admins can turn it off, start one early,
-or end one early on the Tournaments tab.
+or end one early on the Daily challenge tab.
+
+**Adding machines:** the machine name box on Stored machines (and "Add a machine by hand" on the
+Machines tab) suggests names from the **Open Pinball Database** (OPDB, the database Matchplay
+uses) as you type, e.g. "Star Wars" shows Pro, Premium, LE and the 1992 Data East game.
 
 **Stored machine targets:** each machine has a **Quick pick** dropdown of targets in short form
 (past targets with their game counts, the 10% strike recommendation, and ±10/20/30% of the
@@ -155,8 +190,7 @@ with a ball 1 score) and a button to use it.
 Daily challenges don't show the Finals or Matchplay totals tabs. On the Leaderboard, each day in
 a player's results (and in Top scores) links to that challenge's Standings.
 
-**Weighted draw:** the daily challenge still draws 3 Classic, 3 Mid, 3 Modern and 1 more, but
-each machine's odds grow the longer it has gone without being in a daily challenge. Weight =
+**Weighted draw:** within the mix above, each machine's odds grow the longer it has gone without being in a daily challenge. Weight =
 1 + the number of daily challenges since it was last in one, up to 11 (missed 10 or more, or
 never drawn). A machine in yesterday's challenge can still come up; nothing is guaranteed. Bonus
 frames in a daily challenge use the same weights. Each stored machine shows its weight and its
@@ -313,7 +347,8 @@ remembered on that device.
 
 The circle button at the top switches between NPC Fancy (default: Northstar colors with
 faint geometric patterns and soft depth), Northstar, Classic and Dark. Each phone
-remembers its own choice. The stream and machine windows can use NPC Fancy too.
+remembers its own choice. The stream and machine windows can use NPC Fancy too. Other
+locations get the generic Light and Dark.
 
 ## Backups
 

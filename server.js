@@ -4,29 +4,74 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
+const uid = () => crypto.randomBytes(6).toString('hex');
+const lower = s => String(s || '').trim().toLowerCase();
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 // Matchplay moved its API to the api. subdomain. The website itself stays at app.matchplay.events.
 const MP = process.env.MP_BASE || 'https://api.matchplay.events';
+const OPDB = process.env.OPDB_BASE || 'https://opdb.org'; // OPDB_BASE is only for testing
 const SYNC_MS = Number(process.env.SYNC_SECONDS || 60) * 1000;
 const ADMIN_DAYS = 30, PLAYER_DAYS = 365;
 const SPARE_LAST_BALL = 3;
 
-/* ---------------- storage ---------------- */
+/* ---------------- storage ----------------
+   One file holds everything: the staff logins (shared) and the locations. Each location is
+   completely separate: its own players, PINs, stored machines, tournaments, stats and settings.
+   Code reads the current location's data through `db`, which points at whichever location the
+   request (or timer) is working on. */
 fs.mkdirSync(DATA_DIR, { recursive: true });
-function emptyDb() {
-  return { admins: [], sessions: {}, settings: { mpToken: '' }, tournaments: [], machines: [], scorekeepers: [], playerAccounts: {}, playerSessions: {} };
+const DAY_KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function defaultDaily(on) {
+  return { on, days: Object.fromEntries(DAY_KEYS.map(d => [d, { on: true, start: '00:00', end: '24:00' }])), mix: { classic: 4, mid: 4, modern: 4, any: 0 } };
 }
-function loadDb() {
-  try { return { ...emptyDb(), ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; }
-  catch (e) { return emptyDb(); }
+function emptyLocData() {
+  return { settings: { mpToken: '', daily: defaultDaily(false) }, tournaments: [], machines: [], scorekeepers: [], playerAccounts: {}, playerSessions: {} };
 }
-let db = loadDb();
+function newLocation(name, slug, extra = {}) {
+  return { id: uid(), slug, name, short: '', custom: false, createdAt: Date.now(), data: emptyLocData(), ...extra };
+}
+function loadStore() {
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { /* new install */ }
+  if (raw && raw.version === 2) return raw;
+  // Older single-location data: it all becomes the original location, Northstar
+  if (raw) fs.copyFileSync(DB_FILE, path.join(DATA_DIR, 'db-before-locations.json'));
+  const { admins = [], sessions = {}, ...rest } = raw || {};
+  const loc = raw
+    ? { id: uid(), slug: 'northstar', name: 'Northstar Pinball Collective', short: 'NPC', custom: true, isDefault: true, createdAt: Date.now(), data: { ...emptyLocData(), ...rest } }
+    : newLocation('Pinbowl', 'main', { isDefault: true });
+  // the old daily on/off switch and every-day-all-day schedule carry over
+  if (raw) loc.data.settings = { ...loc.data.settings, daily: defaultDaily(rest.settings ? rest.settings.dailyOn !== false : true) };
+  delete loc.data.settings.dailyOn;
+  // Paul (or the first admin) stays the top-level Admin; the other admins become Northstar Managers
+  const owner = admins.find(a => lower(a.name) === 'paul') || admins.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+  const users = admins.map(a => ({ ...a, role: a === owner ? 'admin' : 'manager', locId: a === owner ? null : loc.id }));
+  return { version: 2, users, sessions, locations: [loc] };
+}
+const STORE = loadStore();
+const als = new AsyncLocalStorage();
+const defaultLoc = () => STORE.locations.find(l => l.isDefault) || STORE.locations[0];
+let warnedCtx = false;
+function curLoc() {
+  const l = als.getStore(); if (l) return l;
+  if (!warnedCtx) { warnedCtx = true; console.warn('Location not set for this task; using the original location.'); }
+  return defaultLoc();
+}
+const db = new Proxy({}, {
+  get: (_, k) => curLoc().data[k],
+  set: (_, k, v) => { curLoc().data[k] = v; return true; },
+  has: (_, k) => k in curLoc().data,
+  deleteProperty: (_, k) => delete curLoc().data[k],
+});
+const inLoc = (loc, fn) => als.run(loc, fn);
+const forEachLoc = fn => STORE.locations.forEach(l => inLoc(l, () => fn(l)));
 function save() {
   const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db));
+  fs.writeFileSync(tmp, JSON.stringify(STORE));
   fs.renameSync(tmp, DB_FILE);
   const day = new Date().toISOString().slice(0, 10);
   const daily = path.join(DATA_DIR, `backup-${day}.json`);
@@ -38,11 +83,9 @@ function save() {
 }
 
 /* ---------------- helpers ---------------- */
-const uid = () => crypto.randomBytes(6).toString('hex');
 const toInt = v => { if (v === null || v === undefined || v === '') return null; const n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return Number.isFinite(n) ? n : null; };
 class HttpError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
 const fail = (code, msg) => { throw new HttpError(code, msg); };
-const lower = s => String(s || '').trim().toLowerCase();
 
 function hashPw(pw, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash: crypto.scryptSync(pw, salt, 64).toString('hex') };
@@ -106,15 +149,19 @@ const firstBlank = t => t.slots.findIndex(x => !x);
 function pruneArenas(t) { t.arenas = t.arenas.filter(a => t.slots.includes(a.id) || (t.bonusArenas || []).includes(a.id) || t.games.some(g => g.arenaId === a.id)); }
 
 // Upgrade data from earlier versions and build the stored machines list from past tournaments.
-if (!Array.isArray(db.machines)) db.machines = [];
-if (!Array.isArray(db.scorekeepers)) db.scorekeepers = [];
-db.tournaments.sort((a, b) => a.createdAt - b.createdAt).forEach(t => t.arenas.forEach(a => {
-  if (!a.abbr) a.abbr = abbrOf(a.name);
-  if (!a.targetSource) a.targetSource = a.targetFromMp ? 'mp' : (a.target ? 'admin' : '');
-  remember(a, t.createdAt);
-}));
-delete db.machineLib;
-db.tournaments.forEach(ensureSlots);
+forEachLoc(() => {
+  for (const [k, v] of Object.entries(emptyLocData())) if (db[k] === undefined) db[k] = v;
+  if (!Array.isArray(db.machines)) db.machines = [];
+  if (!Array.isArray(db.scorekeepers)) db.scorekeepers = [];
+  if (!db.settings.daily) db.settings.daily = defaultDaily(db.settings.dailyOn !== false);
+  db.tournaments.sort((a, b) => a.createdAt - b.createdAt).forEach(t => t.arenas.forEach(a => {
+    if (!a.abbr) a.abbr = abbrOf(a.name);
+    if (!a.targetSource) a.targetSource = a.targetFromMp ? 'mp' : (a.target ? 'admin' : '');
+    remember(a, t.createdAt);
+  }));
+  delete db.machineLib;
+  db.tournaments.forEach(ensureSlots);
+});
 
 /* ---------------- scoring (mirrors the page) ---------------- */
 function pins(score, target) { if (score == null || !target) return 0; return Math.max(0, Math.min(9, Math.floor(score * 10 / target))); }
@@ -176,7 +223,9 @@ function pickBonus(t, idx, machineId) {
   const current = t.arenas.find(a => a.id === t.bonusArenas[idx]);
   const used = new Set([...regular, ...others, current].filter(Boolean).map(a => a.mid).filter(Boolean));
   let m;
+  const pre = t.daily && !machineId && !current && (t.dailyBonus || [])[idx] && db.machines.find(x => x.id === t.dailyBonus[idx] && x.target > 0 && !used.has(x.id));
   if (machineId) m = db.machines.find(x => x.id === machineId) || fail(404, 'Machine not found.');
+  else if (pre) m = pre;
   else {
     const counts = {}; CATS.forEach(c => counts[c] = 0);
     [...regular, ...others].forEach(a => { if (counts[a.cat] != null) counts[a.cat]++; });
@@ -237,13 +286,23 @@ function cleanBalls(list, a) {
 if (process.env.RESET_ADMIN && process.env.RESET_ADMIN.includes(':')) {
   const i = process.env.RESET_ADMIN.indexOf(':');
   const name = process.env.RESET_ADMIN.slice(0, i).trim(), pw = process.env.RESET_ADMIN.slice(i + 1);
-  let a = db.admins.find(x => lower(x.name) === lower(name));
-  if (!a) { a = { id: uid(), name, createdAt: Date.now() }; db.admins.push(a); }
-  Object.assign(a, hashPw(pw));
+  let a = STORE.users.find(x => lower(x.name) === lower(name));
+  if (!a) { a = { id: uid(), name, createdAt: Date.now() }; STORE.users.push(a); }
+  Object.assign(a, hashPw(pw), { role: 'admin', locId: null });
   console.log(`Admin "${name}" reset. Remove RESET_ADMIN from your settings now.`);
 }
 save();
 
+// A location's web address: pinbowl.../<slug>
+const cleanSlug = v => String(v || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+const RESERVED = ['api', 'healthz', 'qrcode-js', 'admin', 'static'];
+function checkSlug(sl) {
+  if (!sl || sl.length < 2) fail(400, 'The link name needs at least 2 letters or numbers.');
+  if (RESERVED.includes(sl) || STORE.locations.some(l => l.slug === sl)) fail(409, `The link /${sl} is taken. Pick another.`);
+}
+// Everyone who can work on this location: its Managers and Assistant Managers, plus the Admins
+const staffHere = () => STORE.users.filter(u => u.role === 'admin' || u.locId === curLoc().id)
+  .sort((a, b) => ['admin', 'manager', 'assistant'].indexOf(a.role) - ['admin', 'manager', 'assistant'].indexOf(b.role) || a.name.localeCompare(b.name));
 function publicT(t) { const { mpRaw, ...rest } = t; return rest; }
 function summary(t) { return { id: t.id, name: t.name, status: t.status, createdAt: t.createdAt, players: t.players.length, mpId: t.mpId, daily: !!t.daily, end: t.daily ? t.daily.end : null, finals: !!t.finals, done: !!t.done }; }
 
@@ -251,8 +310,9 @@ function summary(t) { return { id: t.id, name: t.name, status: t.status, created
 // Runs by itself: Friday 5 pm to midnight, Saturday and Sunday 11 am to 7 pm, Central time.
 const TZ = 'America/Chicago';
 const nowMs = () => Date.now() + Number(process.env.TIME_SHIFT_MS || 0); // TIME_SHIFT_MS is only for testing
-// Every day, all day (midnight to midnight, Central)
-const DAILY_HOURS = { Sun: [0, 24], Mon: [0, 24], Tue: [0, 24], Wed: [0, 24], Thu: [0, 24], Fri: [0, 24], Sat: [0, 24] };
+// Each location sets its own days and times on the Daily challenge tab (Central time)
+const dailySet = () => db.settings.daily || defaultDaily(false);
+const hm = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m ? [Math.min(24, +m[1]), Math.min(59, +m[2])] : null; };
 function zoned(ms) {
   const o = {};
   new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' })
@@ -267,9 +327,11 @@ function zonedToMs(y, m, d, h, min = 0) {
 }
 // The challenge window for a Central calendar day, or null if there isn't one that day
 function windowFor(y, m, d) {
-  const noon = zonedToMs(y, m, d, 12), wd = zoned(noon).wd, hrs = DAILY_HOURS[wd];
-  if (!hrs) return null;
-  const start = zonedToMs(y, m, d, hrs[0]), end = zonedToMs(y, m, d, hrs[1]);
+  const noon = zonedToMs(y, m, d, 12), wd = zoned(noon).wd, day = dailySet().days[wd];
+  if (!day || !day.on) return null;
+  const a = hm(day.start) || [0, 0], b = hm(day.end) || [24, 0];
+  const start = zonedToMs(y, m, d, a[0], a[1]), end = zonedToMs(y, m, d, b[0], b[1]);
+  if (end <= start) return null;
   const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   const label = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(noon));
   return { key, start, end, label };
@@ -284,7 +346,6 @@ function nextWindow(from = nowMs()) {
   return null;
 }
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-// 3 Classic, 3 Mid, 3 Modern, then 1 more from any category, from stored machines with a target
 /* Daily draw weights: the longer a machine has gone without being in a daily challenge, the
    likelier it is to be picked, but nothing is guaranteed. Weight = 1 + the number of daily
    challenges since it was last in one (in the most recent one = 1, missed the last 4 = 5),
@@ -301,14 +362,45 @@ function weightedPick(list, k, w) {
   return list.map(x => ({ x, key: Math.log((crypto.randomInt(1, 2 ** 31)) / 2 ** 31) / w(x) }))
     .sort((a, b) => b.key - a.key).slice(0, k).map(y => y.x);
 }
-// 3 Classic, 3 Mid, 3 Modern, then 1 more from anything (all weighted)
+// The location's mix of 12 (10 frames + 2 bonus frames), e.g. 4 Classic, 4 Mid, 4 Modern; all weighted.
+// A category without enough machines is topped up from any category.
+const DAILY_TOTAL = 12;
+function dailyMix() {
+  const m = dailySet().mix || {}, out = {};
+  CATS.forEach(c => { out[c] = Math.max(0, Math.min(DAILY_TOTAL, toInt(m[c]) || 0)); });
+  const used = CATS.reduce((a, c) => a + out[c], 0);
+  if (used > DAILY_TOTAL) return { classic: 4, mid: 4, modern: 4, any: 0 };
+  out.any = DAILY_TOTAL - used;
+  return out;
+}
 function pickDailyMachines(hist = dailyHistory()) {
-  const pool = db.machines.filter(m => m.target > 0 && m.inDraw !== false), W = m => drawWeight(m, hist);
+  const pool = db.machines.filter(m => m.target > 0 && m.inDraw !== false), W = m => drawWeight(m, hist), mix = dailyMix();
   const picked = [];
-  for (const c of CATS) picked.push(...weightedPick(pool.filter(m => m.cat === c), 3, W));
+  for (const c of CATS) picked.push(...weightedPick(pool.filter(m => m.cat === c), mix[c], W));
   const rest = pool.filter(m => !picked.includes(m));
-  picked.push(...weightedPick(rest, 10 - picked.length, W));
+  picked.push(...weightedPick(rest, DAILY_TOTAL - picked.length, W));
   return picked;
+}
+// From the 12: 2 become the bonus frames (from two different categories when there's a choice), 10 are the frames
+function splitDaily(picked) {
+  const list = shuffle(picked.slice()), bonus = [];
+  if (list.length > 10) {
+    bonus.push(list[0]);
+    if (list.length > 11) bonus.push(list.slice(1).find(m => (m.cat || '') !== (list[0].cat || '')) || list[1]);
+  }
+  const regular = picked.filter(m => !bonus.includes(m)).slice(0, 10);
+  return { regular, bonus };
+}
+function cleanDaily(b) {
+  const cur = dailySet(), out = { on: typeof b.on === 'boolean' ? b.on : cur.on, days: {}, mix: {} };
+  DAY_KEYS.forEach(d => { const x = (b.days || {})[d] || cur.days[d] || {}; const st = hm(x.start) ? x.start : '00:00', en = hm(x.end) ? x.end : '24:00';
+    out.days[d] = { on: !!x.on, start: st, end: en }; });
+  for (const d of DAY_KEYS) { const x = out.days[d]; if (x.on && hm(x.end)[0] * 60 + hm(x.end)[1] <= hm(x.start)[0] * 60 + hm(x.start)[1]) fail(400, `${d}: the end time has to be after the start time.`); }
+  const mix = b.mix || cur.mix; let used = 0;
+  CATS.forEach(c => { out.mix[c] = Math.max(0, Math.min(DAILY_TOTAL, toInt(mix[c]) || 0)); used += out.mix[c]; });
+  if (used > DAILY_TOTAL) fail(400, `The machine mix adds up to ${used}. It can be at most ${DAILY_TOTAL}.`);
+  out.mix.any = DAILY_TOTAL - used;
+  return out;
 }
 // Each machine's chance of being in the next daily challenge, from many practice draws
 function drawChances(n = 3000) {
@@ -318,12 +410,14 @@ function drawChances(n = 3000) {
 }
 function createDaily(w, manual) {
   const t = {
-    id: uid(), name: `NPC Daily Pinbowl Challenge - ${w.label}`, mpId: null, status: 'active',
+    id: uid(), name: `${curLoc().short || curLoc().name} Daily Pinbowl Challenge - ${w.label}`, mpId: null, status: 'active',
     createdAt: nowMs(), frames: 10, tenthBonus: true, allowRepeats: false,
     players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
     daily: { key: manual ? 'manual-' + nowMs() : w.key, start: w.start, end: w.end },
   };
-  t.arenas = pickDailyMachines().map(m => { const a = newArena(m.name, m.mpId); a.mid = m.id; a.cat = m.cat || ''; remember(a, t.createdAt); return a; });
+  const { regular, bonus } = splitDaily(pickDailyMachines());
+  t.arenas = regular.map(m => { const a = newArena(m.name, m.mpId); a.mid = m.id; a.cat = m.cat || ''; remember(a, t.createdAt); return a; });
+  t.dailyBonus = bonus.map(m => m.id); // drawn now with the rest; they appear when someone earns frame 11 or 12
   // daily challenges use the 5-ball rule on every 5-ball machine: strike on ball 1 or 2, spare on 3, 4 or 5
   t.arenas.forEach(a => { if (a.balls === 5) a.em = true; });
   t.slots = t.arenas.map(a => a.id); ensureSlots(t);
@@ -387,15 +481,16 @@ function closeDaily(t) {
 function dailyTick() {
   const now = nowMs();
   for (const t of db.tournaments) if (t.daily && t.status === 'active' && !t.daily.reopened && now >= t.daily.end) closeDaily(t);
-  if (db.settings.dailyOn === false) return;
+  if (!dailySet().on) return;
   const w = nextWindow(now);
   if (w && now >= w.start && now < w.end && !db.tournaments.some(t => t.daily && (t.daily.key === w.key || t.status === 'active'))
     && !(db.dailySkip || []).includes(w.key)) createDaily(w);
 }
-setInterval(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 30000);
-setTimeout(() => { try { dailyTick(); } catch (e) { console.error(e); } }, 2000);
+const tickAll = () => forEachLoc(() => { try { dailyTick(); } catch (e) { console.error(e); } });
+setInterval(tickAll, 30000);
+setTimeout(tickAll, 2000);
 // dailies made before the 5-ball rule became their default
-db.tournaments.forEach(t => { if (t.daily && t.status === 'active') t.arenas.forEach(a => { if (a.balls === 5 && !a.em) a.em = true; }); });
+forEachLoc(() => db.tournaments.forEach(t => { if (t.daily && t.status === 'active') t.arenas.forEach(a => { if (a.balls === 5 && !a.em) a.em = true; }); }));
 function getT(id) { return db.tournaments.find(t => t.id === id) || fail(404, 'Tournament not found.'); }
 function openT(id) {
   const t = getT(id);
@@ -692,13 +787,27 @@ function parseCookies(req) {
   (req.headers.cookie || '').split(';').forEach(p => { const i = p.indexOf('='); if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); });
   return out;
 }
-function currentAdmin(req) {
-  const s = db.sessions[parseCookies(req).pb_session];
+/* Staff logins are shared across locations:
+   Admin: every location, can make locations and Managers.
+   Manager: full control of one location, can make Assistant Managers.
+   Assistant Manager: same as a Manager at that location, but can't make Assistant Managers.
+   Scorekeepers are players at one location (unchanged). */
+const ROLE_NAMES = { admin: 'Admin', manager: 'Manager', assistant: 'Assistant Manager' };
+const aRole = r => (r === 'admin' || r === 'assistant' ? 'an ' : 'a ') + ROLE_NAMES[r];
+const canAccess = (u, loc = curLoc()) => !!u && (u.role === 'admin' || u.locId === loc.id);
+const canCreate = (u, role) => u.role === 'admin' ? ['admin', 'manager', 'assistant'].includes(role) : u.role === 'manager' && role === 'assistant';
+const canManage = (u, x) => u.id !== x.id && (u.role === 'admin' || (u.role === 'manager' && x.role === 'assistant' && x.locId === u.locId));
+const userOut = u => { const l = STORE.locations.find(x => x.id === u.locId); return { id: u.id, name: u.name, role: u.role || 'admin', roleName: ROLE_NAMES[u.role || 'admin'], locId: u.locId || null, locSlug: l ? l.slug : null, locName: l ? l.name : null, locPath: l ? (l.isDefault ? '/' : '/' + l.slug) : '/' }; };
+const locOut = l => ({ id: l.id, slug: l.slug, name: l.name, short: l.short || '', custom: !!l.custom, isDefault: !!l.isDefault });
+function currentUser(req) {
+  const s = STORE.sessions[parseCookies(req).pb_session];
   if (!s || s.exp < Date.now()) return null;
-  return db.admins.find(a => a.id === s.adminId) || null;
+  return STORE.users.find(a => a.id === s.adminId) || null;
 }
+// each location has its own player sign-in (the original location keeps the old cookie name)
+const playerCookie = () => curLoc().isDefault ? 'pb_player' : 'pb_player_' + curLoc().id;
 function currentPlayer(req) {
-  const s = db.playerSessions[parseCookies(req).pb_player];
+  const s = db.playerSessions[parseCookies(req)[playerCookie()]];
   if (!s || s.exp < Date.now() || !db.playerAccounts[lower(s.name)]) return null;
   return db.playerAccounts[lower(s.name)].name;
 }
@@ -710,15 +819,15 @@ function setCookie(res, req, name, val, days) {
 }
 function startAdminSession(res, admin, req) {
   const tok = crypto.randomBytes(32).toString('hex');
-  db.sessions[tok] = { adminId: admin.id, exp: Date.now() + ADMIN_DAYS * 864e5 };
-  for (const [k, s] of Object.entries(db.sessions)) if (s.exp < Date.now()) delete db.sessions[k];
+  STORE.sessions[tok] = { adminId: admin.id, exp: Date.now() + ADMIN_DAYS * 864e5 };
+  for (const [k, s] of Object.entries(STORE.sessions)) if (s.exp < Date.now()) delete STORE.sessions[k];
   save(); setCookie(res, req, 'pb_session', tok, ADMIN_DAYS);
 }
 function startPlayerSession(res, name, req) {
   const tok = crypto.randomBytes(32).toString('hex');
   db.playerSessions[tok] = { name, exp: Date.now() + PLAYER_DAYS * 864e5 };
   for (const [k, s] of Object.entries(db.playerSessions)) if (s.exp < Date.now()) delete db.playerSessions[k];
-  save(); setCookie(res, req, 'pb_player', tok, PLAYER_DAYS);
+  save(); setCookie(res, req, playerCookie(), tok, PLAYER_DAYS);
 }
 
 const fails = new Map();
@@ -814,7 +923,7 @@ async function autoSync() {
     try { await syncTournament(t); } catch (e) { t.lastSyncError = e.message; }
   }
 }
-setInterval(() => { autoSync().catch(() => {}); }, SYNC_MS);
+setInterval(() => { for (const l of STORE.locations) inLoc(l, () => autoSync()).catch(() => {}); }, SYNC_MS);
 
 /* ---------------- request handling ---------------- */
 function send(res, code, obj) {
@@ -910,15 +1019,19 @@ function playerGameAction(t, pid, player, m, sub, b) {
 
 async function route(req, res, url) {
   const m = req.method, p = url.pathname;
-  const admin = currentAdmin(req), player = currentPlayer(req);
+  const user = currentUser(req), admin = canAccess(user) ? user : null, player = currentPlayer(req);
   let mt;
 
   // ----- public -----
   if (m === 'GET' && p === '/api/state') {
     return send(res, 200, {
-      admin: admin ? { id: admin.id, name: admin.name } : null,
+      admin: admin ? userOut(admin) : null,
+      user: user ? userOut(user) : null, // signed in as staff, even if not for this location
+      loc: locOut(curLoc()),
+      dailyPlan: { on: dailySet().on, days: dailySet().days, mix: dailyMix() }, // for the schedule shown to players
+      locations: user && user.role === 'admin' ? STORE.locations.map(locOut) : [],
       player: player ? { name: player, scorekeeper: db.scorekeepers.includes(lower(player)) } : null,
-      needsSetup: db.admins.length === 0,
+      needsSetup: STORE.users.length === 0,
       tournaments: db.tournaments.map(summary).sort((a, b) => b.createdAt - a.createdAt),
     });
   }
@@ -950,8 +1063,8 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true, created: !acct });
   }
   if (m === 'POST' && p === '/api/player/logout') {
-    const tok = parseCookies(req).pb_player; if (tok) { delete db.playerSessions[tok]; save(); }
-    setCookie(res, req, 'pb_player', '', 0);
+    const tok = parseCookies(req)[playerCookie()]; if (tok) { delete db.playerSessions[tok]; save(); }
+    setCookie(res, req, playerCookie(), '', 0);
     return send(res, 200, { ok: true });
   }
   if (m === 'POST' && (mt = p.match(/^\/api\/player\/t\/(\w+)\/join$/))) {
@@ -1070,23 +1183,23 @@ async function route(req, res, url) {
   }
   // ----- admin login -----
   if (m === 'POST' && p === '/api/setup') {
-    if (db.admins.length) fail(409, 'Setup is already done. Log in instead.');
+    if (STORE.users.length) fail(409, 'Setup is already done. Log in instead.');
     const b = await readBody(req), name = String(b.name || '').trim(), pw = String(b.password || '');
     if (!name || pw.length < 6) fail(400, 'Enter a name and a password of at least 6 characters.');
-    const a = { id: uid(), name, createdAt: Date.now(), ...hashPw(pw) };
-    db.admins.push(a); save(); startAdminSession(res, a, req);
+    const a = { id: uid(), name, createdAt: Date.now(), role: 'admin', locId: null, ...hashPw(pw) };
+    STORE.users.push(a); save(); startAdminSession(res, a, req);
     return send(res, 200, { ok: true });
   }
   if (m === 'POST' && p === '/api/login') {
     const bad = throttle('admin:' + ipOf(req), 10);
     const b = await readBody(req);
-    const a = db.admins.find(x => lower(x.name) === lower(b.name));
+    const a = STORE.users.find(x => lower(x.name) === lower(b.name));
     if (!a || !checkPw(String(b.password || ''), a)) { bad(); fail(401, 'That name and password do not match.'); }
     startAdminSession(res, a, req);
-    return send(res, 200, { ok: true });
+    return send(res, 200, { ok: true, user: userOut(a) });
   }
   if (m === 'POST' && p === '/api/logout') {
-    const tok = parseCookies(req).pb_session; if (tok) { delete db.sessions[tok]; save(); }
+    const tok = parseCookies(req).pb_session; if (tok) { delete STORE.sessions[tok]; save(); }
     setCookie(res, req, 'pb_session', '', 0);
     return send(res, 200, { ok: true });
   }
@@ -1100,12 +1213,12 @@ async function route(req, res, url) {
   // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
   const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
-  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order|ball|fix|cancel))$/.test(p))) fail(401, 'Log in as an admin to do that.');
+  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order|ball|fix|cancel))$/.test(p))) fail(401, user ? `Your login is for ${userOut(user).locName || 'another location'}.` : 'Log in as an admin to do that.');
   const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {
-    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), admins: db.admins.map(a => ({ id: a.id, name: a.name })), pins: Object.keys(db.playerAccounts), scorekeepers: db.scorekeepers,
-      daily: { on: db.settings.dailyOn !== false, next: nextWindow(), running: (db.tournaments.find(t => t.daily && t.status === 'active') || {}).id || null } });
+    return send(res, 200, { hasToken: !!(db.settings.mpToken || process.env.MATCHPLAY_TOKEN), staff: staffHere().map(u => ({ ...userOut(u), canManage: canManage(admin, u) })), me: userOut(admin), canMake: ['admin', 'manager', 'assistant'].filter(r => canCreate(admin, r)), pins: Object.keys(db.playerAccounts), scorekeepers: db.scorekeepers,
+      daily: { on: dailySet().on, set: dailySet(), next: nextWindow(), running: (db.tournaments.find(t => t.daily && t.status === 'active') || {}).id || null } });
   }
   if (m === 'POST' && p === '/api/admin/daily/start') {
     const now = nowMs(), w = nextWindow(now), open = w && now >= w.start;
@@ -1139,28 +1252,66 @@ async function route(req, res, url) {
   if (m === 'PUT' && p === '/api/admin/settings') {
     const b = await readBody(req);
     if (typeof b.mpToken === 'string') db.settings.mpToken = b.mpToken.trim();
-    if (typeof b.dailyOn === 'boolean') db.settings.dailyOn = b.dailyOn;
+    if (typeof b.dailyOn === 'boolean') db.settings.daily = { ...dailySet(), on: b.dailyOn };
+    if (b.daily && typeof b.daily === 'object') db.settings.daily = cleanDaily(b.daily);
     save(); return send(res, 200, { ok: true });
   }
-  if (m === 'POST' && p === '/api/admin/admins') {
-    const b = await readBody(req), name = String(b.name || '').trim(), pw = String(b.password || '');
+  // ----- staff (Admins, Managers, Assistant Managers) -----
+  if (m === 'POST' && p === '/api/admin/staff') {
+    const b = await readBody(req), name = String(b.name || '').trim(), pw = String(b.password || ''), role = String(b.role || '');
+    if (!ROLE_NAMES[role]) fail(400, 'Pick a role.');
+    if (!canCreate(admin, role)) fail(403, `${aRole(admin.role).replace(/^a/, 'A')} can't add ${aRole(role)}.`);
     if (!name || pw.length < 6) fail(400, 'Enter a name and a password of at least 6 characters.');
-    if (db.admins.some(a => lower(a.name) === lower(name))) fail(409, 'There is already an admin with that name.');
-    db.admins.push({ id: uid(), name, createdAt: Date.now(), ...hashPw(pw) }); save();
+    if (STORE.users.some(a => lower(a.name) === lower(name))) fail(409, 'Someone already has that login name. Pick another.');
+    let loc = curLoc();
+    if (b.locId) loc = STORE.locations.find(l => l.id === b.locId) || fail(404, 'Location not found.');
+    if (role !== 'admin' && !canAccess(admin, loc)) fail(403, 'You can only add staff to your own location.');
+    STORE.users.push({ id: uid(), name, createdAt: Date.now(), role, locId: role === 'admin' ? null : loc.id, ...hashPw(pw) }); save();
     return send(res, 200, { ok: true });
   }
-  if (m === 'DELETE' && (mt = p.match(/^\/api\/admin\/admins\/(\w+)$/))) {
-    if (db.admins.length <= 1) fail(409, 'You cannot remove the last admin.');
-    if (mt[1] === admin.id) fail(409, 'You cannot remove yourself. Ask another admin.');
-    db.admins = db.admins.filter(a => a.id !== mt[1]);
-    for (const [k, s] of Object.entries(db.sessions)) if (s.adminId === mt[1]) delete db.sessions[k];
+  if (m === 'DELETE' && (mt = p.match(/^\/api\/admin\/staff\/(\w+)$/))) {
+    const x = STORE.users.find(u => u.id === mt[1]) || fail(404, 'Not found.');
+    if (x.id === admin.id) fail(409, 'You cannot remove yourself.');
+    if (!canManage(admin, x)) fail(403, `${aRole(admin.role).replace(/^a/, 'A')} can't remove ${aRole(x.role)}.`);
+    if (x.role === 'admin' && STORE.users.filter(u => u.role === 'admin').length <= 1) fail(409, 'You cannot remove the last Admin.');
+    STORE.users = STORE.users.filter(u => u.id !== x.id);
+    for (const [k, s2] of Object.entries(STORE.sessions)) if (s2.adminId === x.id) delete STORE.sessions[k];
     save(); return send(res, 200, { ok: true });
   }
-  if (m === 'PUT' && (mt = p.match(/^\/api\/admin\/admins\/(\w+)\/password$/))) {
+  if (m === 'PUT' && (mt = p.match(/^\/api\/admin\/staff\/(\w+)\/password$/))) {
     const b = await readBody(req), pw = String(b.password || '');
     if (pw.length < 6) fail(400, 'Use at least 6 characters.');
-    const a = db.admins.find(x => x.id === mt[1]) || fail(404, 'Admin not found.');
-    Object.assign(a, hashPw(pw)); save(); return send(res, 200, { ok: true });
+    const x = STORE.users.find(u => u.id === mt[1]) || fail(404, 'Not found.');
+    if (x.id !== admin.id && !canManage(admin, x)) fail(403, "You can't change that password.");
+    Object.assign(x, hashPw(pw)); save(); return send(res, 200, { ok: true });
+  }
+  // ----- locations (Admin only) -----
+  if (p.startsWith('/api/admin/locations') && admin.role !== 'admin') fail(403, 'Only an Admin can manage locations.');
+  if (m === 'GET' && p === '/api/admin/locations') {
+    return send(res, 200, { locations: STORE.locations.map(l => ({ ...locOut(l), staff: STORE.users.filter(u => u.locId === l.id).map(userOut),
+      tournaments: l.data.tournaments.length, machines: l.data.machines.length })) });
+  }
+  if (m === 'POST' && p === '/api/admin/locations') {
+    const b = await readBody(req), name = String(b.name || '').trim(), slug = cleanSlug(b.slug || name);
+    if (!name) fail(400, 'Give the location a name.');
+    checkSlug(slug);
+    const l = newLocation(name, slug, { short: String(b.short || '').trim().slice(0, 12) });
+    STORE.locations.push(l);
+    // optional first Manager
+    const mn = String(b.managerName || '').trim(), mp = String(b.managerPassword || '');
+    if (mn) {
+      if (mp.length < 6) fail(400, "The Manager's password needs at least 6 characters.");
+      if (STORE.users.some(a => lower(a.name) === lower(mn))) fail(409, 'Someone already has that login name. Pick another.');
+      STORE.users.push({ id: uid(), name: mn, createdAt: Date.now(), role: 'manager', locId: l.id, ...hashPw(mp) });
+    }
+    save(); return send(res, 200, { location: locOut(l) });
+  }
+  if (m === 'PATCH' && (mt = p.match(/^\/api\/admin\/locations\/(\w+)$/))) {
+    const l = STORE.locations.find(x => x.id === mt[1]) || fail(404, 'Location not found.'), b = await readBody(req);
+    if (typeof b.name === 'string' && b.name.trim()) l.name = b.name.trim();
+    if (typeof b.short === 'string') l.short = b.short.trim().slice(0, 12);
+    if (typeof b.slug === 'string' && cleanSlug(b.slug) !== l.slug) { const sl = cleanSlug(b.slug); checkSlug(sl); l.slug = sl; }
+    save(); return send(res, 200, { location: locOut(l) });
   }
   if (m === 'POST' && p === '/api/admin/pin-reset') {
     const b = await readBody(req), key = lower(b.name);
@@ -1205,11 +1356,24 @@ async function route(req, res, url) {
     }).sort((a, b) => a.name.localeCompare(b.name));
     return send(res, 200, { machines: list });
   }
+  // Machine name lookup in the Open Pinball Database (the one Matchplay uses). The page asks OPDB
+  // directly; this is the fallback when a browser can't reach it.
+  if (m === 'GET' && p === '/api/admin/opdb') {
+    const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
+    if (q.length < 2) return send(res, 200, { results: [] });
+    try {
+      const r = await fetch(`${OPDB}/api/search/typeahead?q=${encodeURIComponent(q)}&include_aliases=1`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) fail(502, 'The pinball database did not answer. Type the name instead.');
+      const j = await r.json();
+      return send(res, 200, { results: Array.isArray(j) ? j.slice(0, 25) : [] });
+    } catch (e) { if (e instanceof HttpError) throw e; fail(502, 'The pinball database did not answer. Type the name instead.'); }
+  }
   if (m === 'POST' && p === '/api/admin/machines') {
     const b = await readBody(req), name = String(b.name || '').trim();
     if (!name) fail(400, 'Enter a machine name.');
     if (db.machines.some(x => lower(x.name) === lower(name))) fail(409, 'That machine is already stored.');
     const x = { id: uid(), name, mpId: null, target: toInt(b.target) || 0, balls: b.balls === 5 ? 5 : 3, abbr: cleanAbbr(b.abbr) || abbrOf(name), cat: cleanCat(b.cat), inDraw: true, addedAt: Date.now() };
+    if (typeof b.opdbId === 'string' && /^[\w-]{3,40}$/.test(b.opdbId)) x.opdbId = b.opdbId;
     db.machines.push(x); save();
     return send(res, 200, { machine: x });
   }
@@ -1525,7 +1689,11 @@ const PUBLIC = path.join(__dirname, 'public');
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname.startsWith('/api/')) {
-    try { await route(req, res, url); }
+    // which location: the page sends its link name (X-Loc); no name = the original location
+    const slug = String(req.headers['x-loc'] || url.searchParams.get('loc') || '').toLowerCase();
+    const loc = slug ? STORE.locations.find(l => l.slug === slug) : defaultLoc();
+    if (!loc) return send(res, 404, { error: 'There is no location at this address.', noLocation: true });
+    try { await inLoc(loc, () => route(req, res, url)); }
     catch (e) {
       if (e instanceof HttpError) send(res, e.code, { error: e.message });
       else { console.error(e); send(res, 500, { error: 'Something went wrong on the server.' }); }
@@ -1533,6 +1701,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+  // the original location lives at the plain address, so /<its link name> sends people there
+  const seg = (url.pathname.split('/').filter(Boolean)[0] || '').toLowerCase();
+  if (seg && seg === defaultLoc().slug) { res.writeHead(302, { Location: '/' + url.search }); return res.end(); }
   const isQr = url.pathname === '/qrcode.js';
   fs.readFile(path.join(PUBLIC, isQr ? 'qrcode.js' : 'index.html'), (err, body) => {
     if (err) { res.writeHead(500); return res.end(`Missing public/${isQr ? 'qrcode.js' : 'index.html'}`); }
