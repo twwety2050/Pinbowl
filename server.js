@@ -1363,6 +1363,21 @@ async function route(req, res, url) {
     }
     save(); return send(res, 200, { location: locOut(l) });
   }
+  // Delete a location and everything in it. The original location can't be deleted. A copy of
+  // its data is kept in the data folder (deleted-location-<link>-<date>.json) just in case.
+  if (m === 'DELETE' && (mt = p.match(/^\/api\/admin\/locations\/(\w+)$/))) {
+    const l = STORE.locations.find(x => x.id === mt[1]) || fail(404, 'Location not found.'), b = await readBody(req);
+    if (l.isDefault) fail(409, `${l.name} is the main location and can't be deleted.`);
+    if (lower(b.confirm) !== lower(l.name)) fail(400, `Type the location's name (${l.name}) to confirm.`);
+    const staff = STORE.users.filter(u => u.locId === l.id);
+    const file = path.join(DATA_DIR, `deleted-location-${l.slug}-${new Date().toISOString().slice(0, 10)}.json`);
+    fs.writeFileSync(file, JSON.stringify({ deletedAt: Date.now(), deletedBy: admin.name, location: l, staff }));
+    STORE.locations = STORE.locations.filter(x => x !== l);
+    STORE.users = STORE.users.filter(u => u.locId !== l.id);
+    for (const [k, s2] of Object.entries(STORE.sessions)) if (!STORE.users.some(u => u.id === s2.adminId)) delete STORE.sessions[k];
+    save(); console.log(`Location ${l.name} deleted by ${admin.name}; copy saved as ${path.basename(file)}.`);
+    return send(res, 200, { ok: true, removedStaff: staff.length });
+  }
   if (m === 'PATCH' && (mt = p.match(/^\/api\/admin\/locations\/(\w+)$/))) {
     const l = STORE.locations.find(x => x.id === mt[1]) || fail(404, 'Location not found.'), b = await readBody(req);
     if (typeof b.name === 'string' && b.name.trim()) l.name = b.name.trim();

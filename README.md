@@ -41,7 +41,10 @@ staff. Nothing is shared except the staff login list.
   QR codes and broadcast links made at a location point at that location.
 - **Admin** (top level): sees a **Location** dropdown in the header to switch locations, and a
   **Locations** panel on the **Staff** tab to add a location (name, link name, optional short
-  name for the daily challenge title, optional first Manager) or edit one.
+  name for the daily challenge title, optional first Manager), edit one, or **delete** one.
+  Deleting asks you to type the location's name, removes all its data and its staff logins, and
+  keeps a copy as `deleted-location-<link>-<date>.json` in the data folder. The original
+  location can't be deleted.
 - **Manager:** full control of their own location only. Can add Assistant Managers.
 - **Assistant Manager:** same as a Manager at their location, except they can't add Assistant
   Managers (or anyone else).

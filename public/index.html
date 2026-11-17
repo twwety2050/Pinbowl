@@ -3221,7 +3221,7 @@ async function renderAdmins(){
   ${locs?`<div class="panel"><h2>Locations</h2>
     <p class="note">Each location is completely separate: its own players, PINs, stored machines, tournaments, stats, Matchplay connection and staff. Only Admins see this.</p>
     <div class="tablewrap" style="margin-top:.6rem"><table class="lb"><thead><tr><th>Location</th><th>Link</th><th>Managers</th><th class="num">Tournaments</th><th></th></tr></thead><tbody>
-    ${locs.map(l=>`<tr><td><b>${esc(l.name)}</b>${l.short?` <small class="note">(${esc(l.short)})</small>`:''}</td><td><a href="${l.isDefault?'/':'/'+l.slug}">${esc(location.host)}/${l.isDefault?'':esc(l.slug)}</a></td><td>${l.staff.map(u=>esc(u.name)+(u.role==='assistant'?' <small class="note">asst.</small>':'')).join(', ')||'<span class="note">none yet</span>'}</td><td class="num">${l.tournaments}</td><td class="n"><button class="btn small" data-ledit="${l.id}">Edit</button></td></tr>`).join('')}
+    ${locs.map(l=>`<tr><td><b>${esc(l.name)}</b>${l.short?` <small class="note">(${esc(l.short)})</small>`:''}</td><td><a href="${l.isDefault?'/':'/'+l.slug}">${esc(location.host)}/${l.isDefault?'':esc(l.slug)}</a></td><td>${l.staff.map(u=>esc(u.name)+(u.role==='assistant'?' <small class="note">asst.</small>':'')).join(', ')||'<span class="note">none yet</span>'}</td><td class="num">${l.tournaments}</td><td class="n"><button class="btn small" data-ledit="${l.id}">Edit</button>${l.isDefault?'':` <button class="btn small danger" data-ldel="${l.id}">Delete</button>`}</td></tr>`).join('')}
     </tbody></table></div>
     <h3>Add a location</h3>
     <div class="mform"><div><label for="lname">Name</label><input type="text" id="lname" placeholder="e.g. Lakeside Arcade"></div>
@@ -3243,6 +3243,13 @@ async function renderAdmins(){
     $('#lslug').oninput=()=>{ typed=true; show(); };
     $('#lGo').onclick=async()=>{ try{ const j=await api('/api/admin/locations','POST',{name:$('#lname').value,slug:$('#lslug').value,short:$('#lshort').value,managerName:$('#lmn').value,managerPassword:$('#lmp').value});
       await refreshList(); toast(`${j.location.name} added`); renderHeader(); renderAdmins(); }catch(e){ toast(e.message); } };
+    $$('[data-ldel]').forEach(b=>b.onclick=async()=>{ const l=locs.find(x=>x.id===b.dataset.ldel);
+      const typed=prompt(`Delete ${l.name}? This removes everything at that location: its players and PINs, stored machines, tournaments, stats and leaderboard, and its ${l.staff.length} staff login${l.staff.length===1?'':'s'}. Its link will stop working.\n\nType the location's name to confirm:`);
+      if(typed==null) return;
+      if(typed.trim().toLowerCase()!==l.name.toLowerCase()){ toast("The name didn't match, so nothing was deleted."); return; }
+      try{ await api('/api/admin/locations/'+l.id,'DELETE',{confirm:typed});
+        if(LOC && LOC.id===l.id){ location.href='/'; return; }
+        await refreshList(); toast(`${l.name} deleted`); renderHeader(); renderAdmins(); }catch(e){ toast(e.message); } });
     $$('[data-ledit]').forEach(b=>b.onclick=async()=>{ const l=locs.find(x=>x.id===b.dataset.ledit);
       const name=prompt('Location name:', l.name); if(name==null) return; const short=prompt('Short name for the daily challenge title (can be blank):', l.short||''); if(short==null) return;
       const slug=l.isDefault?l.slug:prompt('Link name (changing it breaks old links and QR codes):', l.slug); if(slug==null) return;
