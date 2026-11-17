@@ -2353,14 +2353,14 @@ function bindStaffScorer(cur){
 }
 function fGroupHTML(g, round, ri, live, edit){
   const res=fResult(g, round.final), N=g.players.length;
-  const picked=g.machines.length===3, posSet=Object.keys(g.positions||{}).length===N;
+  const picked=fReady(g), posSet=Object.keys(g.positions||{}).length===N, due=fPickDue(g), each=fMode()==='each';
   const order = res.complete ? res.ranked : g.players.slice().sort((a,b)=> (g.positions[a]||99)-(g.positions[b]||99) || fSeed(a)-fSeed(b)).map(pid=>res.rows.find(r=>r.pid===pid));
   const pts = res.complete ? mpPoints(res.ranked.map(r=>r.total)) : null;
   const top = fGamePicker(g) || fPickedBy(g) || fBySeed(g)[0];
-  const status = !picked ? 'Waiting for game picks' : !posSet ? 'Waiting for positions' : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
+  const status = !picked ? (each?'Waiting for game 1 pick':'Waiting for game picks') : !posSet ? 'Waiting for positions' : due>0 ? `Waiting for game ${due+1} pick` : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
   const gname = i => { const a=A(g.machines[i]); return a ? `<span class="tag">${esc(abbr(a))}</span>` : `G${i+1}`; };
   let h=`<div class="panel fgroup"><h3>Group ${esc(g.label)} <span class="tag">${status}</span></h3>
-    <p class="games">${picked ? g.machines.map((id,i)=>{ const a=A(id); return `${i+1}. <b>${esc(a?a.name:'?')}</b>${a&&a.cat?` <span class="note">${catName(a.cat)}</span>`:''}`; }).join(' &nbsp; ') : `<span class="note">${pickerNote(g,round)}</span>`}</p>
+    <p class="games">${picked ? [0,1,2].map(i=>{ const a=A(g.machines[i]); return a ? `${i+1}. <b>${esc(a.name)}</b>${a.cat?` <span class="note">${catName(a.cat)}</span>`:''}` : `${i+1}. <span class="note">${fPicker(g)?esc(fName(fPicker(g))):'Random'} picks after game ${i}</span>`; }).join(' &nbsp; ') : `<span class="note">${pickerNote(g,round)}</span>`}</p>
     <div class="tablewrap"><table class="ftable"><thead><tr><th>Pos</th><th>Player</th>${[0,1,2].map(i=>`<th style="text-align:center">${gname(i)}</th>`).join('')}<th class="n">Total</th>${pts?'<th class="n" title="Matchplay points">MP</th>':''}</tr></thead><tbody>`;
   order.forEach((r,idx)=>{
     const cls = res.complete && !res.tie ? (round.final ? (idx===0?'adv':'') : (idx<2?'adv':'out')) : '';
@@ -2369,19 +2369,22 @@ function fGroupHTML(g, round, ri, live, edit){
       const playing=((g.scores[r.pid]||[])[i]||{}).status==='playing';
       const sy = f ? (i===2 ? symbols(f.rolls.concat(r.bonus.rolls)) : (f.type==='strike'?['X']:symbols(f.rolls))) : [];
       const inner = f ? `${sy.join(' ')}<small>${f.pts}${f.wait?'…':''}</small>` : (playing?'<span style="color:var(--lane)">▶</span><small>playing</small>':'');
-      h += `<td class="g">${edit && live && picked && posSet ? `<button data-fe="${g.id}|${r.pid}|${i}" aria-label="Enter ${esc(fName(r.pid))}'s game ${i+1}">${inner||'+'}</button>` : (inner||'·')}</td>`; });
+      h += `<td class="g">${edit && live && picked && posSet && g.machines[i] ? `<button data-fe="${g.id}|${r.pid}|${i}" aria-label="Enter ${esc(fName(r.pid))}'s game ${i+1}">${inner||'+'}</button>` : (inner||'·')}</td>`; });
     h+=`<td class="tot">${r.total}</td>${pts?`<td class="n">${pts[res.ranked.indexOf(r)]}</td>`:''}</tr>`;
   });
   h+=`</tbody></table></div>`;
   if(pts) h+=`<p class="note" style="margin-top:.4rem">Matchplay points (totals shared out of 21): ${res.ranked.map((r,i)=>`${esc(fName(r.pid))} ${pts[i]}`).join(', ')}.</p>`;
   if(edit && live){
     if(picked && FED!=='picks:'+g.id && !(FED&&FED.sc===g.id)) h+=`<div class="row" style="margin-top:.5rem"><button class="btn small" data-fchgpicks="${g.id}">Change games</button></div>`;
-    if(!picked || FED==='picks:'+g.id){
+    if(!picked || FED==='picks:'+g.id || (each && due>0 && !(FED&&FED.sc===g.id))){
       const byCat=c=>T.arenas.filter(a=>(a.cat||'')===c);
       const sel=i=>slotSelect(round,g,i,`data-fpick="${g.id}" aria-label="Game ${i+1}"`,g.machines[i],`Game ${i+1}…`);
-      h+=`<div class="fedit"><b>Game picks</b> <span class="note">${picked?`picked by ${fPickedBy(g)?esc(fName(fPickedBy(g))):'random draw'}`:fGamePicker(g)?`for ${esc(fName(fGamePicker(g)))}`:''}</span><div class="row" style="margin-top:.4rem">${[0,1,2].map(sel).join('')}</div>
-        <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpicksave="${g.id}">Save games</button>${picked?`<button class="btn small" data-fpickcancel>Cancel</button>`:`<button class="btn small" data-frandom="${g.id}">Draw at random</button>`}}</div></div>`;
-    } else if(!posSet || FED==='pos:'+g.id){
+      const dueNote = each && due>0 && FED!=='picks:'+g.id ? ` Game ${due+1} is ready to pick: ${fPicker(g)?`${esc(fName(fPicker(g)))} can pick it on their phone, or pick it here.`:'pick it here.'}` : each && !g.machines.length ? ' One game at a time: pick game 1 now; games 2 and 3 are picked after each game is played.' : '';
+      h+=`<div class="fedit"><b>Game picks</b> <span class="note">${g.machines.length?`picked by ${fPickedBy(g)?esc(fName(fPickedBy(g))):'random draw'}`:fGamePicker(g)?`for ${esc(fName(fGamePicker(g)))}`:''}.${dueNote}</span><div class="row" style="margin-top:.4rem">${[0,1,2].map(sel).join('')}</div>
+        <div class="row" style="margin-top:.5rem"><button class="btn small primary" data-fpicksave="${g.id}">Save ${each&&g.machines.length<3?'pick':'games'}</button>${g.machines.length===3||(picked&&FED==='picks:'+g.id)?`<button class="btn small" data-fpickcancel>Cancel</button>`:`<button class="btn small" data-frandom="${g.id}">Draw ${each&&g.machines.length?`game ${g.machines.length+1}`:''} at random</button>`}</div></div>`;
+    }
+    // positions: picked once game 1 is in (or all 3 games in pick-all mode), and they carry through all 3 games
+    if(picked && FED!=='picks:'+g.id && (!posSet || FED==='pos:'+g.id)){
       const pickOrder=fPickOrder(g);
       h+=`<div class="fedit"><b>Playing positions</b> <span class="note">Picks go top seed down, with whoever picked the games last.</span>
         ${pickOrder.map((pid,k)=>`<div class="row" style="margin-top:.35rem;align-items:center"><span style="flex:1">${k+1}. ${esc(fName(pid))} <span class="note">#${fSeed(pid)}</span></span><select data-fpos="${pid}" data-fposg="${g.id}" aria-label="Position for ${esc(fName(pid))}" style="width:auto"><option value="">Position…</option>${Array.from({length:N},(_,j)=>`<option value="${j+1}" ${g.positions[pid]===j+1?'selected':''}>Player ${j+1}</option>`).join('')}</select></div>`).join('')}
@@ -2414,8 +2417,8 @@ function fFrameCell(g, r, i, a){
   return `<div class="stf ${playing||bplay?'cur':''}"><div class="ab">${i+1}${a?` ${esc(abbr(a))}${esc(bab)}`:''}</div><div class="rl">${sy.map(c=>`<i class="${c==='X'||c==='/'?'mk':''} ${lv&&c?'lv':''}">${c}</i>`).join('')}</div><div class="cm ${f&&cum==='…'?'pend':''}">${cum}</div></div>`;
 }
 function fFramesHTML(g, round){
-  const res=fResult(g, round.final), N=g.players.length, picked=g.machines.length===3, posSet=Object.keys(g.positions||{}).length===N;
-  const status = !picked ? 'Picking games' : !posSet ? 'Picking positions' : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
+  const res=fResult(g, round.final), N=g.players.length, picked=g.machines.length>0 && fReady(g), posSet=Object.keys(g.positions||{}).length===N, due=fPickDue(g);
+  const status = !picked ? 'Picking games' : !posSet ? 'Picking positions' : due>0 ? `Picking game ${due+1}` : res.tie ? 'Tie to settle' : res.complete ? 'Done' : 'Playing';
   const pts = res.complete && !res.tie ? mpPoints(res.ranked.map(r=>r.total)) : null;
   // live order: by total, then seed; once done, the final order
   const rows = res.complete ? res.ranked : res.rows.slice().sort((a,b)=>b.total-a.total || a.seed-b.seed);
@@ -2455,8 +2458,15 @@ function finalsBoardHTML(){
 // The logged-in player's group in the current round, and whose turn it is to pick
 // Groups pick games in order of their top seed; a machine can't repeat in the same game slot
 const gTop=g=>Math.min(...g.players.map(fSeed));
-function gWaitFor(round,g){ return round.groups.filter(x=>x!==g && gTop(x)<gTop(g) && x.machines.length!==3).sort((a,b)=>gTop(a)-gTop(b))[0]||null; }
-function slotTaken(round,g,i){ const m={}; round.groups.forEach(x=>{ if(x!==g && x.machines.length===3) m[x.machines[i]]=x.label; }); return m; }
+/* How games get picked ('each': pick game 1, play it, pick game 2...; 'all': all 3 up front). Same as the server. */
+const fModeOf = t => t && t.finals ? (t.pickMode==='each'?'each':'all') : (t && t.finalsPickMode==='all'?'all':'each');
+const fMode = () => fModeOf(T);
+function fPickDue(g){ const k=g.machines.length; if(k>=3) return -1; if(k===0) return 0; if(fMode()==='all') return -1;
+  return g.players.every(pid=>{ const r=(g.scores[pid]||[])[k-1]; return r && r.status!=='playing'; }) ? k : -1; }
+const fPicker = g => g.machines.length ? fPickedBy(g) : fGamePicker(g);
+const fReady = g => fMode()==='all' ? g.machines.length===3 : g.machines.length>=1;
+function gWaitFor(round,g){ return round.groups.filter(x=>x!==g && gTop(x)<gTop(g) && (fMode()==='all' ? x.machines.length!==3 : x.machines.length===0)).sort((a,b)=>gTop(a)-gTop(b))[0]||null; }
+function slotTaken(round,g,i){ const m={}; round.groups.forEach(x=>{ if(x!==g && x.machines[i]) m[x.machines[i]]=x.label; }); return m; }
 // Machines this player picked in earlier finals rounds (they can't pick them again unless the setting is off)
 function fPickedBefore(round,pid){
   const used={}; if(!pid || T.noRepeatPicks===false) return used;
@@ -2465,8 +2475,10 @@ function fPickedBefore(round,pid){
 }
 function slotSelect(round,g,i,attrs,cur,first){
   const taken=slotTaken(round,g,i), byCat=c=>T.arenas.filter(a=>(a.cat||'')===c);
-  const picker = g.machines.length===3 ? fPickedBy(g) : fGamePicker(g), mine=fPickedBefore(round,picker);
-  const why=a=> taken[a.id]?` – Group ${taken[a.id]} has it as game ${i+1}` : mine[a.id]&&cur!==a.id?` – ${esc(fName(picker))} picked it in an earlier round`:'';
+  const picker = g.machines.length ? fPickedBy(g) : fGamePicker(g), mine=fPickedBefore(round,picker);
+  // one at a time: a category the group already has in an earlier game is used up
+  const allCats=CATS.every(([k])=>T.arenas.some(a=>a.cat===k && a.target)), usedCats = fMode()==='each' && allCats ? g.machines.slice(0,i).map(id=>(A(id)||{}).cat) : [];
+  const why=a=> taken[a.id]?` – Group ${taken[a.id]} has it as game ${i+1}` : mine[a.id]&&cur!==a.id?` – ${esc(fName(picker))} picked it in an earlier round` : g.machines.slice(0,i).includes(a.id)?' – already played' : usedCats.includes(a.cat)&&cur!==a.id?` – your group already has a ${catName(a.cat)} game`:'';
   return `<select ${attrs}><option value="">${first}</option>${[...CATS,['','No category']].map(([k,l])=>{ const list=byCat(k); return list.length?`<optgroup label="${l}">${list.map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''} ${why(a)?'disabled':''}>${esc(a.name)}${a.target?` (${fmt(a.target)})`:''}${why(a)}</option>`).join('')}</optgroup>`:''; }).join('')}</select>`;
 }
 // Game picker: the top seed, or the next seed for each time someone deferred. null = drawn at random.
@@ -2474,7 +2486,7 @@ const fBySeed = g => g.players.slice().sort((a,b)=>fSeed(a)-fSeed(b));
 function fGamePicker(g){ const by=fBySeed(g), d=g.defer||0; return d<by.length ? by[d] : null; }
 const fPickedBy = g => g.pickedBy!==undefined ? g.pickedBy : (g.defer ? fGamePicker(g) : fBySeed(g)[0]);
 // Positions go top seed down, with whoever picked the games last
-function fPickOrder(g){ const by=fBySeed(g), gp = g.machines.length===3 ? fPickedBy(g) : fGamePicker(g); return gp ? [...by.filter(p=>p!==gp), gp] : by; }
+function fPickOrder(g){ const by=fBySeed(g), gp = g.machines.length ? fPickedBy(g) : fGamePicker(g); return gp ? [...by.filter(p=>p!==gp), gp] : by; }
 const ord = n => n+(['th','st','nd','rd'][(n%100-20)%10]||['th','st','nd','rd'][n%100]||'th');
 // Who picks positions in what order if this player defers now
 function deferOrder(g){ const by=fBySeed(g), d=(g.defer||0)+1, gp = d<by.length ? by[d] : null; return gp ? [...by.filter(p=>p!==gp), gp] : by; }
@@ -2485,9 +2497,9 @@ function myFinals(){
   if(!T || !T.finals || !PLAYER || T.finals.champion) return null;
   const me=T.players.find(p=>p.name.toLowerCase()===PLAYER.name.toLowerCase()); if(!me) return null;
   const fin=T.finals, round=fin.rounds[fin.rounds.length-1], g=round.groups.find(x=>x.players.includes(me.id)); if(!g) return null;
-  const order=fPickOrder(g), picker=fGamePicker(g);
-  const turn = g.machines.length<3 ? picker : order.find(pid=>!g.positions[pid]) || null;
-  return {me:me.id, g, round, picker, top:picker, order, turn, picking: g.machines.length<3 ? 'games' : turn ? 'pos' : null};
+  const order=fPickOrder(g), picker=fPicker(g);
+  const turn = !fReady(g) ? picker : order.find(pid=>!g.positions[pid]) || null;
+  return {me:me.id, g, round, picker, top:picker, order, turn, picking: !fReady(g) ? 'games' : turn ? 'pos' : null};
 }
 let PFS='', PFX=null; // score being typed, and a game being fixed
 function myFinalsHTML(mf){
@@ -2498,15 +2510,16 @@ function myFinalsHTML(mf){
     const by=fBySeed(g), nextUp=by[(g.defer||0)+1], dOrder=deferOrder(g), myPlace=dOrder.indexOf(me)+1;
     if(wf) h+=`<p>Groups pick their games in seed order. Waiting for <b>Group ${esc(wf.label)}</b> to pick first${me===top?", then it's your turn to pick your group's games":''}.</p>`;
     else if(me===top){
+      const each=fMode()==='each';
       const sel=i=>`<div class="grow"><label for="mfg${i}">Game ${i+1}</label>${slotSelect(mf.round,g,i,`id="mfg${i}" data-mfg`,'', 'Pick a machine…')}</div>`;
-      const others=mf.round.groups.filter(x=>x!==g && x.machines.length===3);
-      h+=`<p><b>${g.defer?`The seed${g.defer>1?'s':''} above you deferred, so you pick the games.`:"You're the top seed, so you pick the games."}</b> Pick one Classic, one Mid and one Modern, in the order your group will play them. If you pick, you choose your playing position last.</p>${others.length?`<p class="note">A machine another group already has in the same game slot can't be picked for that slot (it's greyed out), but you can use it for a different game.</p>`:''}${Object.keys(fPickedBefore(mf.round,me)).length?`<p class="note">Machines you picked in an earlier round are greyed out. You can't pick them again.</p>`:''}<div class="row">${[0,1,2].map(sel).join('')}</div>
-        <div class="row" style="margin-top:.7rem"><button class="btn primary" id="mfgSave">Save my picks</button></div>
+      const others=mf.round.groups.filter(x=>x!==g && x.machines.length>0);
+      h+=`<p><b>${g.defer?`The seed${g.defer>1?'s':''} above you deferred, so you pick the games.`:"You're the top seed, so you pick the games."}</b> ${each?'<b>Pick game 1 now.</b> After everyone in your group plays it, you pick game 2, and after game 2 you pick game 3. Across the 3 games, pick one Classic, one Mid and one Modern.':'Pick one Classic, one Mid and one Modern, in the order your group will play them.'} If you pick, you choose your playing position last.</p>${others.length?`<p class="note">A machine another group already has in the same game slot can't be picked for that slot (it's greyed out), but you can use it for a different game.</p>`:''}${Object.keys(fPickedBefore(mf.round,me)).length?`<p class="note">Machines you picked in an earlier round are greyed out. You can't pick them again.</p>`:''}<div class="row">${(each?[0]:[0,1,2]).map(sel).join('')}</div>
+        <div class="row" style="margin-top:.7rem"><button class="btn primary" id="mfgSave">${each?'Save game 1':'Save my picks'}</button></div>
         <div class="defer"><p><b>Rather not pick?</b> ${nextUp?`Let <b>${esc(fName(nextUp))}</b> (seed ${fSeed(nextUp)}) pick the games instead.`:'You can let the games be drawn at random.'} You'd then pick your playing position <b>${ord(myPlace)}</b>.</p>
           <button class="btn" id="mfDefer">${nextUp?`Defer to ${esc(fName(nextUp))}`:'Draw the games at random'}</button></div>`;
     } else if(!top) h+=`<p>The games are being drawn at random.</p>`;
     else { const deferred = by.indexOf(me) < (g.defer||0);
-      h+=`<p>Waiting for <b>${esc(fName(top))}</b> (seed ${fSeed(top)}) to pick the 3 games.</p>${deferred?`<p>You deferred, so you pick your playing position <b>${ord(order.indexOf(me)+1)}</b>.</p>`:''}<p class="note">After that, players pick their positions: ${order.map(pid=>pid===me?'<b>you</b>':esc(fName(pid))).join(', then ')}.</p>`; }
+      h+=`<p>Waiting for <b>${esc(fName(top))}</b> (seed ${fSeed(top)}) to pick ${fMode()==='each'?'game 1':'the 3 games'}.</p>${deferred?`<p>You deferred, so you pick your playing position <b>${ord(order.indexOf(me)+1)}</b>.</p>`:''}<p class="note">After that, players pick their positions: ${order.map(pid=>pid===me?'<b>you</b>':esc(fName(pid))).join(', then ')}.</p>`; }
   } else if(picking==='pos'){
     const taken=Object.values(g.positions);
     if(turn===me){
@@ -2518,14 +2531,23 @@ function myFinalsHTML(mf){
     const shown=[0,1,2, ...[3,4].filter(i=>mine[i] || i===bs.next)];
     h+=`<p>You're <b>player ${g.positions[me]}</b>. Your total: <b>${card.total}</b>${bs.next!=null?` <span class="note">(game 3 waiting on its bonus)</span>`:''}</p>
       <ul class="balllist">${shown.map(i=>{ const a=A(fMachine(g,i)), r=mine[i], f=i<3?card.frames[i]:(r&&r.status!=='playing'?gameRolls({arenaId:fMachine(g,i),...r}):null);
-        return `<li><span>${fGameLabel(i)}</span><b>${esc(a?abbr(a):'?')}</b><small>${f?(i<3?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:`${symbols(f.rolls).join(' ')} · bonus for game 3`):(r&&r.status==='playing'?'playing now':i>=3?'to play':'not played')}</small>${f && r && Array.isArray(r.balls) && cur<0 ? ` <button class="btn small" data-mffix="${i}">Fix</button>`:''}</li>`; }).join('')}</ul>`;
+        return `<li><span>${fGameLabel(i)}</span><b>${a?esc(abbr(a)):'–'}</b><small>${!a&&i<3?'to be picked':f?(i<3?`${(f.type==='strike'?['X']:symbols(f.rolls)).join(' ')} · ${f.pts} pts`:`${symbols(f.rolls).join(' ')} · bonus for game 3`):(r&&r.status==='playing'?'playing now':i>=3?'to play':'not played')}</small>${f && r && Array.isArray(r.balls) && cur<0 ? ` <button class="btn small" data-mffix="${i}">Fix</button>`:''}</li>`; }).join('')}</ul>`;
     if(PFX!=null){
       const r=mine[PFX], a=A(fMachine(g,PFX));
       h+=`<div class="fedit"><b>Fix ${fGameLabel(PFX).toLowerCase()}: ${esc(a.name)}</b>${r.balls.map((s,i)=>`<label for="mfx${i}">Score after ball ${i+1}</label><input type="text" inputmode="numeric" id="mfx${i}" data-mfx value="${fmt(s)}">`).join('')}
         <div class="row" style="margin-top:.6rem"><button class="btn small primary" id="mfxSave">Save</button><button class="btn small" id="mfxBack">Cancel</button></div></div>`;
     } else if(next>0 && next<3 && cur<0 && g.players.some(pid=>{ const x=(g.scores[pid]||[])[next-1]; return !x || x.status==='playing'; })){
-      const behind=g.players.filter(pid=>{ const x=(g.scores[pid]||[])[next-1]; return !x || x.status==='playing'; });
-      h+=`<h3>Next: game ${next+1}, ${esc(A(g.machines[next]).name)}</h3><p>Everyone finishes game ${next} before game ${next+1} starts. Still to finish: <b>${behind.map(pid=>pid===me?'you':esc(fName(pid))).join(', ')}</b>.</p><p class="note">This page updates by itself.</p>`;
+      const behind=g.players.filter(pid=>{ const x=(g.scores[pid]||[])[next-1]; return !x || x.status==='playing'; }), na=A(g.machines[next]);
+      h+=`<h3>Next: game ${next+1}${na?`, ${esc(na.name)}`:''}</h3>${na?'':`<p>${mf.picker===me?'<b>You</b> pick':`<b>${esc(fName(mf.picker))}</b> picks`} game ${next+1} once everyone has finished game ${next}.</p>`}<p>Everyone finishes game ${next} before game ${next+1} starts. Still to finish: <b>${behind.map(pid=>pid===me?'you':esc(fName(pid))).join(', ')}</b>.</p><p class="note">This page updates by itself.</p>`;
+    } else if(next>=0 && next<3 && !g.machines[next]){
+      // one at a time: the group finished the last game, so the next game gets picked now
+      if(mf.picker===me){
+        const used=g.machines.map(id=>(A(id)||{}).cat).filter(Boolean), left=CATS.filter(([k])=>!used.includes(k)).map(([,l])=>l);
+        h+=`<h3>Pick game ${next+1}</h3><p><b>Everyone has finished game ${next}. Pick your group's game ${next+1}.</b>${left.length && left.length<3?` It has to be a ${left.join(' or ')} machine.`:''}</p>
+          ${Object.keys(fPickedBefore(mf.round,me)).length?`<p class="note">Machines you picked in an earlier round are greyed out.</p>`:''}
+          <div class="row"><div class="grow"><label for="mfgN">Game ${next+1}</label>${slotSelect(mf.round,g,next,'id="mfgN"','', 'Pick a machine…')}</div></div>
+          <div class="row" style="margin-top:.7rem"><button class="btn primary" id="mfgNext" data-i="${next}">Save game ${next+1}</button></div>`;
+      } else h+=`<h3>Next: game ${next+1}</h3><p>Waiting for <b>${mf.picker?esc(fName(mf.picker)):'the random draw'}</b> to pick game ${next+1}.</p><p class="note">This page updates by itself.</p>`;
     } else if(next>=0 && !A(fMachine(g,next))){
       h+=`<h3>${fGameLabel(next)}</h3><p>The bonus machine is being drawn. This page updates by itself.</p>`;
     } else if(next>=0){
@@ -2547,7 +2569,10 @@ function bindMyFinals(mf){
   if($('#mfDefer')) $('#mfDefer').onclick=()=>{ const by=fBySeed(mf.g), nextUp=by[(mf.g.defer||0)+1], place=deferOrder(mf.g).indexOf(mf.me)+1;
     if(!confirm(nextUp?`Let ${fName(nextUp)} pick the games? You'll pick your playing position ${ord(place)}. This can't be undone.`:`Have the games drawn at random? You'll pick your playing position ${ord(place)}. This can't be undone.`)) return;
     ppost('pick',{defer:true}, nextUp?`${fName(nextUp)} picks the games. You pick your position ${ord(place)}.`:`Games drawn at random. You pick your position ${ord(place)}.`); };
-  if($('#mfgSave')) $('#mfgSave').onclick=()=>{ const ms=$$('[data-mfg]').map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } ppost('pick',{machines:ms},'Games picked'); };
+  if($('#mfgSave')) $('#mfgSave').onclick=()=>{ const ms=$$('[data-mfg]').map(s=>s.value);
+    if(fMode()==='each'){ if(!ms[0]){ toast('Pick game 1.'); return; } const a=A(ms[0]); if(!confirm(`Pick ${a.name} for game 1?`)) return; ppost('pick',{machine:ms[0]},'Game 1 picked'); return; }
+    if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } ppost('pick',{machines:ms},'Games picked'); };
+  if($('#mfgNext')) $('#mfgNext').onclick=()=>{ const v=$('#mfgN').value, i=Number($('#mfgNext').dataset.i); if(!v){ toast(`Pick game ${i+1}.`); return; } if(!confirm(`Pick ${A(v).name} for game ${i+1}?`)) return; ppost('pick',{machine:v},`Game ${i+1} picked`); };
   $$('[data-mfp]').forEach(b=>b.onclick=()=>{ if(confirm(`Pick player ${b.dataset.mfp}?`)) ppost('pick',{position:Number(b.dataset.mfp)},`You're player ${b.dataset.mfp}`); });
   $$('[data-mffix]').forEach(b=>b.onclick=()=>{ PFX=Number(b.dataset.mffix); renderFinals(); });
   if($('#mfxBack')) $('#mfxBack').onclick=()=>{ PFX=null; renderFinals(); };
@@ -2570,7 +2595,7 @@ function renderFinals(){
   const curRes=cur.groups.map(g=>fResult(g,cur.final)), ready=curRes.every(r=>r.complete && !r.tie);
   let h='';
   if(fin.champion) h+=`<div class="panel"><p class="champ">Champion: ${esc(fName(fin.champion))}</p><p style="margin-top:.4rem">${fin.places.map((pid,i)=>`${i+1}. ${esc(fName(pid))}`).join(' &nbsp; ')}</p></div>`;
-  else h+=`<div class="panel"><h2>${esc(roundName(lastI, fin.rounds.length, cur))}</h2><p class="note">Each group plays 3 games. The top seed picks one Classic, one Mid and one Modern game and their order, or defers to the next seed; groups pick in seed order and can't repeat another group's machine in the same game slot. Playing positions are picked top seed down, with whoever picked the games last. The 3 games are scored as a 3-frame pinbowl card (strikes and spares carry into the next game; game 3 plays like frame 10, with bonus games for a strike or spare). ${cur.final?'Highest total wins the finals.':'The top 2 totals in each group move on.'}${lastI===0&&fin.byes?` Seeds 1-${fin.byes} have a bye into round 2.`:''}</p>
+  else h+=`<div class="panel"><h2>${esc(roundName(lastI, fin.rounds.length, cur))}</h2><p class="note">Each group plays 3 games. The top seed picks one Classic, one Mid and one Modern game ${fMode()==='each'?'one at a time (game 1, play it, then game 2, play it, then game 3)':'and their order, all before play starts'}, or defers to the next seed; groups pick ${fMode()==='each'?'game 1':''} in seed order and can't repeat another group's machine in the same game slot. Playing positions are picked top seed down, with whoever picked the games last. The 3 games are scored as a 3-frame pinbowl card (strikes and spares carry into the next game; game 3 plays like frame 10, with bonus games for a strike or spare). ${cur.final?'Highest total wins the finals.':'The top 2 totals in each group move on.'}${lastI===0&&fin.byes?` Seeds 1-${fin.byes} have a bye into round 2.`:''}</p>
     ${ADMIN&&edit?`<div class="row" style="margin-top:.7rem">${ready?`<button class="btn primary" id="fnext">${cur.final?'Finish finals':'Start next round'}</button>`:`<span class="note">${curRes.some(r=>r.tie)?'Settle the tie before moving on.':'When every group is done, start the next round here.'}</span>`}${lastI>0?`<button class="btn" id="fundo">Undo this round</button>`:''}</div>`:''}</div>`;
   if(fin.champion && ADMIN && edit) h+=`<div class="row" style="margin-bottom:1rem"><button class="btn" id="fundo">Undo the result</button></div>`;
   const mf=myFinals();
@@ -2592,8 +2617,11 @@ function renderFinals(){
     const k=[0,1,2].find(i=>ordP.some(q=>{ const x=(g.scores[q]||[])[i]; return !x||x.status==='playing'; })), pid=k==null?ordP[0]:ordP.find(q=>{ const x=(g.scores[q]||[])[k]; return !x||x.status==='playing'; });
     staffOpen(g, pid); renderFinals(); const el=$('#fsc'); if(el) el.scrollIntoView({block:'start'}); });
   bindStaffScorer(cur);
-  $$('[data-frandom]').forEach(b=>b.onclick=async()=>{ if(!confirm('Draw this group\'s 3 games at random? Positions are then picked top seed down.')) return; const j=await fpost('picks',{gid:b.dataset.frandom,random:true},'Games drawn at random'); if(j){ FED=null; renderFinals(); } });
-  $$('[data-fpicksave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpicksave, ms=$$(`[data-fpick="${gid}"]`).map(s=>s.value); if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } const g=cur.groups.find(x=>x.id===gid), changed=[0,1,2].filter(i=>g.machines[i] && g.machines[i]!==ms[i]);
+  $$('[data-frandom]').forEach(b=>b.onclick=async()=>{ const g=cur.groups.find(x=>x.id===b.dataset.frandom), part=fMode()==='each' && g.machines.length>0;
+    if(!confirm(part?`Draw game ${g.machines.length+1} at random?`:'Draw this group\'s 3 games at random? Positions are then picked top seed down.')) return; const j=await fpost('picks',{gid:b.dataset.frandom,random:true},part?`Game ${g.machines.length+1} drawn at random`:'Games drawn at random'); if(j){ FED=null; renderFinals(); } });
+  $$('[data-fpicksave]').forEach(b=>b.onclick=async()=>{ const gid=b.dataset.fpicksave; let ms=$$(`[data-fpick="${gid}"]`).map(s=>s.value);
+    if(fMode()==='each'){ while(ms.length && !ms[ms.length-1]) ms.pop(); if(!ms.length || ms.some(v=>!v)){ toast('Pick the games in order, starting with game 1.'); return; } }
+    else if(ms.some(v=>!v)){ toast('Pick all 3 games.'); return; } const g=cur.groups.find(x=>x.id===gid), changed=[0,1,2].filter(i=>g.machines[i] && g.machines[i]!==ms[i]);
     const hit=changed.filter(i=>Object.values(g.scores).some(r=>r&&r[i]));
     if(hit.length && !confirm(`Scores are already entered for game ${hit.map(i=>i+1).join(' and ')}. Changing ${hit.length>1?'those games':'that game'} clears those scores. Change anyway?`)) return;
     const j=await fpost('picks',{gid,machines:ms,clearScores:hit.length>0},'Games saved'); if(j){ FED=null; renderFinals(); } });
@@ -2654,7 +2682,7 @@ function finalsRulesHTML(){
   return `<h2>Finals</h2>
   <p><b>Who makes it:</b> after qualifying, the top half of the players (rounded down) make the finals. The cut line shows on the Standings tab. When the finals are set up, finalists get a message in the app telling them they made it and which group they're in.</p>
   <p><b>Groups:</b> finalists play in groups of up to 4, set up like PAPA finals so the top seeds are spread out (for 16 players: 1, 8, 9 and 16 play together, and so on). If the number of finalists isn't 4, 8, 16 or 32, the top seeds get a bye into round 2.</p>
-  <p><b>Picking games:</b> the top seed in each group picks 3 games: one Classic, one Mid and one Modern, and the order they're played. They can defer instead, passing the pick to the next seed, who can defer too. If the last seed defers, the games are drawn at random. Groups take turns, starting with the group that has the highest seed. A group can't put a machine in the same game slot an earlier group already has it in, but it can use it for a different game. (If Group A plays Rush as game 1, Group B can still play Rush as game 2 or 3.)${T.noRepeatPicks!==false?` <b>No repeat picks:</b> if you picked your group's games in an earlier round, you can't pick any of those same machines again. (If you picked Rush in round 1, you can't pick Rush in round 2. Someone else picking for your group still can.)`:''}</p>
+  <p><b>Picking games:</b> ${fModeOf(T)==='each' ? `the top seed in each group picks the games <b>one at a time</b>: they pick game 1, the group plays it, then they pick game 2, the group plays it, then they pick game 3. Across the 3 games they pick one Classic, one Mid and one Modern.` : `the top seed in each group picks all 3 games before play starts: one Classic, one Mid and one Modern, and the order they're played.`} Playing positions are picked once, after game 1 is picked, and stay the same for all 3 games. The bonus games after a strike or spare in game 3 are always drawn at random. The top seed can defer instead, passing the pick to the next seed, who can defer too. If the last seed defers, the games are drawn at random. Groups take turns, starting with the group that has the highest seed. A group can't put a machine in the same game slot an earlier group already has it in, but it can use it for a different game. (If Group A plays Rush as game 1, Group B can still play Rush as game 2 or 3.)${T.noRepeatPicks!==false?` <b>No repeat picks:</b> if you picked your group's games in an earlier round, you can't pick any of those same machines again. (If you picked Rush in round 1, you can't pick Rush in round 2. Someone else picking for your group still can.)`:''}</p>
   <p><b>Picking positions:</b> next, each player picks whether they play 1st, 2nd, 3rd or 4th. Picks go from the top seed down, and whoever picked the games picks last. (Normally that's the top seed, so the 2nd seed picks first.) The app tells you when it's your turn.</p>
   <p><b>Playing:</b> the 3 games are scored as a 3-frame pinbowl card. Strikes and spares carry into the next game. Game 3 plays like frame 10: a spare earns one bonus throw, a strike earns a bonus game (and one more throw if that's a strike too). Each group's 2 bonus machines are drawn at random from 2 different categories, and everyone in the group uses the same ones. <b>Enter your score after every ball</b> on the Finals tab, just like qualifying. Everyone in the group finishes a game before anyone starts the next one.</p>
   <p><b>Moving on:</b> the top 2 totals in each group move on to the next round and are regrouped by seed. Ties for a spot are settled with a tiebreaker game. In the last group, the highest total wins the finals.</p>
@@ -3132,12 +3160,15 @@ async function renderTournaments(){
       <div class="row" style="margin-top:.8rem"><button class="btn" id="reopen">Reopen tournament</button><button class="btn danger" id="tdel">Delete tournament</button></div>`:`
     <label for="tname">Name</label><input type="text" id="tname" value="${esc(cur.name)}">
     ${cur.finals?`<p class="note" style="margin-top:.6rem">This is a finals event. Run it on the Finals tab.</p>
-    <label class="check"><input type="checkbox" id="tnrp" ${cur.noRepeatPicks!==false?'checked':''}> Whoever picks the games can't pick a machine they already picked in an earlier round</label>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
+    <label class="check"><input type="checkbox" id="tnrp" ${cur.noRepeatPicks!==false?'checked':''}> Whoever picks the games can't pick a machine they already picked in an earlier round</label>
+    <label for="tpm">How groups pick their games</label><select id="tpm"><option value="each" ${fModeOf(cur)==='each'?'selected':''}>One at a time: pick game 1, play it, pick game 2…</option><option value="all" ${fModeOf(cur)==='all'?'selected':''}>All 3 games before play starts</option></select>
+    <p class="note">Positions are picked once and carry through all 3 games. Bonus games after game 3 are always random. Can't be changed while a group is part way through picking.</p>`:`<label for="tmp">Matchplay tournament link or ID</label><input type="text" id="tmp" value="${cur.mpId||''}">
     <label for="tfr">Frames per card</label><input type="number" id="tfr" min="1" max="20" value="${cur.frames}" style="max-width:7rem">
     <p class="note" style="margin-top:.3rem">How many frames are on each player's card. This is also the number of machine slots on the Machines tab.</p>
     <label class="check"><input type="checkbox" id="ttb" ${cur.tenthBonus?'checked':''}> A strike or spare in the last frame earns bonus games</label>
     <label class="check"><input type="checkbox" id="trp" ${cur.allowRepeats?'checked':''}> Players may play the same machine more than once</label>
     ${cur.daily?'':`<label class="check"><input type="checkbox" id="tnrp" ${cur.noRepeatPicks!==false?'checked':''}> Finals: whoever picks the games can't pick a machine they already picked in an earlier round</label>
+    <label for="tpm">Finals: how groups pick their games</label><select id="tpm"><option value="each" ${fModeOf(cur)==='each'?'selected':''}>One at a time: pick game 1, play it, pick game 2… (default)</option><option value="all" ${fModeOf(cur)==='all'?'selected':''}>All 3 games before play starts</option></select>
     <p class="note" style="margin-top:.3rem">Copied to the finals when you create them. You can change it on the finals too.</p>`}`}
     <div class="row" style="margin-top:.8rem"><button class="btn" id="tsave">Save settings</button><button class="btn danger" id="tarch">Archive tournament</button></div>
     <p class="note" style="margin-top:.5rem">Archive when the event ends. It stays viewable, scores lock, and Matchplay checks stop.</p>`}
@@ -3172,7 +3203,7 @@ async function renderTournaments(){
     $('#reopen').onclick=async()=>{ if(confirm('Reopen this tournament so scores can be changed?')){ await change('','PATCH',{status:'active'},'Reopened'); await refreshList(); render(); } };
     $('#tdel').onclick=async()=>{ if(prompt('Type DELETE to permanently delete this tournament and all its scores.')==='DELETE'){ try{ await api(`/api/admin/t/${cur.id}`,'DELETE'); store.del('pb-tid'); await boot(); toast('Deleted'); }catch(e){ toast(e.message); } } };
   } else {
-    $('#tsave').onclick=async()=>{ await change('','PATCH', cur.finals ? {name:$('#tname').value, noRepeatPicks:$('#tnrp').checked} : {name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked, ...($('#tnrp')?{noRepeatPicks:$('#tnrp').checked}:{})},'Settings saved'); await refreshList(); render(); };
+    $('#tsave').onclick=async()=>{ await change('','PATCH', cur.finals ? {name:$('#tname').value, noRepeatPicks:$('#tnrp').checked, pickMode:$('#tpm').value} : {name:$('#tname').value, mp:$('#tmp').value, frames:Number($('#tfr').value), tenthBonus:$('#ttb').checked, allowRepeats:$('#trp').checked, ...($('#tnrp')?{noRepeatPicks:$('#tnrp').checked, finalsPickMode:$('#tpm').value}:{})},'Settings saved'); await refreshList(); render(); };
     $('#tarch').onclick=async()=>{ if(confirm('Archive this tournament? Scores will be locked.')){ await change('','PATCH',{status:'archived'},'Archived'); await refreshList(); render(); } };
   }
   if($('#raw')) api(`/api/admin/t/${cur.id}/raw`).then(j=>{ const el=$('#raw'); if(el) el.textContent=Object.keys(j).length?JSON.stringify(j,null,2):'Nothing fetched yet.'; }).catch(()=>{});
@@ -3312,7 +3343,7 @@ setInterval(async()=>{
   try{
     const fresh=await api('/api/t/'+T.id); if(JSON.stringify(fresh)===JSON.stringify(T)) return;
     T=fresh;
-    const mf=myFinals(), myTurn=!!(mf && ((mf.picking==='games' && mf.picker===mf.me && !gWaitFor(mf.round,mf.g)) || (mf.picking==='pos' && mf.turn===mf.me)));
+    const mf=myFinals(), myTurn=!!(mf && ((mf.picking==='games' && mf.picker===mf.me && !gWaitFor(mf.round,mf.g)) || (mf.picking==='pos' && mf.turn===mf.me) || (!mf.picking && mf.picker===mf.me && fPickDue(mf.g)>0)));
     if(myTurn && LASTTURN!==true){ toast("It's your turn to pick!"); try{ navigator.vibrate && navigator.vibrate(200); }catch(e){} }
     LASTTURN=myTurn;
     const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);

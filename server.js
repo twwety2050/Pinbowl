@@ -653,6 +653,41 @@ function groupResult(F, g, final) {
   }
   return { rows, ranked, complete, tie };
 }
+/* How a group's games get picked:
+   'each' (default for new finals): the picker picks game 1, the group plays it, then the picker
+     picks game 2, and so on. Positions are picked once, after game 1 is picked.
+   'all': the picker picks all 3 games up front (how earlier finals worked).
+   Either way the bonus games after game 3 are drawn at random. */
+const fMode = F => F.pickMode === 'each' ? 'each' : 'all';
+// The game that needs a machine now (0-2), or -1 (all picked, or the group is still playing the last one)
+function fPickDue(F, g) {
+  const k = g.machines.length; if (k >= 3) return -1;
+  if (k === 0) return 0;
+  if (fMode(F) === 'all') return -1;
+  return g.players.every(pid => { const r = (g.scores[pid] || [])[k - 1]; return r && r.status !== 'playing'; }) ? k : -1;
+}
+// Whoever picks this group's games: decided by deferring before game 1, fixed after that
+const fPicker = (F, g) => g.machines.length ? pickedBy(F, g) : gamePicker(F, g);
+// Positions can be picked (and play can start) once game 1 is picked, or all 3 in 'all' mode
+const fReady = (F, g) => fMode(F) === 'all' ? g.machines.length === 3 : g.machines.length >= 1;
+const catsInUse = F => CATS.every(c => F.arenas.some(a => a.cat === c && a.target));
+// One game picked on its own: a machine the group hasn't used, from a category it hasn't played,
+// and not one another group already has in the same game slot
+function checkPickOne(F, round, g, i, id) {
+  const a = F.arenas.find(x => x.id === id) || fail(400, 'Pick a machine.');
+  if (g.machines.includes(id)) fail(400, `Your group already played ${a.name}. Pick a different machine.`);
+  if (catsInUse(F)) {
+    const used = g.machines.map(x => (F.arenas.find(y => y.id === x) || {}).cat || '');
+    if (!CATS.includes(a.cat || '')) fail(400, 'Pick a Classic, Mid or Modern machine.');
+    if (used.includes(a.cat)) { const left = CATS.filter(c => !used.includes(c)).map(c => ({ classic: 'Classic', mid: 'Mid', modern: 'Modern' })[c]); fail(400, `Your group already has a ${({ classic: 'Classic', mid: 'Mid', modern: 'Modern' })[a.cat]} game. Pick a ${left.join(' or ')} machine.`); }
+  }
+  for (const x of round.groups) if (x !== g && x.machines[i] === id) fail(400, `Group ${x.label} already has ${a.name} as game ${i + 1}. Pick another machine.`);
+}
+// Staff can save a partial list in 'each' mode (game 1, or games 1 and 2)
+function checkPicksPartial(F, ms) {
+  if (!ms.length || ms.length > 3 || new Set(ms).size !== ms.length || ms.some(id => !F.arenas.some(a => a.id === id))) fail(400, 'Pick different machines, starting with game 1.');
+  if (catsInUse(F)) { const cats = ms.map(id => F.arenas.find(a => a.id === id).cat || ''); if (cats.some(c => !CATS.includes(c)) || new Set(cats).size !== cats.length) fail(400, 'Each game has to be a different category: one Classic, one Mid and one Modern.'); }
+}
 function checkPicks(F, ms) {
   if (ms.length !== 3 || new Set(ms).size !== 3 || ms.some(id => !F.arenas.some(a => a.id === id))) fail(400, 'Pick 3 different machines.');
   const cats = ms.map(id => F.arenas.find(a => a.id === id).cat || '');
@@ -665,8 +700,8 @@ function groupsBefore(F, round, g) { const s = groupTopSeed(F, g); return round.
 // The same machine can't be in the same game slot as another group in this round
 function checkSlots(F, round, g, ms) {
   for (const x of round.groups) {
-    if (x === g || x.machines.length !== 3) continue;
-    ms.forEach((id, i) => { if (x.machines[i] === id) fail(400, `Group ${x.label} already has ${(F.arenas.find(a => a.id === id) || {}).name || 'that machine'} as game ${i + 1}. Pick it for a different game, or pick another machine.`); });
+    if (x === g) continue;
+    ms.forEach((id, i) => { if (x.machines[i] && x.machines[i] === id) fail(400, `Group ${x.label} already has ${(F.arenas.find(a => a.id === id) || {}).name || 'that machine'} as game ${i + 1}. Pick it for a different game, or pick another machine.`); });
   }
 }
 // Optional rule (on unless turned off): whoever picks the games can't pick a machine they picked in an earlier round
@@ -693,15 +728,16 @@ function gamePicker(F, g) { const by = bySeed(F, g), d = g.defer || 0; return d 
 // Who picked the games (older groups have no pickedBy: that was the top seed)
 const pickedBy = (F, g) => g.pickedBy !== undefined ? g.pickedBy : (g.defer ? gamePicker(F, g) : bySeed(F, g)[0]);
 // Positions are picked top seed down, and whoever picked the games picks last
-function pickOrder(F, g) { const by = bySeed(F, g), gp = g.machines.length === 3 ? pickedBy(F, g) : gamePicker(F, g); return gp ? [...by.filter(p => p !== gp), gp] : by; }
+function pickOrder(F, g) { const by = bySeed(F, g), gp = g.machines.length ? pickedBy(F, g) : gamePicker(F, g); return gp ? [...by.filter(p => p !== gp), gp] : by; }
 // Random games: one per category in a random order, avoiding machines other groups have in the same slot
-function randomPicks(F, round, g) {
+function randomPicks(F, round, g, keep = []) {
   const cats = ['classic', 'mid', 'modern'], ok = F.arenas.filter(a => a.target), useCats = cats.every(c => ok.some(a => a.cat === c));
   const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  const taken = i => new Set(round.groups.filter(x => x !== g && x.machines.length === 3).map(x => x.machines[i]));
+  const taken = i => new Set(round.groups.filter(x => x !== g && x.machines[i]).map(x => x.machines[i]));
+  const keptCats = keep.map(id => (F.arenas.find(a => a.id === id) || {}).cat);
   for (let tries = 0; tries < 300; tries++) {
-    const order = useCats ? shuffle(cats) : [null, null, null], ms = [];
-    for (let i = 0; i < 3; i++) {
+    const order = useCats ? [...keptCats, ...shuffle(cats.filter(c => !keptCats.includes(c)))] : [null, null, null], ms = keep.slice();
+    for (let i = ms.length; i < 3; i++) {
       const pool = ok.filter(a => (!order[i] || a.cat === order[i]) && !ms.includes(a.id) && !taken(i).has(a.id));
       if (!pool.length) break; ms.push(pool[Math.floor(Math.random() * pool.length)].id);
     }
@@ -715,7 +751,7 @@ function createFinals(t) {
   const keep = new Set([...t.arenas.filter(a => a.active && !a.bonusOnly).map(a => a.id), ...(t.bonusArenas || [])]);
   const F = {
     id: uid(), name: `${t.name} Finals`, mpId: null, status: 'active', createdAt: Date.now(),
-    frames: 3, tenthBonus: false, allowRepeats: true, noRepeatPicks: t.noRepeatPicks !== false, players: [], games: [],
+    frames: 3, tenthBonus: false, allowRepeats: true, noRepeatPicks: t.noRepeatPicks !== false, pickMode: t.finalsPickMode === 'all' ? 'all' : 'each', players: [], games: [],
     arenas: t.arenas.filter(a => keep.has(a.id) && a.target).map(a => ({ ...a, active: true })),
     finals: { parentId: t.id, seeds: [], byes: 0, rounds: [], champion: null, places: null },
   };
@@ -1143,20 +1179,28 @@ async function route(req, res, url) {
     const order = pickOrder(F, g), picker = gamePicker(F, g), N = g.players.length;
     const nameOf = pid => (F.players.find(x => x.id === pid) || {}).name || 'someone';
     if (act === 'pick') {
-      if (Array.isArray(b.machines) || b.defer) {
+      if (Array.isArray(b.machines) || b.defer || b.machine) {
         if (g.machines.length === 3) fail(409, 'The games are already picked.');
-        if (me.id !== picker) fail(403, picker ? `${nameOf(picker)} picks the games for your group.` : 'The games are being drawn at random.');
-        const wait = groupsBefore(F, round, g).sort((a, c) => groupTopSeed(F, a) - groupTopSeed(F, c)).find(x => x.machines.length !== 3);
-        if (wait) fail(409, `Group ${wait.label} picks their games before your group.`);
+        const due = fPickDue(F, g), who = fPicker(F, g);
+        if (due < 0) fail(409, `Game ${g.machines.length + 1} is picked after everyone in your group finishes game ${g.machines.length}.`);
+        if (me.id !== who) fail(403, who ? `${nameOf(who)} picks the games for your group.` : 'The games are being drawn at random.');
+        // groups pick game 1 in seed order; later games are picked as each group gets to them
+        const wait = due === 0 && groupsBefore(F, round, g).sort((a, c) => groupTopSeed(F, a) - groupTopSeed(F, c)).find(x => fMode(F) === 'all' ? x.machines.length !== 3 : x.machines.length === 0);
+        if (wait) fail(409, `Group ${wait.label} picks their ${fMode(F) === 'all' ? 'games' : 'first game'} before your group.`);
+        if (b.defer && due !== 0) fail(409, 'Deferring is only possible before game 1 is picked.');
         if (b.defer) {
           g.defer = (g.defer || 0) + 1;
           // the last seed deferred too: draw the games at random
           if (!gamePicker(F, g)) { g.machines = randomPicks(F, round, g); g.pickedBy = null; }
+        } else if (fMode(F) === 'each') {
+          const id = String(b.machine || (b.machines || [])[0] || '');
+          checkPickOne(F, round, g, due, id); checkRepeatPicks(F, round, me.id, [id]);
+          g.machines.push(id); g.pickedBy = me.id;
         } else {
           const ms = b.machines.map(String); checkPicks(F, ms); checkSlots(F, round, g, ms); checkRepeatPicks(F, round, me.id, ms); g.machines = ms; g.pickedBy = me.id;
         }
       } else {
-        if (g.machines.length !== 3) fail(409, 'The games get picked first.');
+        if (!fReady(F, g)) fail(409, fMode(F) === 'each' ? 'Game 1 gets picked first.' : 'The games get picked first.');
         const turn = order.find(pid => !g.positions[pid]);
         if (!turn) fail(409, 'Every position is already picked.');
         if (turn !== me.id) fail(409, `It's ${nameOf(turn)}'s turn to pick.`);
@@ -1169,7 +1213,7 @@ async function route(req, res, url) {
       }
       save(); return send(res, 200, { tournament: publicT(F) });
     }
-    if (g.machines.length !== 3 || Object.keys(g.positions).length !== N) fail(409, 'Games and positions need to be picked first.');
+    if (!fReady(F, g) || Object.keys(g.positions).length !== N) fail(409, fMode(F) === 'each' ? 'Game 1 and positions need to be picked first.' : 'Games and positions need to be picked first.');
     g.scores[me.id] = g.scores[me.id] || [null, null, null];
     const mine = g.scores[me.id];
     if (act === 'ball') {
@@ -1181,6 +1225,7 @@ async function route(req, res, url) {
         const behind = i > 0 && i < 3 ? g.players.filter(pid => { const x = (g.scores[pid] || [])[i - 1]; return !x || x.status === 'playing'; }) : [];
         if (behind.length) { if (!mine.some(Boolean)) delete g.scores[me.id]; } 
         if (behind.length) fail(409, `Wait until everyone has finished game ${i}. Still to finish: ${behind.map(nameOf).join(', ')}.`);
+        if (i < 3 && !g.machines[i]) { if (!mine.some(Boolean)) delete g.scores[me.id]; const who = fPicker(F, g); fail(409, who === me.id ? `Pick game ${i + 1} first.` : `${who ? nameOf(who) : 'Someone'} picks game ${i + 1} first.`); }
         const left = i >= 3 ? fBonusState(F, g, me.id).left : 0;
         mine[i] = { balls: [], by: player };
         if (i >= 3) { drawFinalsBonus(F, g, i - 3); if (left === 1) mine[i].oneThrow = true; }
@@ -1482,7 +1527,7 @@ async function route(req, res, url) {
       players: [], arenas: [], games: [], lastSync: null, lastSyncError: '',
     };
     const prev = db.tournaments.filter(x => !x.daily && !x.finals).sort((a, b) => b.createdAt - a.createdAt)[0];
-    if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats, noRepeatPicks: prev.noRepeatPicks !== false });
+    if (prev) Object.assign(t, { frames: prev.frames, tenthBonus: prev.tenthBonus, allowRepeats: prev.allowRepeats, noRepeatPicks: prev.noRepeatPicks !== false, finalsPickMode: prev.finalsPickMode === 'all' ? 'all' : 'each' });
     if (b.copyMachines && prev) t.arenas = prev.arenas.filter(a => !a.bonusOnly).map(a => { const n = { ...newArena(a.name, a.mpId), active: a.active }; remember(n, t.createdAt); return n; });
     db.tournaments.push(t); save();
     let note = '';
@@ -1507,6 +1552,12 @@ async function route(req, res, url) {
     if (typeof b.tenthBonus === 'boolean') t.tenthBonus = b.tenthBonus;
     if (typeof b.allowRepeats === 'boolean') t.allowRepeats = b.allowRepeats;
     if (typeof b.noRepeatPicks === 'boolean') t.noRepeatPicks = b.noRepeatPicks;
+    if (b.finalsPickMode === 'each' || b.finalsPickMode === 'all') t.finalsPickMode = b.finalsPickMode;
+    if ((b.pickMode === 'each' || b.pickMode === 'all') && t.finals && b.pickMode !== fMode(t)) {
+      const round = t.finals.rounds[t.finals.rounds.length - 1];
+      if (round && round.groups.some(g => g.machines.length > 0 && g.machines.length < 3)) fail(409, "A group is part way through picking its games. Change this after the round, or once every group has all 3 games.");
+      t.pickMode = b.pickMode;
+    }
     if (b.mp !== undefined) t.mpId = toInt(String(b.mp).match(/tournaments\/(\d+)/)?.[1] ?? b.mp) || null;
     if (typeof b.done === 'boolean') t.done = b.done;
     if (b.finalsCount !== undefined) t.finalsCount = b.finalsCount ? Math.max(2, Math.min(64, parseInt(b.finalsCount, 10) || 0)) : null;
@@ -1580,11 +1631,20 @@ async function route(req, res, url) {
     if (fin.champion) fail(409, 'The finals are finished. Undo the result first.');
     const g = round.groups.find(x => x.id === String(b.gid || '')) || fail(404, 'Group not found. Only the current round can be changed.');
     if (act === 'picks') {
-      if (b.random && g.machines.length !== 3) { g.machines = randomPicks(F, round, g); g.pickedBy = null; g.defer = g.players.length; }
+      if (b.random && g.machines.length !== 3) {
+        // Nothing picked yet: draw all 3 (a random draw has no picker for later games).
+        // Part way through in 'each' mode: draw just the next game; the games already picked stay.
+        const all = randomPicks(F, round, g, g.machines);
+        if (!g.machines.length) { g.machines = all; g.pickedBy = null; g.defer = g.players.length; }
+        else g.machines = all.slice(0, g.machines.length + 1);
+      }
       else if (Array.isArray(b.machines)) {
-        const ms = b.machines.map(String);
-        if (g.machines.length !== 3 && g.pickedBy === undefined) g.pickedBy = gamePicker(F, g);
-        checkPicks(F, ms); checkSlots(F, round, g, ms); checkRepeatPicks(F, round, g.pickedBy, ms);
+        let ms = b.machines.map(v => String(v || ''));
+        while (ms.length && !ms[ms.length - 1]) ms.pop(); // games not picked yet
+        if (!g.machines.length && g.pickedBy === undefined) g.pickedBy = gamePicker(F, g);
+        if (fMode(F) === 'each') { if (ms.some(v => !v)) fail(400, 'Pick the games in order, starting with game 1.'); checkPicksPartial(F, ms); if (ms.length === 3) checkPicks(F, ms); }
+        else checkPicks(F, ms);
+        checkSlots(F, round, g, ms); checkRepeatPicks(F, round, g.pickedBy, ms);
         // changing a game wipes the scores already entered for that game slot (the app asks first)
         const changed = [0, 1, 2].filter(i => g.machines[i] !== ms[i]);
         const hasScores = changed.some(i => Object.values(g.scores).some(r => r && r[i]));
@@ -1606,7 +1666,7 @@ async function route(req, res, url) {
     if (act === 'score') {
       const pid = String(b.pid || ''), i = parseInt(b.game, 10);
       if (!g.players.includes(pid)) fail(400, 'That player is not in this group.');
-      if (!(i >= 0 && i < 3) || g.machines.length !== 3) fail(400, 'Pick the 3 machines first.');
+      if (!(i >= 0 && i < 3) || !g.machines[i]) fail(400, `Pick game ${i + 1}'s machine first.`);
       g.scores[pid] = g.scores[pid] || [null, null, null];
       if (b.clear) g.scores[pid][i] = null;
       else {
@@ -1623,12 +1683,13 @@ async function route(req, res, url) {
     if (act === 'ball' || act === 'fix' || act === 'cancel') {
       const pid = String(b.pid || '');
       if (!g.players.includes(pid)) fail(400, 'That player is not in this group.');
-      if (g.machines.length !== 3 || Object.keys(g.positions).length !== g.players.length) fail(409, 'Pick the games and positions first.');
+      if (!fReady(F, g) || Object.keys(g.positions).length !== g.players.length) fail(409, 'Pick the games and positions first.');
       const list = g.scores[pid] = g.scores[pid] || [null, null, null], nm = (F.players.find(x => x.id === pid) || {}).name || 'That player';
       if (act === 'ball') {
         const score = toInt(b.score); if (score == null) fail(400, 'Enter the score.');
         let i = list.findIndex(r => r && r.status === 'playing');
         if (i < 0) { i = fNextGame(F, g, pid); if (i < 0) { if (!list.some(Boolean)) delete g.scores[pid]; fail(409, `${nm} has finished all of their games.`); }
+          if (i < 3 && !g.machines[i]) { if (!list.some(Boolean)) delete g.scores[pid]; fail(409, `Game ${i + 1}'s machine hasn't been picked yet.`); }
           const left = i >= 3 ? fBonusState(F, g, pid).left : 0; list[i] = { balls: [], by: actor };
           if (i >= 3) { drawFinalsBonus(F, g, i - 3); if (left === 1) list[i].oneThrow = true; } }
         const r = list[i], a = F.arenas.find(x => x.id === fMachine(g, i)), last = r.balls[r.balls.length - 1];
@@ -1637,6 +1698,7 @@ async function route(req, res, url) {
       }
       if (act === 'fix') {
         const i = parseInt(b.game, 10); if (!(i >= 0 && i < 5)) fail(400, 'Pick a game.');
+        if (i < 3 && !g.machines[i]) fail(409, `Game ${i + 1}'s machine hasn't been picked yet.`);
         let one = list[i] && list[i].oneThrow;
         if (i >= 3 && !list[i]) { const st = fBonusState(F, g, pid); if (st.next !== i) fail(409, `${nm} doesn't need that bonus game.`); drawFinalsBonus(F, g, i - 3); one = st.left === 1; }
         const a = F.arenas.find(x => x.id === fMachine(g, i)), trial = { balls: cleanBalls(b.balls, a), oneThrow: one || undefined }; derive(trial, a);

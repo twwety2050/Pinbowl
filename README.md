@@ -265,6 +265,21 @@ seed (the group with seed 1 first). A group can't put a machine in the same game
 an earlier group already has it in, but it can use that machine for a different game
 (if Group A plays Rush as game 1, Group B can play Rush as game 2 or 3).
 
+**How groups pick their games** (Tournaments tab; set on the weekly tournament and copied into
+the finals, or changed on the finals):
+- **One at a time** (default for new finals): the picker picks game 1, the group plays it, then
+  they pick game 2, the group plays it, then they pick game 3. Across the 3 games it's still one
+  Classic, one Mid and one Modern, and no machine another group has in the same game slot. Groups
+  pick game 1 in seed order; games 2 and 3 are picked as each group gets to them. The picker's
+  phone shows "Pick game 2" as soon as everyone has finished game 1. Staff can pick or draw the
+  next game on the Finals tab too.
+- **All 3 up front:** the picker picks all 3 games before play starts (how earlier finals worked;
+  finals made before this option existed keep working this way).
+- Either way, positions are picked once (after game 1 is picked) and carry through all 3 games,
+  deferring is only possible before game 1, a random draw (everyone defers, or staff draw from
+  scratch) draws all 3 games, and the bonus games after a strike or spare in game 3 are random.
+  The option can't be switched while a group is part way through picking.
+
 **No repeat picks** (Tournaments tab, on by default): whoever picks a group's games can't
 pick a machine they already picked in an earlier finals round. Those machines are greyed
 out for them, and staff edits follow the same rule. Set it on the weekly tournament (it's
