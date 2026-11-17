@@ -14,6 +14,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 // Matchplay moved its API to the api. subdomain. The website itself stays at app.matchplay.events.
 const MP = process.env.MP_BASE || 'https://api.matchplay.events';
 const OPDB = process.env.OPDB_BASE || 'https://opdb.org'; // OPDB_BASE is only for testing
+const OPDB_CACHE = new Map();
 const SYNC_MS = Number(process.env.SYNC_SECONDS || 60) * 1000;
 const ADMIN_DAYS = 30, PLAYER_DAYS = 365;
 const SPARE_LAST_BALL = 3;
@@ -1361,12 +1362,24 @@ async function route(req, res, url) {
   if (m === 'GET' && p === '/api/admin/opdb') {
     const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
     if (q.length < 2) return send(res, 200, { results: [] });
-    try {
-      const r = await fetch(`${OPDB}/api/search/typeahead?q=${encodeURIComponent(q)}&include_aliases=1`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
-      if (!r.ok) fail(502, 'The pinball database did not answer. Type the name instead.');
-      const j = await r.json();
-      return send(res, 200, { results: Array.isArray(j) ? j.slice(0, 25) : [] });
-    } catch (e) { if (e instanceof HttpError) throw e; fail(502, 'The pinball database did not answer. Type the name instead.'); }
+    const key = lower(q);
+    if (OPDB_CACHE.has(key)) return send(res, 200, { results: OPDB_CACHE.get(key) });
+    let why = '';
+    for (const extra of ['&include_aliases=1', '']) {
+      try {
+        const r = await fetch(`${OPDB}/api/search/typeahead?q=${encodeURIComponent(q)}${extra}`, {
+          headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (compatible; PinbowlScorer/1.0; tournament scoring app)' },
+          signal: AbortSignal.timeout(8000) });
+        if (!r.ok) { why = `it answered ${r.status}`; continue; }
+        const j = await r.json().catch(() => null);
+        if (!Array.isArray(j)) { why = 'its answer was not a machine list'; continue; }
+        const list = j.slice(0, 25);
+        OPDB_CACHE.set(key, list); if (OPDB_CACHE.size > 500) OPDB_CACHE.delete(OPDB_CACHE.keys().next().value);
+        return send(res, 200, { results: list });
+      } catch (e) { why = e.name === 'TimeoutError' ? 'it took too long' : `the server could not connect (${e.message})`; }
+    }
+    console.warn('OPDB lookup failed:', why);
+    fail(502, `Couldn't reach the pinball database: ${why}.`);
   }
   if (m === 'POST' && p === '/api/admin/machines') {
     const b = await readBody(req), name = String(b.name || '').trim();

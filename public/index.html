@@ -946,10 +946,11 @@ function renderHeader(){
   document.title = T ? `${T.name} · Pinbowl` : `Pinbowl · ${locName()}`;
   $('#locName').textContent = LOC ? LOC.name : '';
   // Admins switch locations here (each location has its own link)
-  const lb=$('#lbar'), canSwitch = USER && USER.role==='admin' && LOCS.length>1 && !TVMODE && !STREAMMODE;
+  const lb=$('#lbar'), canSwitch = USER && USER.role==='admin' && LOCS.length>0 && !TVMODE && !STREAMMODE;
   lb.hidden=!canSwitch;
-  if(canSwitch){ $('#lsel').innerHTML=LOCS.map(l=>`<option value="${l.slug}" ${LOC&&l.id===LOC.id?'selected':''}>${esc(l.name)}</option>`).join('');
-    $('#lsel').onchange=e=>{ const l=LOCS.find(x=>x.slug===e.target.value); location.href = l.isDefault ? '/' : '/'+l.slug; }; }
+  if(canSwitch){ $('#lsel').innerHTML=LOCS.map(l=>`<option value="${l.slug}" ${LOC&&l.id===LOC.id?'selected':''}>${esc(l.name)}</option>`).join('')+'<option value="__add">+ Add a location…</option>';
+    $('#lsel').onchange=e=>{ if(e.target.value==='__add'){ e.target.value=LOC?LOC.slug:''; if(ADMIN){ go('admins'); setTimeout(()=>{ const n=$('#lname'); if(n){ n.scrollIntoView({block:'center'}); n.focus(); } },700); } else location.href=USER.locPath; return; }
+      const l=LOCS.find(x=>x.slug===e.target.value); location.href = l.isDefault ? '/' : '/'+l.slug; }; }
   sel.disabled=!LIST.length;
   $('#acct').textContent = ADMIN ? 'Log out' : 'Admin';
   $('#nav').innerHTML = screen ? '' : tabs().map(([k,l])=>`<button role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('');
@@ -3030,11 +3031,14 @@ function weekStatusHTML(cur){
 }
 /* ================= machine name autocomplete from the Open Pinball Database (what Matchplay uses) ================= */
 const OPDB_CACHE=new Map();
+// Asks OPDB directly first; if the browser can't (or OPDB won't answer it), asks through our server.
+// Throws with a plain reason when neither works, so the box can say so.
+let OPDB_DIRECT=true;
 async function opdbSearch(q){
   const k=q.toLowerCase(); if(OPDB_CACHE.has(k)) return OPDB_CACHE.get(k);
   let list=null;
-  try{ const r=await fetch('https://opdb.org/api/search/typeahead?include_aliases=1&q='+encodeURIComponent(q)); if(r.ok) list=await r.json(); }catch(e){}
-  if(!Array.isArray(list)){ try{ list=(await api('/api/admin/opdb?q='+encodeURIComponent(q))).results; }catch(e){ list=[]; } }
+  if(OPDB_DIRECT){ try{ const r=await fetch('https://opdb.org/api/search/typeahead?include_aliases=1&q='+encodeURIComponent(q),{headers:{Accept:'application/json'}}); if(r.ok) list=await r.json(); else OPDB_DIRECT=false; }catch(e){ OPDB_DIRECT=false; } }
+  if(!Array.isArray(list)) list=(await api('/api/admin/opdb?q='+encodeURIComponent(q))).results;
   list=(list||[]).map(x=>({ id:x.id||'', name:x.name||x.text||'', extra:x.supplementary||'', text:x.text||x.name||'' })).filter(x=>x.name);
   OPDB_CACHE.set(k,list); return list;
 }
@@ -3042,14 +3046,17 @@ function opdbComplete(inp, box, have=[]){
   if(!inp || !box) return;
   let items=[], on=-1, timer=null, seq=0;
   const close=()=>{ box.hidden=true; inp.setAttribute('aria-expanded','false'); on=-1; };
-  const draw=()=>{ if(!items.length){ close(); return; }
+  const status=msg=>{ items=[]; box.innerHTML=`<div class="acfoot" style="font-size:.85rem;padding:.55rem .65rem">${msg}</div>`; box.hidden=false; inp.setAttribute('aria-expanded','true'); };
+  const draw=()=>{ if(!items.length){ status('No matches in the pinball database. You can still add it with the name as typed.'); return; }
     box.innerHTML=items.map((x,i)=>`<div class="aci${i===on?' on':''}" role="option" id="${box.id}_${i}" aria-selected="${i===on}" data-i="${i}"><span>${esc(x.name)}</span>${x.extra?`<small>${esc(x.extra)}</small>`:''}${have.includes(x.name.toLowerCase())?'<em>stored</em>':''}</div>`).join('')
       +'<div class="acfoot">From the Open Pinball Database</div>';
     box.hidden=false; inp.setAttribute('aria-expanded','true'); if(on>=0) inp.setAttribute('aria-activedescendant',box.id+'_'+on); else inp.removeAttribute('aria-activedescendant');
     box.querySelectorAll('[data-i]').forEach(d=>d.onmousedown=e=>{ e.preventDefault(); pick(+d.dataset.i); }); };
   const pick=i=>{ const x=items[i]; if(!x) return; inp.value=x.name; inp.dataset.opdb=x.id; close(); inp.dispatchEvent(new Event('change')); };
   inp.addEventListener('input',()=>{ delete inp.dataset.opdb; const q=inp.value.trim(); clearTimeout(timer); if(q.length<2){ items=[]; close(); return; }
-    timer=setTimeout(async()=>{ const my=++seq, r=await opdbSearch(q); if(my!==seq || inp.value.trim()!==q) return; items=r.slice(0,12); on=-1; draw(); },220); });
+    timer=setTimeout(async()=>{ const my=++seq; if(!OPDB_CACHE.has(q.toLowerCase())) status('Searching the pinball database…');
+      let r; try{ r=await opdbSearch(q); }catch(e){ if(my===seq) status(`${esc(e.message)} Type the full name instead.`); return; }
+      if(my!==seq || inp.value.trim()!==q) return; items=r.slice(0,12); on=-1; draw(); },220); });
   inp.addEventListener('keydown',e=>{ if(box.hidden) return;
     if(e.key==='ArrowDown'){ e.preventDefault(); on=Math.min(items.length-1,on+1); draw(); }
     else if(e.key==='ArrowUp'){ e.preventDefault(); on=Math.max(-1,on-1); draw(); }
