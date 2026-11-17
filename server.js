@@ -13,8 +13,64 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 // Matchplay moved its API to the api. subdomain. The website itself stays at app.matchplay.events.
 const MP = process.env.MP_BASE || 'https://api.matchplay.events';
-const OPDB = process.env.OPDB_BASE || 'https://opdb.org'; // OPDB_BASE is only for testing
-const OPDB_CACHE = new Map();
+/* Open Pinball Database. OPDB shut its own API (and its name search) down on 1 October 2026;
+   the data now comes from Match Play, which publishes the whole list as a file that needs no
+   account. The server downloads it about once a week, keeps a copy in the data folder, and
+   searches it itself for the machine name box. */
+const OPDB_EXPORT = process.env.OPDB_EXPORT || 'https://mp-data.sfo3.cdn.digitaloceanspaces.com/opdb-slim.json';
+const OPDB_FILE = path.join(DATA_DIR, 'opdb-machines.json');
+let OPDB_LIST = null, OPDB_AT = 0, OPDB_LOADING = null, OPDB_WHY = '', OPDB_FAILED = 0;
+function opdbIndex(j) {
+  const arr = Array.isArray(j) ? j : (j && (j.entries || j.data)) || [];
+  const seen = new Set(), out = [];
+  for (const e of arr) {
+    if (!e || !e.name || /group/i.test(String(e.entryType || ''))) continue; // groups aren't machines
+    const extra = [e.manufacturerName || (e.manufacturer && e.manufacturer.name), e.year || (e.manufactureDate ? String(e.manufactureDate).slice(0, 4) : '')].filter(Boolean).join(', ');
+    const k = e.name + '|' + extra; if (seen.has(k)) continue; seen.add(k);
+    out.push({ id: e.opdbId || e.id || '', name: e.name, extra, key: lower([e.name, e.commonName, e.shortName].filter(Boolean).join(' ')) });
+  }
+  return out;
+}
+function opdbFromDisk() {
+  try { const d = JSON.parse(fs.readFileSync(OPDB_FILE, 'utf8')); if (Array.isArray(d.list) && d.list.length) { OPDB_LIST = d.list; OPDB_AT = d.at || 0; } } catch (e) { /* none saved yet */ }
+}
+async function opdbLoad() {
+  if (!OPDB_LIST) opdbFromDisk();
+  const fresh = OPDB_LIST && Date.now() - OPDB_AT < 7 * 864e5;
+  if (fresh) return OPDB_LIST;
+  const waiting = Date.now() - OPDB_FAILED < 60000; // after a failed download, try again in a minute, not on every keystroke
+  if (waiting && OPDB_LIST) return OPDB_LIST;
+  if (waiting) fail(502, `Couldn't load the pinball database list (${OPDB_WHY}).`);
+  if (!OPDB_LOADING) OPDB_LOADING = (async () => {
+    try {
+      const r = await fetch(OPDB_EXPORT, { headers: { Accept: 'application/json', 'User-Agent': 'PinbowlScorer/1.0' }, signal: AbortSignal.timeout(60000) });
+      if (!r.ok) throw new Error(`it answered ${r.status}`);
+      const list = opdbIndex(await r.json());
+      if (list.length < 50) throw new Error('the list came back nearly empty');
+      OPDB_LIST = list; OPDB_AT = Date.now(); OPDB_WHY = '';
+      fs.writeFile(OPDB_FILE, JSON.stringify({ at: OPDB_AT, list }), () => {});
+      console.log(`Pinball database list loaded: ${list.length} machines.`);
+    } catch (e) { OPDB_FAILED = Date.now(); OPDB_WHY = e.name === 'TimeoutError' ? 'it took too long' : e.message; console.warn('Pinball database download failed:', OPDB_WHY); }
+    finally { OPDB_LOADING = null; }
+  })();
+  if (OPDB_LIST) return OPDB_LIST; // an older copy is fine while the new one downloads
+  await OPDB_LOADING;
+  if (!OPDB_LIST) fail(502, `Couldn't load the pinball database list (${OPDB_WHY || 'unknown problem'}).`);
+  return OPDB_LIST;
+}
+// Every word typed has to appear; names that start with what's typed come first
+function opdbFind(list, q) {
+  const words = lower(q).split(/\s+/).filter(Boolean), ql = lower(q);
+  const hits = [];
+  for (const e of list) {
+    if (!words.every(w => e.key.includes(w))) continue;
+    const n = lower(e.name), rank = n.startsWith(ql) ? 0 : n.split(/[\s(:-]+/).some(w => w.startsWith(words[0])) ? 1 : 2;
+    hits.push([rank, e]);
+  }
+  hits.sort((a, b) => a[0] - b[0] || a[1].name.length - b[1].name.length || a[1].name.localeCompare(b[1].name));
+  return hits.slice(0, 25).map(([, e]) => ({ id: e.id, name: e.name, supplementary: e.extra }));
+}
+setTimeout(() => { opdbLoad().catch(() => {}); }, 5000);
 const SYNC_MS = Number(process.env.SYNC_SECONDS || 60) * 1000;
 const ADMIN_DAYS = 30, PLAYER_DAYS = 365;
 const SPARE_LAST_BALL = 3;
@@ -1357,29 +1413,12 @@ async function route(req, res, url) {
     }).sort((a, b) => a.name.localeCompare(b.name));
     return send(res, 200, { machines: list });
   }
-  // Machine name lookup in the Open Pinball Database (the one Matchplay uses). The page asks OPDB
-  // directly; this is the fallback when a browser can't reach it.
+  // Machine name lookup in the Open Pinball Database (the one Matchplay uses), searched here
   if (m === 'GET' && p === '/api/admin/opdb') {
     const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
     if (q.length < 2) return send(res, 200, { results: [] });
-    const key = lower(q);
-    if (OPDB_CACHE.has(key)) return send(res, 200, { results: OPDB_CACHE.get(key) });
-    let why = '';
-    for (const extra of ['&include_aliases=1', '']) {
-      try {
-        const r = await fetch(`${OPDB}/api/search/typeahead?q=${encodeURIComponent(q)}${extra}`, {
-          headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (compatible; PinbowlScorer/1.0; tournament scoring app)' },
-          signal: AbortSignal.timeout(8000) });
-        if (!r.ok) { why = `it answered ${r.status}`; continue; }
-        const j = await r.json().catch(() => null);
-        if (!Array.isArray(j)) { why = 'its answer was not a machine list'; continue; }
-        const list = j.slice(0, 25);
-        OPDB_CACHE.set(key, list); if (OPDB_CACHE.size > 500) OPDB_CACHE.delete(OPDB_CACHE.keys().next().value);
-        return send(res, 200, { results: list });
-      } catch (e) { why = e.name === 'TimeoutError' ? 'it took too long' : `the server could not connect (${e.message})`; }
-    }
-    console.warn('OPDB lookup failed:', why);
-    fail(502, `Couldn't reach the pinball database: ${why}.`);
+    const list = await opdbLoad();
+    return send(res, 200, { results: opdbFind(list, q) });
   }
   if (m === 'POST' && p === '/api/admin/machines') {
     const b = await readBody(req), name = String(b.name || '').trim();

@@ -3031,15 +3031,12 @@ function weekStatusHTML(cur){
 }
 /* ================= machine name autocomplete from the Open Pinball Database (what Matchplay uses) ================= */
 const OPDB_CACHE=new Map();
-// Asks OPDB directly first; if the browser can't (or OPDB won't answer it), asks through our server.
-// Throws with a plain reason when neither works, so the box can say so.
-let OPDB_DIRECT=true;
+// Our server keeps the Open Pinball Database list (from Match Play) and searches it.
+// Throws with a plain reason when it can't, so the box can say so.
 async function opdbSearch(q){
   const k=q.toLowerCase(); if(OPDB_CACHE.has(k)) return OPDB_CACHE.get(k);
-  let list=null;
-  if(OPDB_DIRECT){ try{ const r=await fetch('https://opdb.org/api/search/typeahead?include_aliases=1&q='+encodeURIComponent(q),{headers:{Accept:'application/json'}}); if(r.ok) list=await r.json(); else OPDB_DIRECT=false; }catch(e){ OPDB_DIRECT=false; } }
-  if(!Array.isArray(list)) list=(await api('/api/admin/opdb?q='+encodeURIComponent(q))).results;
-  list=(list||[]).map(x=>({ id:x.id||'', name:x.name||x.text||'', extra:x.supplementary||'', text:x.text||x.name||'' })).filter(x=>x.name);
+  const list=((await api('/api/admin/opdb?q='+encodeURIComponent(q))).results||[])
+    .map(x=>({ id:x.id||'', name:x.name||x.text||'', extra:x.supplementary||'', text:x.text||x.name||'' })).filter(x=>x.name);
   OPDB_CACHE.set(k,list); return list;
 }
 function opdbComplete(inp, box, have=[]){
@@ -3049,7 +3046,7 @@ function opdbComplete(inp, box, have=[]){
   const status=msg=>{ items=[]; box.innerHTML=`<div class="acfoot" style="font-size:.85rem;padding:.55rem .65rem">${msg}</div>`; box.hidden=false; inp.setAttribute('aria-expanded','true'); };
   const draw=()=>{ if(!items.length){ status('No matches in the pinball database. You can still add it with the name as typed.'); return; }
     box.innerHTML=items.map((x,i)=>`<div class="aci${i===on?' on':''}" role="option" id="${box.id}_${i}" aria-selected="${i===on}" data-i="${i}"><span>${esc(x.name)}</span>${x.extra?`<small>${esc(x.extra)}</small>`:''}${have.includes(x.name.toLowerCase())?'<em>stored</em>':''}</div>`).join('')
-      +'<div class="acfoot">From the Open Pinball Database</div>';
+      +'<div class="acfoot">From the Open Pinball Database (via Match Play)</div>';
     box.hidden=false; inp.setAttribute('aria-expanded','true'); if(on>=0) inp.setAttribute('aria-activedescendant',box.id+'_'+on); else inp.removeAttribute('aria-activedescendant');
     box.querySelectorAll('[data-i]').forEach(d=>d.onmousedown=e=>{ e.preventDefault(); pick(+d.dataset.i); }); };
   const pick=i=>{ const x=items[i]; if(!x) return; inp.value=x.name; inp.dataset.opdb=x.id; close(); inp.dispatchEvent(new Event('change')); };

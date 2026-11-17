@@ -180,7 +180,9 @@ or end one early on the Daily challenge tab.
 
 **Adding machines:** the machine name box on Stored machines (and "Add a machine by hand" on the
 Machines tab) suggests names from the **Open Pinball Database** (OPDB, the database Matchplay
-uses) as you type, e.g. "Star Wars" shows Pro, Premium, LE and the 1992 Data East game.
+uses) as you type. OPDB closed its own API on 1 October 2026, so the server downloads OPDB's
+machine list from Match Play's public file (no account needed) about once a week, keeps a copy
+as `opdb-machines.json` in the data folder, and searches it itself, e.g. "Star Wars" shows Pro, Premium, LE and the 1992 Data East game.
 
 **Stored machine targets:** each machine has a **Quick pick** dropdown of targets in short form
 (past targets with their game counts, the 10% strike recommendation, and ±10/20/30% of the
