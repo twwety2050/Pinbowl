@@ -1270,7 +1270,7 @@ async function route(req, res, url) {
   // ----- admin only from here (scorekeepers may enter, fix and remove games) -----
   if (!p.startsWith('/api/admin/')) fail(404, 'Not found.');
   const keeper = !admin && player && db.scorekeepers.includes(lower(player)) ? player : null;
-  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order|ball|fix|cancel))$/.test(p))) fail(401, user ? `Your login is for ${userOut(user).locName || 'another location'}.` : 'Log in as an admin to do that.');
+  if (!admin && !(keeper && /^\/api\/admin\/t\/\w+\/(games(\/\w+(\/move)?)?|finals\/(picks|score|order|ball|fix|cancel))$/.test(p))) fail(401, user ? `Your login is for ${userOut(user).locName || 'another location'}.` : 'Log in as staff (Admin, Manager or Assistant Manager) to do that.');
   const actor = admin ? admin.name : keeper;
 
   if (m === 'GET' && p === '/api/admin/settings') {

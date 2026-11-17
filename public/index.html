@@ -607,7 +607,7 @@ body.streammode #toast,body.tvmode #toast{display:none}
     <span class="barspace"></span>
     <button class="linkbtn iconbtn" id="themeBtn" aria-label="Change colors" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
     <button class="linkbtn" id="share" aria-label="Share this site with a QR code">Share</button>
-    <button class="linkbtn" id="acct">Admin</button>
+    <button class="linkbtn" id="acct">Log in</button>
     <span class="brk" aria-hidden="true"></span>
   </div>
   <div class="tbar lbar" id="lbar" hidden><label class="tlabel" for="lsel">Location</label><div class="tselwrap"><select id="lsel"></select></div></div>
@@ -952,7 +952,7 @@ function renderHeader(){
     $('#lsel').onchange=e=>{ if(e.target.value==='__add'){ e.target.value=LOC?LOC.slug:''; if(ADMIN){ go('admins'); setTimeout(()=>{ const n=$('#lname'); if(n){ n.scrollIntoView({block:'center'}); n.focus(); } },700); } else location.href=USER.locPath; return; }
       const l=LOCS.find(x=>x.slug===e.target.value); location.href = l.isDefault ? '/' : '/'+l.slug; }; }
   sel.disabled=!LIST.length;
-  $('#acct').textContent = ADMIN ? 'Log out' : 'Admin';
+  $('#acct').textContent = ADMIN ? 'Log out' : USER ? 'My location' : 'Log in';
   $('#nav').innerHTML = screen ? '' : tabs().map(([k,l])=>`<button role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('');
   $$('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
   const nv=$('#nav'), on=$('#nav [aria-selected="true"]');
@@ -1218,8 +1218,9 @@ function renderSetupScreen(){
   $('#sgo').onclick=async()=>{ try{ await api('/api/setup','POST',{name:$('#sn').value,password:$('#sp').value}); screen=null; tab='tournaments'; await boot(); }catch(e){ $('#serr').textContent=e.message; } };
 }
 function renderLogin(){
-  $('#main').innerHTML=`<div class="panel" style="max-width:32rem"><h2>Admin log in</h2>
-    <label for="ln">Name</label><input type="text" id="ln" autocomplete="username">
+  $('#main').innerHTML=`<div class="panel" style="max-width:32rem"><h2>Staff log in</h2>
+    <p class="note" style="margin:.2rem 0 .6rem"><b>For Admins, Managers and Assistant Managers only.</b> Players don't need a password: just pick your name on My card or Enter score and use your PIN.</p>
+    <label for="ln">Login name</label><input type="text" id="ln" autocomplete="username">
     <label for="lp">Password</label><input type="password" id="lp" autocomplete="current-password">
     <div class="row" style="margin-top:1rem"><button class="btn primary" id="lgo">Log in</button><button class="btn" id="lback">Back</button></div><p class="err" id="lerr"></p></div>`;
   const doLogin=async()=>{ try{ const j=await api('/api/login','POST',{name:$('#ln').value,password:$('#lp').value});
